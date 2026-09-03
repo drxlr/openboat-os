@@ -26,7 +26,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from time import time
 
-from . import boat, knowledge, logbook, windows
+from . import boat, knowledge, ledger, logbook, papers, windows
 from .marine import ForecastUnavailable, forecast
 from .profile import load
 from .route import Waypoint, plan
@@ -193,6 +193,19 @@ class OpenBoat(SimpleHTTPRequestHandler):
                                           limit=5) if question.split() else [],
                 "vessel": boat_profile.as_dict()["vessel"],
             }
+
+        if route == "/api/papers":
+            base = papers.base_for(boat_profile)
+            found = papers.load(boat_profile)
+            return {"papers": [p.as_dict(base) for p in found],
+                    "expiring": len(papers.expiring(boat=boat_profile))}
+
+        if route == "/api/ledger":
+            return {"summary": ledger.summary(boat=boat_profile,
+                                              year=params.get("year", "")),
+                    "items": ledger.items(boat=boat_profile,
+                                          year=params.get("year", ""),
+                                          category=params.get("category", ""))}
 
         if route == "/api/logbook":
             return {"entries": logbook.entries(boat=boat_profile,

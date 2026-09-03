@@ -149,8 +149,21 @@ def state(boat: Profile | None = None) -> dict:
         # appears once the server has both boat speed and heading to derive it from.
         "wind_apparent_deg": _deg(_value(wind, "angleApparent")),
         "wind_apparent_kn": _kn(_value(wind, "speedApparent")),
-        "wind_true_deg": _deg(_value(wind, "directionTrue")),
-        "wind_true_kn": _kn(_value(wind, "speedTrue")),
+        # Derived here when the server does not publish it. The helm rose has always
+        # preferred true wind over apparent, but nothing computed it, so on any boat whose
+        # Signal K has no wind-derivation plugin the rose silently fell back to apparent
+        # forever — a feature the interface was ready for and the data never arrived for.
+        **_true_wind(wind, _kn(_value(vessel, "navigation", "speedThroughWater"))
+                     or _kn(_value(vessel, "navigation", "speedOverGround")),
+                     _deg(_value(vessel, "navigation", "headingTrue"))),
+
+        "stw_kn": _kn(_value(vessel, "navigation", "speedThroughWater")),
+        "rate_of_turn": _value(vessel, "navigation", "rateOfTurn"),
+        "roll_deg": _deg(_value(vessel, "navigation", "attitude", "roll")),
+        "pitch_deg": _deg(_value(vessel, "navigation", "attitude", "pitch")),
+        "rudder_deg": _deg(_value(vessel, "steering", "rudderAngle")),
+        "trip_log_nm": (lambda m: round(m / 1852.0, 1) if m is not None else None)(
+            _value(vessel, "navigation", "trip", "log")),
 
         "water_c": _c(_value(vessel, "environment", "water", "temperature")),
         "air_c": _c(_value(vessel, "environment", "outside", "temperature")),
@@ -159,9 +172,104 @@ def state(boat: Profile | None = None) -> dict:
         "coolant_c": _c(_first(vessel, "propulsion", "temperature")),
         "oil_bar": (lambda p: round(p / 100000.0, 2) if p is not None else None)(
             _first(vessel, "propulsion", "oilPressure")),
+        "oil_c": _c(_first(vessel, "propulsion", "oilTemperature")),
+        "exhaust_c": _c(_first(vessel, "propulsion", "exhaustTemperature")),
+        "engine_load_pct": (lambda r: round(r * 100) if r is not None else None)(
+            _first(vessel, "propulsion", "engineLoad")),
+        "fuel_lph": (lambda r: round(r * 3600000.0, 1) if r is not None else None)(
+            _first(vessel, "propulsion", "rate")),
+        "engine_hours": (lambda s: round(s / 3600.0, 1) if s is not None else None)(
+            _first(vessel, "propulsion", "runTime")),
+
         "volts": _first(vessel, "electrical", "voltage"),
+        "amps": _first(vessel, "electrical", "current"),
+        "soc_pct": (lambda r: round(r * 100) if r is not None else None)(
+            _first(vessel, "electrical", "stateOfCharge")),
+
         "fuel_pct": round(fuel * 100) if fuel is not None else None,
+        "water_pct": _tank_pct(vessel, "freshWater"),
+        "waste_pct": _tank_pct(vessel, "wasteWater"),
+
+        "pressure_hpa": (lambda p: round(p / 100.0) if p is not None else None)(
+            _value(vessel, "environment", "outside", "pressure")),
+        "humidity_pct": (lambda r: round(r * 100) if r is not None else None)(
+            _value(vessel, "environment", "outside", "humidity")),
+
+        # Below the keel is the number that matters and the one nobody has: the sounder
+        # measures from its own face. One profile constant turns a reading into an answer,
+        # and its absence leaves this None rather than guessing the offset.
+        "depth_keel_m": _below_keel(vessel, boat),
     }
+
+
+def _true_wind(wind: dict, boat_kn, heading_deg) -> dict:
+    """True wind from apparent, when the server has not already derived it.
+
+    Vector arithmetic, not a model: the apparent vector is what the masthead feels, which is
+    the true wind plus the wind the boat makes by moving. Subtract the boat's own motion and
+    what remains is the true wind.
+
+    Published values always win — a server with a real derivation plugin, or a masthead that
+    does it in hardware, knows more than this does (it can use speed *through the water*
+    and correct for leeway). This only fills a hole, and only when it has everything it
+    needs; missing an input returns None rather than a plausible number.
+    """
+    published_kn = _kn(_value(wind, "speedTrue"))
+    published_deg = _deg(_value(wind, "directionTrue"))
+    if published_kn is not None and published_deg is not None:
+        return {"wind_true_kn": published_kn, "wind_true_deg": published_deg,
+                "wind_true_derived": False}
+
+    apparent_kn = _kn(_value(wind, "speedApparent"))
+    apparent_deg = _deg(_value(wind, "angleApparent"))
+    if None in (apparent_kn, apparent_deg, boat_kn, heading_deg):
+        return {"wind_true_kn": published_kn, "wind_true_deg": published_deg,
+                "wind_true_derived": False}
+
+    import math
+    # Apparent angle is relative to the bow. Resolve it into along/across components,
+    # remove the boat's own speed from the along component, and recombine.
+    angle = math.radians(apparent_deg)
+    along = apparent_kn * math.cos(angle) - boat_kn
+    across = apparent_kn * math.sin(angle)
+    speed = math.hypot(along, across)
+    if speed < 0.05:                       # dead calm: an angle here would be noise
+        return {"wind_true_kn": 0.0, "wind_true_deg": None, "wind_true_derived": True}
+    # No 180° flip here, and it is worth saying why: Signal K's wind angles are the
+    # direction the wind is coming FROM, and so are the components above. Adding half a
+    # turn "to get the direction it blows towards" was in the first draft of this function
+    # and put every derived wind direction exactly backwards — 20 kn on the bow reported as
+    # a following breeze. tests/test_wind.py holds four hand-worked cases against it.
+    relative = math.degrees(math.atan2(across, along))
+    return {"wind_true_kn": round(speed, 1),
+            "wind_true_deg": round((heading_deg + relative) % 360),
+            "wind_true_derived": True}
+
+
+def _tank_pct(vessel: dict, kind: str):
+    tanks = vessel.get("tanks", {})
+    if not isinstance(tanks, dict):
+        return None
+    for name, node in (tanks.get(kind) or {}).items():
+        del name
+        level = _value(node, "currentLevel") if isinstance(node, dict) else None
+        if level is not None:
+            return round(level * 100)
+    return None
+
+
+def _below_keel(vessel: dict, boat: Profile | None):
+    """Depth below the keel: the sounder's reading less how far it sits above the keel."""
+    published = _value(vessel, "environment", "depth", "belowKeel")
+    if published is not None:
+        return round(published, 1)
+    from .profile import load as load_profile
+    boat = boat or load_profile()
+    offset = getattr(boat.vessel, "transducer_to_keel_m", None)
+    below = _value(vessel, "environment", "depth", "belowTransducer")
+    if offset in (None, 0) or below is None:
+        return None
+    return round(below - float(offset), 1)
 
 
 def ais(limit: int = 20, boat: Profile | None = None) -> list[dict]:

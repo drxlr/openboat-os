@@ -1,0 +1,5 @@
+{"what": "raw-water strainer", "found": "weed, cleared", "verdict": "ok", "at": "2026-04-12T09:20:00+00:00", "by": "demo", "readings": {"engine_hours": 1180.4, "coolant_c": 84.1, "volts": 13.9}, "refs": []}
+{"what": "impeller", "found": "vanes intact, no cracking, refitted", "verdict": "ok", "at": "2026-04-12T10:05:00+00:00", "by": "demo", "readings": {"engine_hours": 1180.4, "coolant_c": 22.0}, "refs": []}
+{"what": "anodes", "found": "shaft anode half gone, replaced; hull anodes fine", "verdict": "ok", "at": "2026-04-13T11:00:00+00:00", "by": "demo", "readings": {"engine_hours": 1180.4}, "refs": []}
+{"what": "coolant temperature under load", "found": "settles 86 C at 2200 rpm, higher than last season", "verdict": "watch", "at": "2026-07-02T14:30:00+00:00", "by": "demo", "readings": {"engine_hours": 1244.9, "coolant_c": 86.2, "rpm": 2200}, "refs": []}
+{"what": "heat exchanger", "found": "tube stack lightly scaled, flushed", "verdict": "ok", "at": "2026-08-19T08:45:00+00:00", "by": "demo", "readings": {"engine_hours": 1281.6, "coolant_c": 24.0}, "refs": []}

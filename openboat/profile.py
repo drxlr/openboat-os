@@ -122,6 +122,13 @@ class Vessel:
     draft_m: float | None = None
     air_draft_m: float | None = None
     displacement_kg: float | None = None
+
+    #: How far the depth sounder sits above the keel, in metres. The single cheapest
+    #: upgrade in the whole project: a sounder reads from its own face, so "3.1 m" means
+    #: nothing until you know what is underneath it. With this set, the panel can show
+    #: depth below the keel — the number a grounding actually depends on. Without it, that
+    #: reading stays absent rather than becoming an optimistic guess.
+    transducer_to_keel_m: float | None = None
     engine_kw: float | None = None
     engine_note: str = ""
     fuel_capacity_l: float | None = None
@@ -165,6 +172,14 @@ class Profile:
     #: lands here as one JSON line. Relative paths resolve beside the profile, so the log
     #: sits with the boat's own files rather than inside the installed package.
     logbook: str = "logbook.jsonl"
+
+    #: Where the cost ledger is written. Same shape and same rules as the check log.
+    ledger: str = "ledger.jsonl"
+
+    #: Registration, insurance, radio licence, survey — the documents that matter because
+    #: of a date rather than their text. Each is a name, an expiry and a path; nothing is
+    #: copied or uploaded. See `openboat/papers.py`.
+    papers: list = field(default_factory=list)
 
     #: Alarm bands per reading, as [[low, high, severity], ...] in the reading's own unit.
     #: Empty by default: OpenBoat does not know what is hot for *your* engine, and an
@@ -230,8 +245,28 @@ class Profile:
             "timezone": self.timezone,
             "chart": self.chart,
             "knowledge": {"count": len(self.knowledge.get("docs", []))},
+            "papers": len(self.papers),
             "unsourced": self.unsourced(),
         }
+
+
+def _file(data: dict, key: str, fallback: str) -> str:
+    """A file path from `[files]`, or from the top level for older profiles.
+
+    `[files]` exists because of a trap that cost an hour: in TOML a bare key belongs to
+    whichever table header precedes it, and top-level keys must therefore come before every
+    `[table]` in the file. A profile is a file people *append* to — a new `[[papers]]` entry,
+    a `[chart]` block — so any setting that must live at the top level is a setting that
+    silently attaches itself to the wrong table the first time somebody adds it at the end.
+    It parses cleanly and does nothing, which is the worst way for configuration to fail.
+
+    Putting them in a table of their own removes the ordering rule entirely. The top level
+    is still read so that profiles written before this keep working.
+    """
+    files = data.get("files")
+    if isinstance(files, dict) and files.get(key):
+        return str(files[key])
+    return str(data.get(key, fallback))
 
 
 def _chart(table: dict) -> dict:
@@ -304,7 +339,10 @@ def load(path: str | os.PathLike | None = None) -> Profile:
         paths={**DEFAULT_PATHS, **(data.get("paths") or {})},
         chart=_chart(data.get("chart") or {}),
         knowledge={"docs": list((data.get("knowledge") or {}).get("docs") or [])},
-        logbook=str(data.get("logbook", "logbook.jsonl")),
+        logbook=_file(data, "logbook", "logbook.jsonl"),
+        ledger=_file(data, "ledger", "ledger.jsonl"),
+        papers=[dict(row) for row in (data.get("papers") or [])
+                if isinstance(row, dict)],
         bands=dict(data.get("bands") or {}),
         maintenance={k: dict(v) for k, v in (data.get("maintenance") or {}).items()
                      if isinstance(v, dict)},

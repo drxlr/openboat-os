@@ -202,3 +202,57 @@ arm_seconds = 900
 # OPENBOAT_WINDY_MAP_KEY: a key written into a profile is a key somebody eventually commits.
 # Windy's free tier is labelled by Windy as development-only — read docs/CHARTS.md first.
 # windy_map_key = ""
+
+# --- the demo bundle ------------------------------------------------------------------
+# A fictional boat's papers, notes and costs, so the companion, the ledger and the papers
+# view all have something to show without anybody's real vessel being involved. This is
+# what the public demo runs on.
+# These live in a table of their own, not at the top level: in TOML a bare key belongs to
+# the table header above it, so a top-level setting can never be safely *appended* to a
+# profile. A table can.
+[files]
+logbook = "demo/logbook.jsonl"
+ledger = "demo/ledger.jsonl"
+
+[knowledge]
+docs = ["demo/notes.md"]
+
+[[papers]]
+name = "Registration"
+kind = "registration"
+number = "DEMO-000000"
+issued = "2021-06-01"
+expires = "2031-06-01"
+note = "Part 1 registry, ten-year term"
+
+[[papers]]
+name = "Insurance"
+kind = "insurance"
+issued = "2026-01-20"
+expires = "2027-01-19"
+note = "Third party and hull; cruising range is part of the policy, check before a long passage"
+
+[[papers]]
+name = "Ship radio licence"
+kind = "licence"
+issued = "2021-06-04"
+expires = "2031-06-04"
+
+[[papers]]
+name = "Liferaft service"
+kind = "service"
+issued = "2025-10-14"
+expires = "2026-10-14"
+note = "Annual. Book the yard a month ahead — they send it away"
+
+[[papers]]
+name = "Flares"
+kind = "safety"
+expires = "2026-11-30"
+note = "Expired flares are not disposable in normal waste"
+
+[[papers]]
+name = "Survey"
+kind = "survey"
+issued = "2021-05-12"
+note = "Pre-purchase; insurers usually want one every ten years"

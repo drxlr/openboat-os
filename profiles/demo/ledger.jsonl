@@ -1,0 +1,9 @@
+{"amount": 1980.0, "category": "berth", "what": "annual berth", "currency": "GBP", "on": "2026-01-08", "vendor": "marina", "hours": null, "at": "2026-01-08T10:00:00+00:00", "refs": []}
+{"amount": 640.0, "category": "insurance", "what": "annual policy", "currency": "GBP", "on": "2026-01-20", "vendor": "", "hours": null, "at": "2026-01-20T10:00:00+00:00", "refs": []}
+{"amount": 95.0, "category": "registration", "what": "part 1 registry renewal", "currency": "GBP", "on": "2026-02-02", "vendor": "", "hours": null, "at": "2026-02-02T10:00:00+00:00", "refs": []}
+{"amount": 820.0, "category": "service", "what": "lift out, pressure wash, antifoul", "currency": "GBP", "on": "2026-04-11", "vendor": "yard", "hours": 1180.4, "at": "2026-04-11T10:00:00+00:00", "refs": []}
+{"amount": 142.0, "category": "parts", "what": "impeller, anodes, filters", "currency": "GBP", "on": "2026-04-12", "vendor": "chandlery", "hours": 1180.4, "at": "2026-04-12T10:00:00+00:00", "refs": []}
+{"amount": 310.0, "category": "fuel", "what": "diesel, full tank", "currency": "GBP", "on": "2026-05-30", "vendor": "fuel berth", "hours": 1205.0, "at": "2026-05-30T10:00:00+00:00", "refs": []}
+{"amount": 288.0, "category": "fuel", "what": "diesel", "currency": "GBP", "on": "2026-07-18", "vendor": "fuel berth", "hours": 1258.2, "at": "2026-07-18T10:00:00+00:00", "refs": []}
+{"amount": 415.0, "category": "service", "what": "heat exchanger flush and pressure test", "currency": "GBP", "on": "2026-08-19", "vendor": "engineer", "hours": 1281.6, "at": "2026-08-19T10:00:00+00:00", "refs": []}
+{"amount": 76.0, "category": "parts", "what": "hose clips, coolant, gasket", "currency": "GBP", "on": "2026-08-19", "vendor": "chandlery", "hours": 1281.6, "at": "2026-08-19T10:00:00+00:00", "refs": []}

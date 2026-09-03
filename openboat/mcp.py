@@ -33,7 +33,7 @@ import json
 import sys
 from datetime import datetime
 
-from . import boat, knowledge, logbook, windows
+from . import boat, knowledge, ledger, logbook, papers, windows
 from .marine import forecast
 from .profile import load
 from .route import Waypoint, plan
@@ -103,6 +103,29 @@ TOOLS = [
             "since": {"type": "string", "description": "ISO date, e.g. 2026-01-01"},
             "limit": {"type": "integer", "description": "most recent N, default 20"},
         }},
+    },
+    {
+        "name": "boat_papers",
+        "description": "The vessel's documents that matter because of a date — "
+                       "registration, insurance, radio licence, survey, flare expiry — "
+                       "with how many days each has left. Check this before advising "
+                       "anything about a passage, a charter, a sale or a border "
+                       "crossing. Says 'undated' rather than guessing when no expiry is "
+                       "recorded.",
+        "inputSchema": {"type": "object", "properties": {
+            "within_days": {"type": "integer",
+                            "description": "only those lapsing within N days"}}},
+    },
+    {
+        "name": "boat_costs",
+        "description": "What the boat has cost: totals split into fixed (berth, "
+                       "insurance, papers) and variable (fuel, service, parts), per "
+                       "currency, and the cost per engine hour when enough engine-hour "
+                       "readings exist to compute it honestly. The purchase price is "
+                       "recorded but kept out of the running total. Nothing is converted "
+                       "between currencies.",
+        "inputSchema": {"type": "object", "properties": {
+            "year": {"type": "string", "description": "e.g. 2026; omit for all time"}}},
     },
     {
         "name": "marine_forecast",
@@ -179,6 +202,47 @@ TOOLS = [
 
 
 # --- tool implementations -------------------------------------------------------------
+
+def tool_boat_papers(within_days=None):
+    found = (papers.expiring(within=int(within_days)) if within_days is not None
+             else papers.load())
+    if not found:
+        return ("No papers listed for this boat. They go in the profile as [[papers]] "
+                "entries with a name and an expiry date. Do not assume a boat's "
+                "registration or insurance is current because nothing says otherwise.")
+    lines = []
+    for paper in found:
+        left = paper.days_left
+        when = ("no expiry recorded" if left is None
+                else f"expires {paper.expires}, {left} days left" if left >= 0
+                else f"EXPIRED {paper.expires}, {-left} days ago")
+        lines.append(f"{paper.name} ({paper.kind or 'document'}) — {when}"
+                     + (f" — {paper.note}" if paper.note else ""))
+    return "\n".join(lines)
+
+
+def tool_boat_costs(year=""):
+    report = ledger.summary(year=year)
+    if not report["entries"]:
+        return "Nothing recorded in the cost ledger yet."
+    out = [f"{report['entries']} entries, {report['year']}"
+           + (f", {report['engine_hours']} engine hours over the period"
+              if report["engine_hours"] else "")]
+    for currency, bucket in report["currencies"].items():
+        out.append(f"\n{currency}: running {bucket['running']:,.0f} "
+                   f"(fixed {bucket['fixed']:,.0f}, variable {bucket['variable']:,.0f})")
+        if bucket["purchase"]:
+            out.append(f"  purchase {bucket['purchase']:,.0f}, deliberately outside the "
+                       "running total")
+        if bucket["per_engine_hour"] is not None:
+            out.append(f"  cost per engine hour: {bucket['per_engine_hour']:,.2f} {currency}")
+        else:
+            out.append("  cost per engine hour: not computable — needs at least two "
+                       "engine-hour readings. Do not estimate one.")
+        out.append("  " + ", ".join(f"{k} {v:,.0f}"
+                                    for k, v in bucket["by_category"].items()))
+    return "\n".join(out)
+
 
 def tool_boat_docs(query, limit=5):
     library = knowledge.load()
@@ -317,6 +381,8 @@ HANDLERS = {
     "boat_specs": lambda **kw: tool_boat_specs(**kw),
     "log_check": lambda **kw: tool_log_check(**kw),
     "checks": lambda **kw: tool_checks(**kw),
+    "boat_papers": lambda **kw: tool_boat_papers(**kw),
+    "boat_costs": lambda **kw: tool_boat_costs(**kw),
     "marine_forecast": tool_marine_forecast,
     "passage_window": tool_passage_window,
     "plan_route": tool_plan_route,
