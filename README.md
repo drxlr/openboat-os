@@ -104,6 +104,10 @@ nothing about land, depth or restricted areas. Nothing here steers, switches, tr
 pays, and the read-only boundary is structural rather than a feature not yet written. Read
 [DISCLAIMER.md](DISCLAIMER.md) before you rely on any of it.
 
+Anything that *does* write to the boat lives in its own repository and is installed on
+purpose. The first is [OpenBoat Flush](https://github.com/drxlr/openboat-flush) — a button at
+the helm that flushes the engine's raw-water circuit and records it here.
+
 ## Layout
 
 | | |

@@ -39,8 +39,12 @@ commands: no steering, no switching, no transmitting, no payments. The Signal K 
 built from GET requests only and the MCP server exposes no tool that writes.
 
 Control — autopilot commands and the like — is deliberately **not** part of this repository.
-If it ever exists it will live in a separate project, be separately installed, never be a
-dependency of this one, and require a physical enable step aboard. Any AI assistant
+Where it exists it lives in a separate project, separately installed, never a dependency of
+this one, and gated by a physical step aboard. The first of those is
+[OpenBoat Flush](https://github.com/drxlr/openboat-flush), which opens a valve to flush an
+engine's raw-water circuit: a normally-closed solenoid, real interlocks, and every failure
+path ending shut. It writes a service record back into this project's maintenance log; this
+project never calls it. Any AI assistant
 connected to OpenBoat may *propose* an action; a human commits it. That boundary is the
 design, not a limitation waiting to be lifted.
 
