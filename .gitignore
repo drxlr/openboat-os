@@ -36,3 +36,6 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test scratch: the control-gate tests write a journal to prove the gate records refusals.
+tests/_tmp/
