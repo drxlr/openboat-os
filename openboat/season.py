@@ -49,7 +49,7 @@ from datetime import date
 from pathlib import Path
 
 from . import windows
-from .marine import Hour
+from .marine import ForecastUnavailable, Hour
 from .profile import Profile, load as load_profile
 from .trip import compass, era5_hours, era5_sea_temperature
 
@@ -183,11 +183,23 @@ def climatology(lat: float, lon: float, boat: Profile | None = None,
     boat = boat or load_profile()
     limits = boat.limits.as_dict()
 
-    hours = era5_hours(WIND_FROM, WIND_TO, lat, lon, boat=boat, waves=True, refresh=refresh)
+    try:
+        hours = era5_hours(WIND_FROM, WIND_TO, lat, lon, boat=boat, waves=True, refresh=refresh)
+    except ForecastUnavailable as exc:
+        # Degrade with a clear stop, not a raw traceback — a climatology genuinely cannot
+        # be computed with no archive data, so this is the one place in the module where
+        # "degrade" means "fail cleanly" rather than "carry on with less".
+        raise SystemExit(f"the archive did not answer — check the network ({exc})") from exc
     if not hours:
         raise SystemExit("the archive returned nothing — check the network")
 
-    sst = era5_sea_temperature(WIND_FROM, WIND_TO, lat, lon, refresh=refresh)
+    try:
+        sst = era5_sea_temperature(WIND_FROM, WIND_TO, lat, lon, refresh=refresh)
+    except ForecastUnavailable:
+        # Sea temperature is a secondary figure here — wind and rain still answer most of
+        # the question without it, so this degrades to "no sea reading" rather than losing
+        # the whole climatology over one endpoint.
+        sst = {}
 
     by_month: dict[int, list[Hour]] = defaultdict(list)
     for hour in hours:

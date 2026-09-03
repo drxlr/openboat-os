@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone, tzinfo as TzInfo
 from pathlib import Path
 
-from .marine import Hour
+from .marine import ForecastUnavailable, Hour
 from .route import Waypoint, rhumb
 from .track import read_gpx as _read_gpx_utc
 
@@ -272,7 +272,13 @@ CACHE_DIR = Path(os.environ.get("OPENBOAT_CACHE_DIR", ".cache"))
 
 
 def _cached_get(url: str, params: dict, refresh: bool = False) -> dict:
-    """GET with a disk cache. Ten years of hourly ERA5 is a few megabytes and never changes."""
+    """GET with a disk cache. Ten years of hourly ERA5 is a few megabytes and never changes.
+
+    Raises `marine.ForecastUnavailable` on any failure — the same exception `marine._get`
+    raises for the forward-looking forecast, and for the same reason: the archive not
+    answering is the boat being offline's cousin, not a crash, and every caller in this
+    project is written to expect exactly this type from a weather fetch.
+    """
     query = urllib.parse.urlencode(params)
     key = hashlib.sha1(f"{url}?{query}".encode()).hexdigest()[:16]
     path = CACHE_DIR / f"{key}.json"
@@ -280,8 +286,11 @@ def _cached_get(url: str, params: dict, refresh: bool = False) -> dict:
     if path.exists() and not refresh:
         return json.loads(path.read_text())
 
-    with urllib.request.urlopen(f"{url}?{query}", timeout=180) as response:
-        payload = json.loads(response.read())
+    try:
+        with urllib.request.urlopen(f"{url}?{query}", timeout=180) as response:
+            payload = json.loads(response.read())
+    except Exception as exc:                                   # noqa: BLE001
+        raise ForecastUnavailable(f"{url}: {exc}") from exc
 
     CACHE_DIR.mkdir(exist_ok=True, parents=True)
     path.write_text(json.dumps(payload))
