@@ -6,8 +6,17 @@ session, on any machine, can ask about the boat, the weather and the passage:
 
     claude mcp add openboat -- python3 -m openboat.mcp
 
-Five tools, all read-only. Nothing here sends, pays, books or steers, and that is a
-property of the design rather than a feature not yet written — see `docs/DISCLAIMER.md`.
+Nine tools. Eight are read-only; the ninth, `log_check`, appends a line to the owner's
+maintenance log and can do nothing else. Nothing here sends, pays, books or steers, and
+that is a property of the design rather than a feature not yet written — there is no route
+from this module into `openboat/control/`, and `tests/test_control_gate.py` fails the build
+if one appears. See `docs/DISCLAIMER.md`.
+
+`boat_docs` is the one that changes what an assistant can be. Without it a model answers
+about the make and model in general; with it, it answers about *this* hull — the riser that
+was found clogged, the fitting that is actually where the photo shows it, the invoice that
+says what the yard really replaced — quoting the owner's own files with the line each came
+from.
 
 The interesting one is `plan_route`. A forecast for the harbour is not a forecast for the
 passage: a leg leaving at 08:00 in a flat calm can arrive at 13:00 in a sea breeze, so each
@@ -24,7 +33,7 @@ import json
 import sys
 from datetime import datetime
 
-from . import boat, windows
+from . import boat, knowledge, logbook, windows
 from .marine import forecast
 from .profile import load
 from .route import Waypoint, plan
@@ -40,6 +49,61 @@ def _compass(degrees) -> str:
 PROTOCOL = "2025-06-18"
 
 TOOLS = [
+    {
+        "name": "boat_docs",
+        "description": "Search this boat's own papers — the survey, the manual, the yard "
+                       "invoices, the owner's working notes — and return the matching "
+                       "passages with the file and line they came from. Use this BEFORE "
+                       "answering anything specific to the vessel: its history, its "
+                       "faults, what has already been replaced, which fitting is where. "
+                       "The documents are the authority; quote them rather than "
+                       "generalising from the make and model. Searched by word in German "
+                       "and English both. Returns nothing if the owner has pointed at no "
+                       "documents, which is not an error.",
+        "inputSchema": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "what you want to know"},
+            "limit": {"type": "integer", "description": "passages to return, default 5"},
+        }, "required": ["query"]},
+    },
+    {
+        "name": "boat_specs",
+        "description": "The vessel's measured facts as its owner recorded them — length, "
+                       "beam, draft, displacement, engine, berth — each with the source it "
+                       "came from. A field that is absent is absent on purpose: nobody has "
+                       "measured it, and this project would rather say so than guess. "
+                       "Never fill such a gap from the make and model; say it is not "
+                       "recorded.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "log_check",
+        "description": "Record that something on the boat was checked, and what it "
+                       "showed. Writes one line to the owner's check log together with "
+                       "whatever the boat is reading at this moment, so the entry still "
+                       "means something next season. Use it when the owner tells you they "
+                       "have looked at something, or when you have walked them through an "
+                       "inspection. Ask before logging: it is their maintenance record, "
+                       "and it is append-only — nothing can edit or remove a line later.",
+        "inputSchema": {"type": "object", "properties": {
+            "what": {"type": "string", "description": "what was checked"},
+            "found": {"type": "string", "description": "what it showed"},
+            "verdict": {"type": "string", "enum": list(logbook.VERDICTS),
+                        "description": "ok, watch, act, or noted"},
+            "refs": {"type": "array", "items": {"type": "string"},
+                     "description": "documents or photos it relates to"},
+        }, "required": ["what"]},
+    },
+    {
+        "name": "checks",
+        "description": "Read the check log back — what was inspected, when, what it "
+                       "showed, and the readings at the time. Use it to answer 'when was "
+                       "this last looked at' before recommending a service interval.",
+        "inputSchema": {"type": "object", "properties": {
+            "what": {"type": "string", "description": "filter by subject"},
+            "since": {"type": "string", "description": "ISO date, e.g. 2026-01-01"},
+            "limit": {"type": "integer", "description": "most recent N, default 20"},
+        }},
+    },
     {
         "name": "marine_forecast",
         "description": "Wind, gusts and sea state hour by hour for a point at sea. "
@@ -116,6 +180,64 @@ TOOLS = [
 
 # --- tool implementations -------------------------------------------------------------
 
+def tool_boat_docs(query, limit=5):
+    library = knowledge.load()
+    if not library.paths:
+        return ("This boat has no documents pointed at. The owner can add them under "
+                "[knowledge] docs in their profile. Do not substitute general knowledge "
+                "about the make and model for the boat's own papers — say they are absent.")
+    hits = library.search(query, limit=int(limit))
+    if not hits:
+        return (f"Nothing in {len(library.paths)} document(s) matches {query!r}. "
+                "The search is by word, so try the words the file itself would use.")
+    out = [f"{len(hits)} passage(s) from this boat's own papers. Quote them; do not "
+           "paraphrase a measurement.\n"]
+    for hit in hits:
+        out.append(f"--- {hit.heading}  [{hit.where}]\n{hit.text}\n")
+    return "\n".join(out)
+
+
+def tool_boat_specs():
+    boat_profile = load()
+    vessel = boat_profile.as_dict()["vessel"]
+    lines = [f"{vessel.get('name') or 'the boat'} — {vessel.get('kind') or 'vessel'}"]
+    for key, value in vessel.items():
+        if key in ("name", "kind") or key.endswith("_source") or value in (None, "", 0):
+            continue
+        source = boat_profile.source_of(key)
+        lines.append(f"  {key}: {value}" + (f"   [{source}]" if source else ""))
+    missing = boat_profile.unsourced()
+    if missing:
+        lines.append("\nNot recorded, and therefore not known: " + ", ".join(missing)
+                     + ". Do not supply these from the make and model.")
+    berth = boat_profile.as_dict()["berth"]
+    if berth.get("name"):
+        lines.append(f"\nBerth: {berth['name']} ({berth['lat']:.4f}, {berth['lon']:.4f})")
+    return "\n".join(lines)
+
+
+def tool_log_check(what, found="", verdict="noted", refs=None):
+    entry = logbook.record(what=what, found=found, verdict=verdict,
+                           by="assistant", refs=refs or [])
+    live = ", ".join(f"{k} {v}" for k, v in list(entry.readings.items())[:6]) or "none"
+    return (f"Logged: {entry.what} — {entry.verdict}"
+            f"{' — ' + entry.found if entry.found else ''}\n"
+            f"at {entry.at}, readings captured: {live}")
+
+
+def tool_checks(what="", since="", limit=20):
+    rows = logbook.entries(what=what, since=since, limit=int(limit))
+    if not rows:
+        return "Nothing recorded" + (f" matching {what!r}" if what else "") + " yet."
+    out = []
+    for row in rows:
+        live = ", ".join(f"{k} {v}" for k, v in list((row.get("readings") or {}).items())[:4])
+        out.append(f"{row['at'][:16]}  [{row['verdict']}]  {row['what']}"
+                   f"{' — ' + row['found'] if row.get('found') else ''}"
+                   f"{'  (' + live + ')' if live else ''}")
+    return "\n".join(out)
+
+
 def tool_marine_forecast(lat=None, lon=None, hours=48):
     boat_profile = load()
     lat = boat_profile.forecast_point[0] if lat is None else lat
@@ -191,6 +313,10 @@ def tool_ais_targets(limit=20):
 
 
 HANDLERS = {
+    "boat_docs": lambda **kw: tool_boat_docs(**kw),
+    "boat_specs": lambda **kw: tool_boat_specs(**kw),
+    "log_check": lambda **kw: tool_log_check(**kw),
+    "checks": lambda **kw: tool_checks(**kw),
     "marine_forecast": tool_marine_forecast,
     "passage_window": tool_passage_window,
     "plan_route": tool_plan_route,

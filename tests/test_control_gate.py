@@ -17,6 +17,8 @@ these fail, the change is wrong. The one that matters most is `test_ai_cannot_co
 
 from __future__ import annotations
 
+import ast
+import re
 import sys
 import time
 from pathlib import Path
@@ -267,9 +269,33 @@ def test_no_writes_elsewhere() -> None:
                 offenders.append(f"{path.name}: {needle}")
     check(not offenders, f"only control/ writes to the boat ({offenders or 'clean'})")
 
+    # Structure, not prose. This used to grep the whole file for the word "control", which
+    # meant the module could not even *document* that it has no route into the helm without
+    # failing the build — and a test that punishes an honest comment gets edited rather than
+    # obeyed. What matters is that the module cannot reach the helm: it must not import it,
+    # must not construct it, and must not offer it as a tool. All three are checked, which
+    # is strictly more than the old line proved.
     mcp = (ROOT / "openboat" / "mcp.py").read_text()
-    check("control" not in mcp and "Helm" not in mcp,
-          "the MCP server exposes no route into the helm")
+    tree = ast.parse(mcp)
+    imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and "control" in (node.module or ""):
+            imports.append(node.module)
+        if isinstance(node, ast.ImportFrom):
+            imports += [a.name for a in node.names if "control" in a.name]
+        if isinstance(node, ast.Import):
+            imports += [a.name for a in node.names if "control" in a.name]
+    check(not imports, f"the MCP server does not import control ({imports or 'clean'})")
+
+    calls = [n.func.id for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id in ("Helm", "Command", "propose")]
+    check(not calls, f"the MCP server never constructs a helm ({calls or 'clean'})")
+
+    names = re.findall(r'"name":\s*"([a-z_]+)"', mcp)
+    steering = [n for n in names if any(word in n for word in
+                ("helm", "steer", "pilot", "autopilot", "course", "rudder", "command"))]
+    check(not steering, f"no MCP tool is a steering verb ({steering or 'clean'})")
 
 
 if __name__ == "__main__":

@@ -259,13 +259,67 @@
   .ticks .day { color:var(--ink-soft); font-weight:700; white-space:nowrap; overflow:visible; }
 
   #map { height:min(62vh, 30rem); border-radius:12px; border:2px solid var(--rule-soft); }
+  /* Leaflet's own chrome ships white and stays white. On the night chart that made the
+     zoom buttons and the attribution strip the two brightest objects on the screen —
+     brighter than the chart they sit on, which is the opposite of the point. The tiles
+     are themed by filter; these are ours to colour, so they follow the palette.          */
   .leaflet-control-zoom a { width:56px !important; height:56px !important;
-                            line-height:56px !important; font-size:26px !important; }
-  :root[data-mode="night"] #map { filter:brightness(.42) sepia(1) saturate(2.4) hue-rotate(-25deg); }
-  :root[data-mode="night"] iframe.report { filter:brightness(.5) sepia(.8) saturate(1.6) hue-rotate(-25deg); }
+                            line-height:56px !important; font-size:26px !important;
+                            background:var(--panel) !important; color:var(--ink) !important;
+                            border-color:var(--rule-soft) !important; }
+  .leaflet-control-zoom a:hover { background:var(--bar) !important; }
+  .leaflet-bar, .leaflet-control-attribution { border-color:var(--rule-soft) !important;
+                            box-shadow:none !important; }
+  .leaflet-control-attribution { background:var(--panel) !important; color:var(--muted) !important; }
+  .leaflet-control-attribution a { color:var(--ink-soft) !important; }
+  /* The Ukrainian flag Leaflet embeds in its own credit is a raster image and stays at
+     full brightness; dim it with the strip rather than hide it. */
+  .leaflet-control-attribution img { opacity:.55; }
+  /* Dark charts, by inversion rather than by tinting.
+     Tinting a light map does not darken it — brightness(.42) on a near-white tile still
+     lands mid-grey, and sepia+saturate pushes it back up into a large, flat, glaring
+     orange field. Measured on the OSM tiles this drew ~44% luminance at night, which is
+     roughly a torch in the face of anyone who has been dark-adapted for an hour.
+     Inverting first is what actually produces a dark chart: land and sea go dark, the
+     labels go light, and the second hue-rotate puts the water back on the blue side.
+     Scoped to .leaflet-tile-pane on purpose — the route line, the boat and the zoom
+     buttons are ours, they are already palette-coloured, and inverting them turns a red
+     boat marker cyan.                                                                   */
+  :root[data-mode="dusk"] .leaflet-tile-pane {
+    filter:invert(1) hue-rotate(180deg) brightness(.82) contrast(.94) saturate(.75); }
+  :root[data-mode="night"] .leaflet-tile-pane {
+    filter:invert(1) grayscale(1) brightness(.5) contrast(1.1)
+           sepia(1) saturate(5) hue-rotate(-28deg) brightness(.85); }
+  /* The seamark overlay is drawn on transparency, so inverting it would erase the buoys
+     against the now-dark base. It gets dimmed and tinted instead, never inverted.        */
+  :root[data-mode="night"] .leaflet-tile-pane .leaflet-layer:not(:first-child) {
+    filter:none; opacity:.85; }
   button.act { min-height:56px; padding:0 1.1rem; border-radius:12px; font-size:1.05rem;
     font-weight:600; border:2px solid var(--rule); background:var(--panel); color:var(--ink);
     cursor:pointer; }
+  .pick { font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--good); border:1px solid var(--good); border-radius:999px;
+    padding:.1rem .45rem; margin-left:.5rem; vertical-align:.1em; }
+  /* the companion */
+  .askbar { display:flex; gap:.6rem; margin:.2rem 0 .6rem; flex-wrap:wrap; }
+  .askin { flex:1 1 14rem; min-height:56px; padding:0 1rem; font-size:1.1rem;
+    border-radius:12px; border:2px solid var(--rule); background:var(--bar);
+    color:var(--ink); -webkit-appearance:none; }
+  .askin:focus { outline:3px solid var(--water); outline-offset:1px; }
+  .seeds { display:flex; gap:.5rem; flex-wrap:wrap; }
+  .seed { min-height:44px; padding:0 .85rem; border-radius:999px; font-size:.95rem;
+    border:1px solid var(--rule-soft); background:transparent; color:var(--ink-soft);
+    cursor:pointer; }
+  .seed:hover { border-color:var(--rule); color:var(--ink); }
+  .quote { border-left:3px solid var(--rule); padding:.1rem 0 .1rem .9rem; margin:.9rem 0; }
+  .qhead { display:flex; justify-content:space-between; gap:1rem; align-items:baseline;
+    flex-wrap:wrap; margin-bottom:.3rem; }
+  .src { font-size:.8rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .qbody { font-size:1rem; line-height:1.6; color:var(--ink-soft); }
+  .snip { background:var(--bar); border:1px solid var(--rule-soft); border-radius:8px;
+    padding:.7rem .9rem; font-size:.9rem; overflow-x:auto; }
+  .verdicts { display:flex; gap:.5rem; flex-wrap:wrap; }
+  .vbtn { text-transform:capitalize; }
   .warntext { color:var(--rust); font-size:.95rem; }
   iframe.report { display:block; width:100%; height:min(80vh, 52rem);
     border:2px solid var(--rule-soft); border-radius:14px; background:var(--panel); }
@@ -1213,7 +1267,14 @@ OS.app({
   id:'weather', title:'Weather',
   render(el, st) {
     if (!st.windows) return empty(el, 'Fetching the forecast', 'One call to Open-Meteo, no key. If the boat has no internet this stays empty — the helm does not need it.');
-    const d = st.windows, soonest = [...d.windows].sort((a,b)=>new Date(a.start)-new Date(b.start))[0];
+    // The API ranks windows longest-first, which is the right answer to "which is best"
+    // and the wrong order for a list headed "next seven days" — it printed Thursday above
+    // Wednesday and read as a bug. Ranked once for the verdict, then shown in day order
+    // with the best one marked, so both questions get answered.
+    const d = st.windows;
+    const byDay = [...d.windows].sort((a,b)=>new Date(a.start)-new Date(b.start));
+    const soonest = byDay[0];
+    const best = [...d.windows].sort((a,b)=>b.hours-a.hours||new Date(a.start)-new Date(b.start))[0];
     const verdict = soonest
       ? `<div class="lead">Yes — <span class="when">${fmt(soonest.start)}</span></div>
          <div class="quiet">${soonest.hours} h window, up to ${Math.round(soonest.wind_kn)} kn
@@ -1240,8 +1301,9 @@ OS.app({
     el.innerHTML = `
       <div class="card"><h2>Can we go out?</h2>${verdict}</div>
       <div class="card"><h2>Windows, next seven days</h2>
-        <ul class="rows">${d.windows.map(w => `<li>
-          <span>${fmt(w.start)} → ${hhmm(new Date(w.end))}</span>
+        <ul class="rows">${byDay.map(w => `<li>
+          <span>${fmt(w.start)} → ${hhmm(new Date(w.end))}${
+            w === best && byDay.length > 1 ? ' <span class="pick">longest</span>' : ''}</span>
           <span class="n"><span class="len">${w.hours} h</span> · ${Math.round(w.wind_kn)} kn
           gust ${Math.round(w.gust_kn)}${w.wave_m!=null?` · ${w.wave_m.toFixed(1)} m`:''}</span>
         </li>`).join('') || '<li>No window inside the limits.</li>'}</ul>
@@ -1250,7 +1312,7 @@ OS.app({
           the marina's grid cell is land-influenced and reads gusts about half again too
           high. Limits are up to ${d.limits.max_wind_kn} kn, gusts ${d.limits.max_gust_kn} kn,
           sea ${d.limits.max_wave_m} m, between ${d.limits.daylight[0]} and
-          ${d.limits.daylight[1]}. Change them in <code>jarvis/windows.py</code>.</p>
+          ${d.limits.daylight[1]}. Change them under <code>[limits]</code> in your profile.</p>
       </div>
       <div class="card"><h2>Wind, next 72 hours</h2>
         <div class="strip">${strip}</div><div class="ticks">${ticks}</div>
@@ -1299,7 +1361,11 @@ OS.app({
     L.tileLayer(C.seamark_url || 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
       {maxZoom:zmax, attribution:C.seamark_attribution || '© OpenSeaMap (CC BY-SA 2.0)'})
       .addTo(map);
-    L.marker(HOME).addTo(map).bindPopup(window.OB_BERTH_NAME || 'Berth');
+    // A circle in the palette rather than Leaflet's default blue pin: the pin is a raster
+    // image, so it ignores the palette and glows blue on the night chart.
+    L.circleMarker(HOME, {radius:7, color:'var(--good)', fillColor:'var(--good)',
+                          fillOpacity:.9, weight:2})
+      .addTo(map).bindPopup(window.OB_BERTH_NAME || 'Berth');
     boatMark = L.circleMarker(HOME, {radius:8, color:'#A93E2F', fillOpacity:1});
 
     map.on('click', e => {
@@ -1378,6 +1444,139 @@ OS.app({
       <iframe class="report" src="${src}" title="${title}" loading="lazy"></iframe>`;
   }
 }));
+
+/* ── app: the companion ───────────────────────────────────────────────────────────
+   Ask the boat about itself. Three sources, kept visibly apart because they have very
+   different standing: passages quoted out of the owner's own documents, the readings the
+   boat is giving right now, and what has been checked before.
+
+   It does not write prose about the boat, and that is the design rather than a limitation.
+   Everything on this screen is either a quote with the file and line it came from, or a
+   live number. The one place this project has ever been dangerous is a confident sentence
+   with no source under it.                                                              */
+OS.app({
+  id:'ask', title:'Ask',
+  mount(el) {
+    el.innerHTML = `
+      <div class="card">
+        <h2>Ask the boat</h2>
+        <div class="askbar">
+          <input id="q" class="askin" type="search" enterkeyhint="search"
+                 autocomplete="off" autocapitalize="sentences"
+                 placeholder="which cap do I unscrew to flush it?">
+          <button class="act" id="go">Ask</button>
+        </div>
+        <div id="seeds" class="seeds"></div>
+      </div>
+      <div id="answer"></div>`;
+
+    const seeds = ['how do I flush the engine', 'what engine is in it',
+                   'when was the impeller last done', 'manifold riser overheating',
+                   'insurance', 'what is the draft'];
+    el.querySelector('#seeds').innerHTML = seeds
+      .map(s => `<button class="seed" data-q="${s}">${s}</button>`).join('');
+
+    const box = el.querySelector('#answer'), input = el.querySelector('#q');
+    const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+    // Markdown, only as far as these documents actually use it. A full parser here would be
+    // a lot of code to make a quote look like the file it came from; bold, code and the
+    // bullet/step shape carry nearly all of it.
+    const light = s => esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/^&gt; ?(.*)$/gm, '<i>$1</i>')
+      .replace(/\n/g, '<br>');
+
+    const ask = async (question) => {
+      if (!question.trim()) return;
+      input.value = question;
+      box.innerHTML = `<div class="card"><p class="quiet">Reading the boat's papers…</p></div>`;
+      let d;
+      try { d = await fetch('/api/ask?q=' + encodeURIComponent(question) + '&limit=5').then(r => r.json()); }
+      catch (e) { box.innerHTML = `<div class="card"><p class="quiet">The server did not answer.</p></div>`; return; }
+
+      if (d.error) { box.innerHTML = `<div class="card"><p class="quiet">${esc(d.error)}</p></div>`; return; }
+
+      if (!d.documents) {
+        box.innerHTML = `<div class="card"><h2>No documents</h2>
+          <p class="quiet">This boat has no papers pointed at yet. Add them under
+          <code>[knowledge]</code> in the profile:</p>
+          <pre class="snip">[knowledge]
+docs = ["~/boat/survey.md", "~/boat/log.md"]</pre>
+          <p class="quiet">They are read where they lie — nothing is copied or uploaded.</p></div>`;
+        return;
+      }
+
+      const live = d.live && d.live.online ? d.live : null;
+      // The names here are the ones /api/state actually uses. Guessed at first — rpm was
+      // the only one that matched, so the line quietly showed a quarter of the truth.
+      const liveBits = live ? [
+        live.rpm != null ? `${Math.round(live.rpm)} rpm` : null,
+        live.coolant_c != null ? `coolant ${live.coolant_c.toFixed(1)} °C` : null,
+        live.oil_bar != null ? `oil ${live.oil_bar.toFixed(2)} bar` : null,
+        live.volts != null ? `battery ${live.volts.toFixed(2)} V` : null,
+        live.fuel_pct != null ? `fuel ${Math.round(live.fuel_pct)} %` : null,
+        live.depth_m != null ? `depth ${live.depth_m.toFixed(1)} m` : null,
+      ].filter(Boolean) : [];
+
+      const passages = d.passages.length ? d.passages.map(p => `
+        <div class="quote">
+          <div class="qhead"><b>${esc(p.heading)}</b><span class="src">${esc(p.where)}</span></div>
+          <div class="qbody">${light(p.text.slice(0, 1400))}${p.text.length > 1400 ? '…' : ''}</div>
+        </div>`).join('')
+        : `<p class="quiet">Nothing in the boat's papers matches that. The documents are
+           searched by word, in German and English both — try the words the file itself
+           would use.</p>`;
+
+      const checks = (d.checks || []).length ? `
+        <div class="card"><h2>Checked before</h2><ul class="rows">${d.checks.map(c => `
+          <li><span>${esc(c.what)}${c.found ? ' — ' + esc(c.found) : ''}</span>
+              <span class="n">${esc((c.at || '').slice(0, 10))} · ${esc(c.verdict)}</span></li>`
+        ).join('')}</ul></div>` : '';
+
+      box.innerHTML = `
+        <div class="card">
+          <h2>From the boat's papers</h2>
+          ${liveBits.length ? `<p class="quiet">Right now: ${liveBits.join(' · ')}</p>` : ''}
+          ${passages}
+        </div>
+        ${checks}
+        <div class="card">
+          <h2>Log what you checked</h2>
+          <p class="quiet">Recorded with the readings the boat is giving at this moment, so
+            next season the entry still means something.</p>
+          <div class="askbar">
+            <input id="lw" class="askin" placeholder="what you looked at" value="${esc(input.value)}">
+            <input id="lf" class="askin" placeholder="what you found">
+          </div>
+          <div class="verdicts">
+            ${['ok','watch','act','noted'].map(v =>
+              `<button class="act vbtn" data-v="${v}">${v}</button>`).join('')}
+          </div>
+          <p class="quiet" id="logmsg"></p>
+        </div>`;
+
+      box.querySelectorAll('.vbtn').forEach(b => b.onclick = async () => {
+        const what = box.querySelector('#lw').value.trim();
+        const msg = box.querySelector('#logmsg');
+        if (!what) { msg.textContent = 'Say what you looked at.'; return; }
+        try {
+          const r = await fetch('/api/logbook', {method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({what, found: box.querySelector('#lf').value,
+                                  verdict: b.dataset.v, by:'dashboard'})}).then(x => x.json());
+          msg.textContent = r.error ? r.error
+            : `Logged “${r.logged.what}” as ${r.logged.verdict}.`;
+        } catch (e) { msg.textContent = 'Could not write the log.'; }
+      });
+    };
+
+    el.querySelector('#go').onclick = () => ask(input.value);
+    input.onkeydown = e => { if (e.key === 'Enter') ask(input.value); };
+    el.querySelectorAll('.seed').forEach(b => b.onclick = () => ask(b.dataset.q));
+  }
+});
 
 /* ── app: the Windy weather chart, only if a key is configured ────────────────────
    Registered conditionally rather than shown-and-disabled: a tab that exists only to say

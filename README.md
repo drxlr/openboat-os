@@ -134,7 +134,7 @@ that flushes the engine's raw-water circuit and records it here.
 | `signalk/` | Signal K in Docker, plus an NMEA simulator so everything is testable with no boat |
 | `arduino/` | Analogue engine senders → NMEA → Signal K. ⚠️ Never tested against a real engine |
 | `scripts/` | The private-content check and its git hook |
-| `docs/` | [Hardware](docs/HARDWARE.md) · [Network](docs/NETWORK.md) · [Forecast](docs/FORECAST.md) · [Charts](docs/CHARTS.md) · [Private and public](docs/PRIVATE-AND-PUBLIC.md) |
+| `docs/` | [Hardware](docs/HARDWARE.md) · [Network](docs/NETWORK.md) · [Forecast](docs/FORECAST.md) · [Charts](docs/CHARTS.md) · [Companion](docs/COMPANION.md) · [Private and public](docs/PRIVATE-AND-PUBLIC.md) |
 
 ## Contributing
 

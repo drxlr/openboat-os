@@ -155,6 +155,17 @@ class Profile:
     #: docs/CHARTS.md for the licences and the tile policy that shape these defaults.
     chart: dict = field(default_factory=lambda: dict(DEFAULT_CHART))
 
+    #: Documents about this boat — the survey, the manual, the yard invoices, the long note
+    #: somebody wrote the evening they worked out why one side ran hot. Named here, read
+    #: where they lie, never copied. Empty by default: OpenBoat ships no documents about
+    #: anybody's boat. See `openboat/knowledge.py`.
+    knowledge: dict = field(default_factory=lambda: {"docs": []})
+
+    #: Where the check log is written. Every inspection recorded through the companion
+    #: lands here as one JSON line. Relative paths resolve beside the profile, so the log
+    #: sits with the boat's own files rather than inside the installed package.
+    logbook: str = "logbook.jsonl"
+
     #: Alarm bands per reading, as [[low, high, severity], ...] in the reading's own unit.
     #: Empty by default: OpenBoat does not know what is hot for *your* engine, and an
     #: invented band is a green light through a real overheat.
@@ -218,6 +229,7 @@ class Profile:
                                "name": self.forecast_point_name},
             "timezone": self.timezone,
             "chart": self.chart,
+            "knowledge": {"count": len(self.knowledge.get("docs", []))},
             "unsourced": self.unsourced(),
         }
 
@@ -291,6 +303,8 @@ def load(path: str | os.PathLike | None = None) -> Profile:
                                                                   "http://localhost:3000")),
         paths={**DEFAULT_PATHS, **(data.get("paths") or {})},
         chart=_chart(data.get("chart") or {}),
+        knowledge={"docs": list((data.get("knowledge") or {}).get("docs") or [])},
+        logbook=str(data.get("logbook", "logbook.jsonl")),
         bands=dict(data.get("bands") or {}),
         maintenance={k: dict(v) for k, v in (data.get("maintenance") or {}).items()
                      if isinstance(v, dict)},

@@ -6,8 +6,13 @@
 Run it on the always-on Mac and it is reachable from the sofa, from the Pixel tablet and
 the boat over a private network — no port forwarding, no certificate, no cloud.
 
-Read-only. Binds to all interfaces so the tailnet can reach it; keep it OFF the public
-internet — Tailscale is the boundary, this server has no authentication of its own.
+Read-only about the boat. It cannot steer, and it holds no route into `openboat/control/`.
+The one thing it writes is the check log: `POST /api/logbook` appends a line to a local
+file recording that somebody looked at something. That is a notebook, not a control, and it
+is kept deliberately separate from anything that moves.
+
+Binds to all interfaces so the tailnet can reach it; keep it OFF the public internet —
+Tailscale is the boundary, this server has no authentication of its own.
 """
 
 from __future__ import annotations
@@ -21,7 +26,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from time import time
 
-from . import boat, windows
+from . import boat, knowledge, logbook, windows
 from .marine import ForecastUnavailable, forecast
 from .profile import load
 from .route import Waypoint, plan
@@ -89,6 +94,29 @@ class OpenBoat(SimpleHTTPRequestHandler):
             return self.send_report(report)
         return super().do_GET()
 
+    def do_POST(self):
+        """The only write this server accepts: one line in the check log.
+
+        Not a general write surface. The route is matched exactly, the body is capped, and
+        anything else gets 404 rather than a helpful error — a boat dashboard that grows a
+        second POST route by accident is how a read-only thing stops being one.
+        """
+        if self.path.split("?")[0] != "/api/logbook":
+            return self.send_json({"error": "not found"}, status=404)
+        try:
+            length = min(int(self.headers.get("Content-Length", 0)), 64_000)
+            body = json.loads(self.rfile.read(length) or b"{}")
+            entry = logbook.record(
+                what=str(body.get("what", "")),
+                found=str(body.get("found", "")),
+                verdict=str(body.get("verdict", "noted")),
+                by=str(body.get("by", "dashboard")),
+                refs=list(body.get("refs") or []),
+            )
+        except (ValueError, json.JSONDecodeError) as exc:
+            return self.send_json({"error": str(exc)}, status=400)
+        return self.send_json({"logged": json.loads(entry.line())})
+
     def send_report(self, report: Path):
         if not report.exists():
             what = "season" if "season" in report.name else "engine"
@@ -140,6 +168,38 @@ class OpenBoat(SimpleHTTPRequestHandler):
                  "hours": w.length_h, "wind_kn": w.worst_wind_kn,
                  "gust_kn": w.worst_gust_kn, "wave_m": w.worst_wave_m}
                 for w in found]}
+
+        if route == "/api/ask":
+            # The companion. Retrieval over the boat's own documents, the live readings and
+            # the check log, returned side by side and separately labelled. Nothing here
+            # writes a sentence about the boat: the passages are quoted out of files the
+            # owner wrote, with the line they came from, because a fluent paragraph that
+            # invents a torque figure is exactly the failure this project refuses.
+            question = params.get("q", "").strip()
+            if not question:
+                return {"error": "ask something: /api/ask?q=…"}
+            library = knowledge.load(boat_profile)
+            hits = library.search(question, limit=int(params.get("limit", 5)))
+            try:
+                live = {"online": True, **boat.state()}
+            except boat.Offline as exc:
+                live = {"online": False, "reason": str(exc)}
+            return {
+                "question": question,
+                "documents": len(library.paths),
+                "passages": [h.as_dict() for h in hits],
+                "live": live,
+                "checks": logbook.entries(boat=boat_profile, what=question.split()[0],
+                                          limit=5) if question.split() else [],
+                "vessel": boat_profile.as_dict()["vessel"],
+            }
+
+        if route == "/api/logbook":
+            return {"entries": logbook.entries(boat=boat_profile,
+                                               since=params.get("since", ""),
+                                               what=params.get("what", ""),
+                                               limit=int(params.get("limit", 50))),
+                    "path": str(logbook.path_for(boat_profile))}
 
         if route == "/api/state":
             try:
