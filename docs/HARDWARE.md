@@ -119,6 +119,52 @@ is welcome — that is the kind of fact that goes stale fastest.
 | [PICAN-M](https://www.skpang.co.uk/products/pican-m-with-can-bus-micro-c-and-rs422-connector-3a-smps) (SK Pang) | Optional 3 A SMPS variant runs the Pi off the 12 V line; a no-SMPS variant exists | CAN side isolated; ⚠️ 12 V-to-Pi power path isolation isn't stated | **Confirmed**: manufacturer lists SocketCAN, Signal K, CANboat, OpenCPN and OpenPlotter by name | Also sold in the US through [Copperhill Technologies](https://copperhilltech.com), same board |
 | [Waveshare 2-CH CAN FD HAT](https://www.waveshare.com/2-ch-can-fd-hat.htm) | No onboard 12 V supply — Pi power is still your problem | Yes, isolated CAN transceivers with surge/ESD/short-circuit protection | ⚠️ Not marine-branded, not mentioned; works through the same SocketCAN path any CAN HAT does | Two independent CAN channels — N2K on one, engine J1939 on the other; generic industrial board |
 
+### NMEA 2000 → ESP32 (a microcontroller instead of a Pi)
+
+A CAN HAT assumes a Raspberry Pi underneath it. If the boat computer is somewhere else
+entirely — a Mac indoors, a phone, nothing at all — an ESP32 on the bus is a smaller, colder
+and much cheaper way in: it sits on the backbone, speaks NMEA 2000, and hands the data over
+WiFi to whatever is listening.
+
+| Product | Power | Isolated | Signal K | Note |
+|---|---|---|---|---|
+| [M5Stack Atom CAN kit](https://docs.m5stack.com/en/atom/atom_can) (K057) | From the bus, 12 V tolerant | Yes — CA-IS3050G isolated transceiver | Through the firmware below, which emits NMEA 0183 and SeaSmart over WiFi | Snap-together, no soldering. The whole gateway is roughly the price of a HAT's connector |
+| [M5Stack Unit CAN](https://docs.m5stack.com/en/unit/can) (U085) | From the host module | Yes — same CA-IS3050G | Same route | The same transceiver as a plain breakout, for a controller you already have |
+| [Waveshare SN65HVD230 board](https://www.waveshare.com/sn65hvd230-can-board.htm) | 3.3 V | **No** | Same route | Bare transceiver, no isolation. Cheapest and the one to avoid unless you understand what shares a ground with the engine block |
+
+The firmware nearly everyone uses is
+[esp32-nmea2000](https://github.com/wellenvogel/esp32-nmea2000) — a configurable
+N2K ↔ 0183 ↔ WiFi gateway. For engine data specifically,
+[VolvoPenta-N2K_Interface](https://github.com/buhhe/VolvoPenta-N2K_Interface) bridges a
+Volvo Penta engine's J1939 bus onto NMEA 2000 with the Waveshare transceiver above.
+
+### Reaching the autopilot at all
+
+Every adapter above is about getting data **into** Signal K. `openboat/control/` needs the
+opposite — a path **out** to the pilot — and it is worth being explicit that this is a
+different problem with a different answer.
+
+- **SeaTalkNG is NMEA 2000 electrically.** Raymarine's own connector, the same CAN bus
+  underneath. Anything above that speaks N2K reaches it through an adapter cable.
+- **SeaTalk1 is not.** The original Raymarine bus is three wires — +12 V, data, ground —
+  wired in parallel, 4800 baud, 11-bit frames, no addressing and no master. Raymarine never
+  published it; the whole DIY world works from
+  [Thomas Knauf's reverse-engineered reference](http://www.thomasknauf.de/rap/seatalk1.htm).
+  Reading it takes one transistor as an inverter. Writing to it takes a 74LS07 open-collector
+  buffer between the 12 V line and a 5 V UART — the approach used by
+  [AK-Homberger's autopilot remote](https://github.com/AK-Homberger/Seatalk-Autopilot-Remote-Control)
+  (GPL-3.0; a reference to read, not code to copy into this project). That repository also
+  documents a genuinely nasty gotcha: parts sold as "74LS07" are often CMOS, which clamp
+  the output to 5 V and cannot reach SeaTalk's 12 V idle. Reading works; writing fails
+  silently.
+
+> **The bus does not know who you are.** SeaTalk1 has no addressing and no authentication:
+> a course computer cannot tell OpenBoat's gated, armed, rate-limited command from a stray
+> byte on the wire. Anything that can reach the bus can steer. That is a fact about the
+> boat, not about this software, and it is why `openboat/control/` describes itself as a
+> remote control with an audit trail rather than a safety system — the gate governs
+> OpenBoat's own path and nothing else.
+
 ### NMEA 0183 → USB
 
 The gap that matters here is isolation, not USB-to-serial conversion — any USB-serial chip
@@ -160,13 +206,23 @@ Both are built for **tanks** specifically. There is no equally tidy off-the-shel
 for a generic oil-pressure or coolant-temperature sender — that is still
 ADS1115-and-calibrate-it-yourself territory, or the microcontroller route this project uses.
 
+### Tank level and DC monitoring, past the resistive sender
+
+Two gaps that a resistive float and a voltmeter do not fill.
+
+| Product | What it does | Note |
+|---|---|---|
+| DS1603L ultrasonic sensor | Reads tank level through the wall — glued to the outside, nothing drilled, nothing in the fluid | Works on plastic and GRP tanks of sane thickness, not on a baffled or irregular one. Signal K path via [UltrasonicTankSensor](https://github.com/frewie/UltrasonicTankSensor) + SensESP. ⚠️ No manufacturer page found worth citing; the community repo is the reference |
+| Peacefair PZEM-017 | DC energy meter — 0–300 V, 10–300 A through an external shunt, Modbus RTU out | The honest answer to state of charge: voltage under load tells you almost nothing, and a shunt counts what actually left the battery. Usable unmodified as a Modbus slave; the [Tasmota PZEM-0XX notes](https://tasmota.github.io/docs/PZEM-0XX/) cover wiring it to an ESP for a standalone WiFi monitor |
+
 ### WiFi bridges and multiplexers
 
 | Product | Note |
 |---|---|
 | [Quark-elec A034B](https://www.quark-elec.com) | Bidirectional WiFi ↔ NMEA 2000, with NMEA 0183 and SeaTalk in and out — current, closest one-box answer to "get everything onto WiFi" |
 | [Yacht Devices YDWG-02](https://www.yachtd.com/products/) | NMEA 2000 to WiFi, built for viewing on a phone or tablet |
-| [Shipmodul MiniPlex-3](https://www.shipmodul.com) family | NMEA 0183 multiplexer/router/filter, USB and WiFi variants. ⚠️ NMEA 2000 bridging on the PRO variant not independently confirmed here |
+| [Shipmodul MiniPlex-3](https://www.shipmodul.com) family | NMEA 0183 multiplexer/router/filter, USB and WiFi variants. The **Wi-N2K** variant bridges NMEA 2000 ↔ 0183 both ways and reads SeaTalk1; ⚠️ the caveat about the **PRO** line stands, because no PRO + N2K product exists |
+| [Actisense W2K-2](https://www.actisense.com/product/w2k-2-nmea-2000-wifi-gateway/) | NMEA 2000 to WiFi. Replaces the **W2K-1, which Actisense now mark Retired** — check which one a listing is actually selling |
 | Digital Yacht iKommunicate | The device Signal K's docs long pointed to. **Appeared discontinued when checked on 4 September 2026** — absent from [Digital Yacht's NMEA-interfaces catalogue](https://digitalyachtamerica.com/product-category/interfacing/nmea-interfaces/) then. Their current NMEA-2000-to-network product, [NjordLINK+](https://digitalyachtamerica.com/product/njordlink/), targets Digital Yacht's own cloud service, not a local Signal K bridge, so it isn't a drop-in replacement |
 
 ### Which one do I need

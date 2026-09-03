@@ -21,6 +21,13 @@ provider plugin. The steering algorithm, the rudder feedback loop and the safety
 your pilot's and always have been. This is a remote control with an audit trail, and treating
 it as anything more is a mistake.
 
+**And the bus itself does not know who you are.** On SeaTalk1 there is no addressing and no
+authentication at all; on NMEA 2000 there is no meaningful authentication either. A course
+computer cannot distinguish this package's gated, armed, rate-limited, audited command from
+any other device putting the same bytes on the wire — a published DIY remote soldered onto
+two wires sends exactly the same thing. Everything below governs *OpenBoat's* path to the
+pilot. It cannot govern the bus, and no amount of care here changes what else can reach it.
+
 It also cannot make an unattended boat safe. Every command here assumes somebody is at the
 helm, watching, able to reach the pilot's own standby button faster than any software. That
 assumption is the whole basis on which this is reasonable, and no configuration option

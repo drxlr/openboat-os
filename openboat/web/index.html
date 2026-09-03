@@ -698,6 +698,123 @@ const SIGNALS = {
     why:v => compass(v) },
   'navigation.courseOverGroundTrue': { key:'cog_deg', label:'Course', unit:'°', dp:0, max:360,
     why:v => `over ground, ${compass(v)}` },
+
+  /* ── added after reading how Raymarine's LightHouse and Orca lay out an instrument page.
+     Every path below was checked against the Signal K schemas rather than guessed, and
+     every one of them will read "no sender" on a boat that has not got it — which is most
+     boats, for most of these, and is the correct thing for it to say.                    */
+  'navigation.speedThroughWater': { key:'stw_kn', label:'Through water', unit:'kn', dp:1, max:40,
+    extra:b => b.sog_kn != null && b.stw_kn != null
+      ? (Math.abs(b.sog_kn - b.stw_kn) < 0.3 ? 'no current to speak of'
+         : `${Math.abs(b.sog_kn - b.stw_kn).toFixed(1)} kn of ${b.sog_kn > b.stw_kn ? 'help' : 'foul tide'}`)
+      : 'log' },
+  // The number a grounding actually depends on. Absent until the profile says how far the
+  // sounder sits above the keel — it will not assume an offset.
+  'environment.depth.belowKeel': { key:'depth_keel_m', label:'Under the keel', unit:'m', dp:1, max:50,
+    bands:[[0,1,'bad'],[1,2.5,'warn']],
+    why:v => v < 1 ? 'about to touch' : v < 2.5 ? 'thin' : 'clear' },
+  'environment.wind.speedTrue': { key:'wind_true_kn', label:'True wind', unit:'kn', dp:1, max:40,
+    extra:b => (b.wind_true_deg == null ? 'true'
+      : `from ${Math.round(b.wind_true_deg)}° ${compass(b.wind_true_deg)}`)
+      + (b.wind_true_derived ? ', derived' : '') },
+  'steering.rudderAngle': { key:'rudder_deg', label:'Rudder', unit:'°', dp:0, max:45,
+    why:v => Math.abs(v) < 2 ? 'amidships' : v > 0 ? 'to starboard' : 'to port' },
+  'navigation.attitude.roll': { key:'roll_deg', label:'Heel', unit:'°', dp:0, max:45,
+    why:v => Math.abs(v) < 2 ? 'upright' : v > 0 ? 'to starboard' : 'to port' },
+  'navigation.trip.log': { key:'trip_log_nm', label:'Trip', unit:'nm', dp:1, max:200,
+    why:() => 'since reset' },
+  'propulsion.engine_1.runTime': { key:'engine_hours', label:'Hours', unit:'h', dp:1, max:5000,
+    why:() => 'on the meter' },
+  'propulsion.engine_1.engineLoad': { key:'engine_load_pct', label:'Load', unit:'%', dp:0, max:100,
+    why:v => v > 85 ? 'working hard' : v < 20 ? 'light' : '' },
+  'propulsion.engine_1.oilTemperature': { key:'oil_c', label:'Oil temp', unit:'°C', dp:0, max:140,
+    why:() => '' },
+  'propulsion.engine_1.exhaustTemperature': { key:'exhaust_c', label:'Exhaust', unit:'°C', dp:0, max:600,
+    why:() => 'at the riser' },
+  'propulsion.engine_1.fuel.rate': { key:'fuel_lph', label:'Burn', unit:'L/h', dp:1, max:120,
+    extra:b => b.fuel_lph && b.sog_kn ? `${(b.sog_kn / b.fuel_lph).toFixed(2)} nm per litre` : 'now' },
+  'electrical.batteries.house.current': { key:'amps', label:'Current', unit:'A', dp:1, max:200,
+    why:v => v > 0.5 ? 'charging' : v < -0.5 ? 'drawing' : 'idle' },
+  // Voltage is a poor proxy for charge under load. This is the real one, when a shunt exists.
+  'electrical.batteries.house.capacity.stateOfCharge': { key:'soc_pct', label:'Charge', unit:'%',
+    dp:0, max:100, bands:[[0,30,'bad'],[30,50,'warn']],
+    why:v => v < 30 ? 'low' : v < 50 ? 'getting there' : 'house bank' },
+  'tanks.freshWater.main.currentLevel': { key:'water_pct', label:'Water', unit:'%', dp:0, max:100,
+    bands:[[0,15,'bad'],[15,30,'warn']], why:() => 'fresh' },
+  'tanks.wasteWater.main.currentLevel': { key:'waste_pct', label:'Waste', unit:'%', dp:0, max:100,
+    bands:[[85,100,'bad'],[70,85,'warn']], why:() => 'holding tank' },
+  'environment.outside.pressure': { key:'pressure_hpa', label:'Pressure', unit:'hPa', dp:0, max:1050,
+    why:v => v < 1000 ? 'low' : v > 1020 ? 'high' : '' },
+};
+
+/* ── preconfigured pages ──────────────────────────────────────────────────────────────
+   Five pages, each a situation rather than a category. Modelled on what Raymarine's
+   LightHouse and Orca actually ship, then adapted: their pages assume a sailing yacht with
+   a full sensor suite, and most of these tiles will read "no sender" on most boats. That
+   is deliberate and it is why they are presets rather than defaults — you add the one that
+   matches how you use the boat, and delete the tiles your boat cannot fill.
+
+   Night passage is the one worth explaining. It has fewer tiles than the others, and
+   bigger ones, on purpose: at night the instrument you need is the one you can read
+   without focusing, and the answer to "what else could we show" is almost always nothing.
+   Engine and battery detail are deliberately absent — that is what the Engine page is for,
+   and a glance at it is a decision, not an ambient state.                               */
+const PRESETS = {
+  anchor: { name: 'At anchor', tiles: [
+    ['depth_keel', 'numeral', 'environment.depth.belowKeel', 'L'],
+    ['wind', 'numeral', 'environment.wind.speedTrue', 'M'],
+    ['volts', 'numeral', 'electrical.batteries.house.voltage', 'M'],
+    ['soc', 'numeral', 'electrical.batteries.house.capacity.stateOfCharge', 'S'],
+    ['sea', 'numeral', 'environment.water.temperature', 'S'],
+    ['clock', 'clock', null, 'S'],
+  ] },
+  motoring: { name: 'Motoring', tiles: [
+    ['rpm', 'numeral', 'propulsion.engine_1.revolutions', 'L'],
+    ['coolant', 'numeral', 'propulsion.engine_1.temperature', 'M'],
+    ['oil', 'numeral', 'propulsion.engine_1.oilPressure', 'M'],
+    ['load', 'numeral', 'propulsion.engine_1.engineLoad', 'S'],
+    ['burn', 'numeral', 'propulsion.engine_1.fuel.rate', 'S'],
+    ['fuel', 'numeral', 'tanks.fuel.main.currentLevel', 'S'],
+    ['sea', 'numeral', 'environment.water.temperature', 'S'],
+    ['sog', 'numeral', 'navigation.speedOverGround', 'S'],
+  ] },
+  night: { name: 'Night passage', tiles: [
+    ['rose', 'compass', null, 'L'],
+    ['depth_keel', 'numeral', 'environment.depth.belowKeel', 'M'],
+    ['sog', 'numeral', 'navigation.speedOverGround', 'M'],
+    ['clock', 'clock', null, 'S'],
+  ] },
+  docking: { name: 'Docking', tiles: [
+    ['rose', 'compass', null, 'L'],
+    ['sog', 'numeral', 'navigation.speedOverGround', 'L'],
+    ['wind', 'numeral', 'environment.wind.speedTrue', 'M'],
+    ['depth_keel', 'numeral', 'environment.depth.belowKeel', 'S'],
+    ['rudder', 'numeral', 'steering.rudderAngle', 'S'],
+  ] },
+  check: { name: 'Engine check', tiles: [
+    ['rpm', 'numeral', 'propulsion.engine_1.revolutions', 'M'],
+    ['coolant', 'numeral', 'propulsion.engine_1.temperature', 'M'],
+    ['oil', 'numeral', 'propulsion.engine_1.oilPressure', 'M'],
+    ['oil_c', 'numeral', 'propulsion.engine_1.oilTemperature', 'S'],
+    ['exhaust', 'numeral', 'propulsion.engine_1.exhaustTemperature', 'S'],
+    ['hours', 'numeral', 'propulsion.engine_1.runTime', 'S'],
+    ['volts', 'numeral', 'electrical.batteries.house.voltage', 'S'],
+    ['amps', 'numeral', 'electrical.batteries.house.current', 'S'],
+  ] },
+  tanks: { name: 'Tanks', tiles: [
+    ['fuel', 'numeral', 'tanks.fuel.main.currentLevel', 'L'],
+    ['water', 'numeral', 'tanks.freshWater.main.currentLevel', 'M'],
+    ['waste', 'numeral', 'tanks.wasteWater.main.currentLevel', 'M'],
+    ['burn', 'numeral', 'propulsion.engine_1.fuel.rate', 'S'],
+    ['hours', 'numeral', 'propulsion.engine_1.runTime', 'S'],
+  ] },
+  weather: { name: 'Weather', tiles: [
+    ['wind', 'numeral', 'environment.wind.speedTrue', 'L'],
+    ['pressure', 'numeral', 'environment.outside.pressure', 'M'],
+    ['air', 'numeral', 'environment.outside.temperature', 'M'],
+    ['sea', 'numeral', 'environment.water.temperature', 'S'],
+    ['rose', 'compass', null, 'M'],
+  ] },
 };
 obApplyBands(SIGNALS);
 
@@ -1058,6 +1175,29 @@ const Helm = {
       this.doc.pages.push({ id: 'p' + Date.now().toString(36), name: name.trim(), tiles: [] });
       this.page = this.doc.pages.length - 1; this.commit();
     });
+    // Preset pages. Offered rather than shipped: most of these tiles need a sender most
+    // boats do not have, so a preset that arrived as a default would be a page of "no
+    // sender" on first run. Added on request, it is a starting point you then delete from.
+    word('Preset pages');
+    Object.entries(PRESETS).forEach(([key, preset]) => add(preset.name, () => {
+      this.doc.pages.push({
+        id: 'p' + key + Date.now().toString(36), name: preset.name,
+        tiles: preset.tiles.map(([id, kind, path, size]) => ({
+          id: id + '-' + Math.random().toString(36).slice(2, 6),
+          widget: kind, size, hidden: false, options: {},
+          // The compass takes three bindings rather than one — it exists to show heading,
+          // course and wind against each other, which is the only way any of the three
+          // means anything.
+          bind: kind === 'compass'
+            ? { heading: 'navigation.headingTrue',
+                cog: 'navigation.courseOverGroundTrue',
+                wind: 'environment.wind.directionTrue' }
+            : path,
+        })),
+      });
+      this.page = this.doc.pages.length - 1; this.commit();
+    }));
+    word('·');
     add('Rename page', () => {
       const name = prompt('Page name', page.name);
       if (name && name.trim()) { page.name = name.trim(); this.commit(); }
