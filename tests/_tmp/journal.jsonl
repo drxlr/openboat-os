@@ -1,0 +1,57 @@
+{"at": "2026-09-03T22:55:20+00:00", "event": "armed", "by": "a person", "seconds": 0.3, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "disarmed", "reason": "once"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "sent", "verb": "standby", "value": null, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/state"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:21+00:00", "event": "failed", "verb": "standby", "value": null, "error": "the pilot did not answer", "operator": "a person"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 0.3, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "disarmed", "reason": "once"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "sent", "verb": "standby", "value": null, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/state"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:55:56+00:00", "event": "failed", "verb": "standby", "value": null, "error": "the pilot did not answer", "operator": "a person"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 0.3, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "disarmed", "reason": "once"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "sent", "verb": "standby", "value": null, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/state"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "sent", "verb": "adjust", "value": 1, "operator": "a person", "reason": "", "was": "auto", "path": "/signalk/v2/api/vessels/self/autopilots/_default/target/adjust"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "armed", "by": "a person", "seconds": 60.0, "source": "manual"}
+{"at": "2026-09-03T22:56:31+00:00", "event": "failed", "verb": "standby", "value": null, "error": "the pilot did not answer", "operator": "a person"}

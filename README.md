@@ -100,13 +100,29 @@ boat was where it belongs would be a broken dashboard.
 ## What this is not
 
 Not a chartplotter, not a navigation system, not a safety device. The route planner knows
-nothing about land, depth or restricted areas. Nothing here steers, switches, transmits or
-pays, and the read-only boundary is structural rather than a feature not yet written. Read
-[DISCLAIMER.md](DISCLAIMER.md) before you rely on any of it.
+nothing about land, depth or restricted areas. Read [DISCLAIMER.md](DISCLAIMER.md) before you
+rely on any of it.
 
-Anything that *does* write to the boat lives in its own repository and is installed on
-purpose. The first is [OpenBoat Flush](https://github.com/drxlr/openboat-flush) — a button at
-the helm that flushes the engine's raw-water circuit and records it here.
+## It can steer, and it will not until you say so
+
+Control is **possible, not required, and off**. A fresh install cannot send a command, and
+three separate acts are needed before it can: enabling it in your profile, putting a verb in
+that boat's allow-list, and arming the helm — which expires on its own.
+
+Then it can put your autopilot into standby, engage it, nudge a heading by up to 10°, or set
+a target within 30° of the current one. It is not an autopilot; it talks to the one you have,
+through Signal K's autopilot API, and your pilot stays in charge of the actual steering.
+
+**The AI is never in the command path.** A model can propose an action with its reasoning and
+put a card on a screen. A person taps it. The operator's name is required and the names a
+model might use for itself are refused, `openboat/control/` is the only directory that
+writes, and a test fails the build if that stops being true.
+
+None of this makes an unattended boat safe. Every command assumes somebody at the helm who
+can reach the pilot's own standby faster than any software.
+
+[OpenBoat Flush](https://github.com/drxlr/openboat-flush) is the other write path — a button
+that flushes the engine's raw-water circuit and records it here.
 
 ## Layout
 

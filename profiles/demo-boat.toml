@@ -150,3 +150,39 @@ description = "Fresh-water flush of the raw-water circuit"
 # [maintenance.anodes]
 # description = "Sacrificial anodes, checked and replaced"
 # months = 6
+
+
+# ── Control (ring 2) ─────────────────────────────────────────────────────────────────
+# The only part of OpenBoat that writes to the boat. It is OFF, and a fresh install leaves
+# it off. Turning it on is a deliberate act and this block is where you make it.
+#
+# What it does: talks to the autopilot your boat already has, through Signal K's autopilot
+# API, which talks to your pilot through its vendor plugin. It is a remote control with an
+# audit trail. It is not an autopilot and it does not make an unattended boat safe — every
+# command assumes somebody is at the helm who can reach the pilot's own standby faster than
+# any software.
+#
+# What it will not do, whatever you put here: no AI in the command path (a model may propose
+# a card, a person taps it), no engage-and-walk-away, no retry after a failed command, no
+# heading change larger than 10° in one go, and nothing at all until somebody arms it.
+
+[control]
+enabled = false
+
+# Which verbs this boat permits, once enabled. Anything absent is refused even when armed.
+# Start with the two that only ever reduce what the pilot is doing.
+#   standby  drop the pilot out of auto
+#   auto     engage on the current heading
+#   adjust   nudge the target by ±degrees, capped at 10 in one command
+#   target   set an absolute heading, capped at a 30° swing in one command
+#   dodge    a temporary offset for an obstacle
+allow = ["standby"]
+
+# How long an arming lasts before it lapses. Arming is a decision made now, by somebody
+# aboard; it is not meant to survive the afternoon.
+arm_seconds = 900
+
+# max_adjust_deg = 10          # never raised above 10 by the code, whatever is written here
+# autopilot_id = "_default"    # from Signal K's autopilot list, if you have more than one
+# token = ""                   # a Signal K token with write access. Keep it out of git.
+# journal = "control-journal.jsonl"

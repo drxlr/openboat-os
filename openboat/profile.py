@@ -145,6 +145,11 @@ class Profile:
     #: cooling rather than of a particular engine — see `openboat/maintenance.py`.
     maintenance: dict[str, dict] = field(default_factory=dict)
 
+    #: Ring 2, the only part of OpenBoat that writes to the boat. **Off unless you turn it
+    #: on**, and it stays off through an upgrade because the default is here, not in a file
+    #: somebody might overwrite. See `openboat/control/` for what turning it on means.
+    control: dict = field(default_factory=lambda: {"enabled": False, "allow": []})
+
     sources: dict[str, str] = field(default_factory=dict)
     path: Path | None = None
 
@@ -251,6 +256,7 @@ def load(path: str | os.PathLike | None = None) -> Profile:
         bands=dict(data.get("bands") or {}),
         maintenance={k: dict(v) for k, v in (data.get("maintenance") or {}).items()
                      if isinstance(v, dict)},
+        control={"enabled": False, "allow": [], **(data.get("control") or {})},
         sources=sources,
         path=chosen,
     )
