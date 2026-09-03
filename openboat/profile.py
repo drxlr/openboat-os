@@ -56,6 +56,24 @@ DEFAULT_PATHS: dict[str, str] = {
     "fuel_level": "tanks.fuel.main.currentLevel",
 }
 
+#: The chart layers. The URLs are configuration rather than constants for a reason that is
+#: not style: OpenStreetMap's tile usage policy asks operators to "avoid hard-coding the
+#: tile URL; allow switching without needing a software update", and it is also the only
+#: honest route to offline charts — see `docs/CHARTS.md`. Point `base_url` at an MBTiles
+#: server on the boat and the chart works with no internet at all, legitimately.
+#:
+#: `windy_map_key` is empty on purpose. Windy's free tier is labelled by Windy as "for
+#: development only and is not allowed to be used in production", so the weather chart is
+#: a page you switch on knowingly, never a default.
+DEFAULT_CHART: dict = {
+    "base_url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    "base_attribution": "© OpenStreetMap contributors",
+    "seamark_url": "https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png",
+    "seamark_attribution": "© OpenSeaMap (CC BY-SA 2.0)",
+    "max_zoom": 18,
+    "windy_map_key": "",
+}
+
 
 class ProfileError(Exception):
     """The profile could not be read, or says something impossible."""
@@ -133,6 +151,10 @@ class Profile:
     signalk_url: str = "http://localhost:3000"
     paths: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PATHS))
 
+    #: Chart tile sources and the optional weather-map key. See DEFAULT_CHART above, and
+    #: docs/CHARTS.md for the licences and the tile policy that shape these defaults.
+    chart: dict = field(default_factory=lambda: dict(DEFAULT_CHART))
+
     #: Alarm bands per reading, as [[low, high, severity], ...] in the reading's own unit.
     #: Empty by default: OpenBoat does not know what is hot for *your* engine, and an
     #: invented band is a green light through a real overheat.
@@ -195,8 +217,23 @@ class Profile:
             "forecast_point": {"lat": self.forecast_point[0], "lon": self.forecast_point[1],
                                "name": self.forecast_point_name},
             "timezone": self.timezone,
+            "chart": self.chart,
             "unsourced": self.unsourced(),
         }
+
+
+def _chart(table: dict) -> dict:
+    """Chart layers, with the keys allowed to come from the environment.
+
+    A Windy key necessarily reaches the browser — that is how their map API works — but it
+    must not reach a *repository*. Reading it from the environment first means the key can
+    live in a launchd plist or a systemd unit and never be written into a profile that
+    somebody later commits.
+    """
+    chart = {**DEFAULT_CHART, **{k: v for k, v in table.items() if k in DEFAULT_CHART}}
+    chart["windy_map_key"] = (os.environ.get("OPENBOAT_WINDY_MAP_KEY")
+                              or str(chart.get("windy_map_key", "")))
+    return chart
 
 
 def _point(table: dict, key: str) -> tuple[tuple[float, float], str]:
@@ -253,6 +290,7 @@ def load(path: str | os.PathLike | None = None) -> Profile:
         signalk_url=os.environ.get("SIGNALK_URL") or str(data.get("signalk_url",
                                                                   "http://localhost:3000")),
         paths={**DEFAULT_PATHS, **(data.get("paths") or {})},
+        chart=_chart(data.get("chart") or {}),
         bands=dict(data.get("bands") or {}),
         maintenance={k: dict(v) for k, v in (data.get("maintenance") or {}).items()
                      if isinstance(v, dict)},

@@ -110,7 +110,23 @@ def files_to_check(staged: bool) -> list[Path]:
     for path in ROOT.rglob("*"):
         if path.is_file() and not any(part in SKIP_DIRS for part in path.parts):
             found.append(path)
-    return found
+    return [path for path in found if path not in _ignored(found)]
+
+
+def _ignored(paths: list[Path]) -> set[Path]:
+    """The gitignored subset, asked of git in one call.
+
+    A working-tree scan that reports files git will never commit is worse than useless: it
+    is the guard crying wolf, and a guard you learn to ignore is not a guard. The private
+    profile, `.private-markers` itself and anything under `.local/` are *supposed* to hold
+    private words — that is the whole design. Only what git can actually carry is checked.
+    """
+    if not paths:
+        return set()
+    names = "\0".join(str(p.relative_to(ROOT)) for p in paths)
+    out = subprocess.run(["git", "check-ignore", "--stdin", "-z"],
+                         cwd=ROOT, input=names, capture_output=True, text=True).stdout
+    return {ROOT / name for name in out.split("\0") if name}
 
 
 def main(argv: list[str]) -> int:

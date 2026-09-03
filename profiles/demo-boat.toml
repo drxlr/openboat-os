@@ -186,3 +186,19 @@ arm_seconds = 900
 # autopilot_id = "_default"    # from Signal K's autopilot list, if you have more than one
 # token = ""                   # a Signal K token with write access. Keep it out of git.
 # journal = "control-journal.jsonl"
+
+# --- the chart ------------------------------------------------------------------------
+# Every setting here has a working default; the block exists so you can point the chart at
+# tiles you host yourself, which is the only permitted route to a chart that works offline.
+# OpenStreetMap's tile policy forbids prefetching theirs. See docs/CHARTS.md.
+[chart]
+# base_url = "http://signalk.local:3000/charts/osm/{z}/{x}/{y}.png"   # e.g. signalk-charts
+# base_attribution = "© OpenStreetMap contributors"
+# seamark_url = "https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png"
+# seamark_attribution = "© OpenSeaMap (CC BY-SA 2.0)"
+# max_zoom = 18
+
+# A Windy Map Forecast key adds a weather-chart page. Prefer the environment variable
+# OPENBOAT_WINDY_MAP_KEY: a key written into a profile is a key somebody eventually commits.
+# Windy's free tier is labelled by Windy as development-only — read docs/CHARTS.md first.
+# windy_map_key = ""

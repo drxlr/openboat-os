@@ -1278,17 +1278,27 @@ OS.app({
     el.innerHTML = `<div class="card"><h2>Route</h2><div id="map"></div>
       <p class="quiet" style="margin:.8rem 0 0;display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
         <span>Tap to drop waypoints; seamarks are the OpenSeaMap overlay.</span>
-        <button class="act" id="clear">Clear route</button></p>
+        <button class="act" id="clear">Clear route</button>
+        <a class="quiet" href="https://www.openstreetmap.org/fixthemap" target="_blank"
+           rel="noopener">Report a map issue</a></p>
       <div class="lead n" id="rtotal" style="margin-top:.7rem"></div>
       <div id="rlegs" style="font-size:.95rem"></div>
       <p class="warntext">No land, depth or restricted-area check. Verify every route on a
         real chart.</p></div>`;
 
+    // Tile sources come from the profile, never from here. Two reasons, both practical:
+    // OSM's tile policy asks that the URL be switchable without a software update, and
+    // pointing base_url at an MBTiles server aboard is the one legal way to get a chart
+    // that works offline. See docs/CHARTS.md.
+    const C = (window.OB_PROFILE && window.OB_PROFILE.chart) || {};
+    const zmax = C.max_zoom || 18;
     map = L.map('map').setView(HOME, 11);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {maxZoom:18, attribution:'© OpenStreetMap'}).addTo(map);
-    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
-      {maxZoom:18, attribution:'© OpenSeaMap'}).addTo(map);
+    L.tileLayer(C.base_url || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom:zmax, attribution:C.base_attribution || '© OpenStreetMap contributors'})
+      .addTo(map);
+    L.tileLayer(C.seamark_url || 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+      {maxZoom:zmax, attribution:C.seamark_attribution || '© OpenSeaMap (CC BY-SA 2.0)'})
+      .addTo(map);
     L.marker(HOME).addTo(map).bindPopup(window.OB_BERTH_NAME || 'Berth');
     boatMark = L.circleMarker(HOME, {radius:8, color:'#A93E2F', fillOpacity:1});
 
@@ -1368,6 +1378,20 @@ OS.app({
       <iframe class="report" src="${src}" title="${title}" loading="lazy"></iframe>`;
   }
 }));
+
+/* ── app: the Windy weather chart, only if a key is configured ────────────────────
+   Registered conditionally rather than shown-and-disabled: a tab that exists only to say
+   "not configured" is a tab you pay for on every screen for the life of the install. If no
+   key is set the dashboard simply does not have this page, and nothing else changes.     */
+if ((window.OB_PROFILE && window.OB_PROFILE.chart || {}).windy_map_key) OS.app({
+  id:'wx', title:'Weather chart',
+  mount(el) {
+    el.innerHTML = `<p class="quiet" style="margin:.1rem .2rem .6rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
+      <span>Windy's animated layers with the OpenSeaMap seamarks on top. Needs the internet.</span>
+      <a href="/windy.html" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;min-height:44px">Open on its own</a></p>
+      <iframe class="report" src="/windy.html" title="Weather chart" loading="lazy"></iframe>`;
+  }
+});
 
 /* ── app: about ───────────────────────────────────────────────────────────────────── */
 OS.app({

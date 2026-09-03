@@ -1,0 +1,101 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Weather chart</title>
+
+<!--
+  The Windy map, deliberately on its own page.
+
+  Not a style choice. Windy's map API requires Leaflet 1.4.0 and tells you not to load
+  Leaflet's own CSS ("it has some bugs. Windy API lib downloads fixed styles on its own").
+  The dashboard runs Leaflet 1.9.4 with its stylesheet. Two Leaflets and two stylesheets in
+  one document is a fight nobody wins, so this page owns its own `L` and the dashboard
+  holds it in a frame — the same trick the generated reports use.
+
+  What you get on the free tier, per Windy's own documentation: GFS only, and the wind,
+  temperature and pressure layers only. Windy labels that tier "for development only and
+  is not allowed to be used in production". The banner below says so on screen, because a
+  weather picture that looks authoritative and is not is worse than no picture.
+-->
+
+<script src="https://unpkg.com/leaflet@1.4.0/dist/leaflet.js"></script>
+<script src="https://api.windy.com/assets/map-forecast/libBoot.js"></script>
+
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin:0; height:100%; background:#0b0f14; }
+  #windy { width:100%; height:100%; }
+  .note { position:absolute; z-index:2000; left:0; right:0; bottom:0;
+          font:500 12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+          padding:.55rem .8rem; background:rgba(11,15,20,.86); color:#e8eef5;
+          backdrop-filter:blur(6px); }
+  .note b { color:#ffd479; }
+  .fail { display:flex; align-items:center; justify-content:center; height:100%;
+          padding:2rem; text-align:center; color:#e8eef5;
+          font:400 15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .fail code { background:rgba(255,255,255,.09); padding:.15em .4em; border-radius:4px; }
+</style>
+
+<div id="windy"></div>
+
+<script>
+(async function () {
+  const host = document.getElementById('windy');
+  const fail = (html) => { host.innerHTML = '<div class="fail"><div>' + html + '</div></div>'; };
+
+  let profile;
+  try { profile = await fetch('/api/profile').then(r => r.json()); }
+  catch (e) { return fail('The dashboard server did not answer, so there is no key and no position.'); }
+
+  const chart = profile.chart || {};
+  const key = chart.windy_map_key;
+  if (!key) {
+    return fail('<p><b>No Windy key set.</b></p><p>Set <code>OPENBOAT_WINDY_MAP_KEY</code> in the ' +
+                'server’s environment, or <code>windy_map_key</code> under <code>[chart]</code> ' +
+                'in your profile, then reload.</p><p>Everything else on the dashboard works without it.</p>');
+  }
+  if (typeof windyInit !== 'function') {
+    return fail('<p>Windy’s library did not load.</p><p>This page is the one screen that ' +
+                'needs the internet; the chart, the forecast and the helm do not.</p>');
+  }
+
+  const berth = profile.berth || {lat: 0, lon: 0};
+
+  windyInit({ key, lat: berth.lat, lon: berth.lon, zoom: 8, verbose: false }, (api) => {
+    const { map } = api;
+
+    // The seamark overlay on top of Windy's own base. This is the whole point of putting
+    // the two together: Windy knows the weather, OpenSeaMap knows the buoyage.
+    L.tileLayer(chart.seamark_url || 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+      { maxZoom: chart.max_zoom || 18,
+        attribution: chart.seamark_attribution || '© OpenSeaMap (CC BY-SA 2.0)' })
+      .addTo(map);
+
+    if (berth.lat || berth.lon) {
+      L.circleMarker([berth.lat, berth.lon],
+        { radius: 6, color: '#ffd479', fillOpacity: 1, weight: 2 })
+        .addTo(map).bindTooltip(berth.name || 'Berth');
+    }
+
+    // The boat, if Signal K is answering. Polled slowly: this is a weather picture, not
+    // an instrument, and the helm page is where a live position belongs.
+    const boat = L.circleMarker([0, 0], { radius: 7, color: '#ff5c4d', fillOpacity: 1, weight: 2 });
+    let shown = false;
+    const track = async () => {
+      try {
+        const st = await fetch('/api/state').then(r => r.json());
+        if (st.online && st.lat != null) { boat.setLatLng([st.lat, st.lon]); if (!shown) { boat.addTo(map); shown = true; } }
+        else if (shown) { map.removeLayer(boat); shown = false; }
+      } catch (e) { /* the boat being unreachable is normal and not worth a console line */ }
+    };
+    track(); setInterval(track, 30000);
+
+    const note = document.createElement('div');
+    note.className = 'note';
+    note.innerHTML = '<b>Windy free tier — development only.</b> GFS, and wind, temperature ' +
+      'and pressure only. Windy do not permit this tier in production. Use the Weather page ' +
+      'for the numbers a decision rests on.';
+    document.body.appendChild(note);
+  });
+})();
+</script>
