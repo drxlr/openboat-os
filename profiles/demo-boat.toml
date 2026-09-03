@@ -1,0 +1,117 @@
+# The demo boat.
+#
+# A fictional vessel at a real, public harbour. It exists so that a fresh clone runs and
+# shows something sensible before anyone has configured anything — and so that nothing in
+# this repository describes a real person's boat.
+#
+# To make it yours:
+#
+#     cp profiles/demo-boat.toml boat.toml
+#     $EDITOR boat.toml
+#
+# `boat.toml` is gitignored. Keep it that way, or keep it in a private repository of your
+# own: this file is the only place your boat's facts live, which is exactly what makes it
+# safe to work on the public code and your private boat at the same time.
+#
+# ── The one rule ──────────────────────────────────────────────────────────────────────
+# A number is either sourced or absent. Every vessel fact may carry a `*_source` line
+# saying where it came from. A field with no source is a guess, and `openboat profile`
+# will list it as one. Leave a field blank rather than filling it from a brochure: the
+# model name on a hull is marketing, not a measurement, and a confidently wrong figure is
+# worse than a blank one. OpenBoat refuses to compute rather than compute on a guess.
+
+timezone = "Europe/London"
+signalk_url = "http://localhost:3000"
+
+
+[vessel]
+name = "Demo Boat"
+kind = "motor cruiser"
+
+# Every measurement below is invented for the demo and says so. On your own boat, replace
+# both the value and the source, or delete the pair.
+length_m = 9.00
+length_m_source = "invented for the demo — measure yours or leave it blank"
+beam_m = 2.60
+beam_m_source = "invented for the demo"
+draft_m = 0.90
+draft_m_source = "invented for the demo"
+displacement_kg = 3700
+displacement_kg_source = "invented for the demo"
+
+engine_kw = 220.0
+engine_kw_source = "invented for the demo"
+engine_note = "petrol, raw-water cooled"
+
+fuel_capacity_l = 340
+fuel_capacity_l_source = "invented for the demo"
+
+# Fuel burn is the field most often filled in from a forum post and most often wrong.
+# The only figure worth having is a full tank divided by the hours it lasted, on your
+# boat, with your propeller. Until then leave it blank and let OpenBoat say it cannot
+# work out a passage's fuel.
+cruise_speed_kn = 20.0
+cruise_speed_kn_source = "invented for the demo"
+# cruise_burn_lph =
+
+# An MMSI is personal data and identifies a specific vessel. It stays blank here, and it
+# should stay out of any repository you push.
+mmsi = ""
+callsign = ""
+
+
+# ── Where the boat is, and what a forecast is asked about ────────────────────────────
+# These are two different places on purpose, and there is deliberately no name meaning
+# both. See docs/FORECAST.md — a coastal forecast cell that contains a marina is
+# land-influenced: it under-reads the wind the boat will actually meet and over-reads its
+# gusts, and because a passage window is tested against wind *and* gusts, those two errors
+# do not cancel. Real windows get thrown away on gusts that only exist ashore.
+
+[berth]
+# Where the boat physically sits. Use this to ask "what is it doing at the boat".
+name = "Queen Anne's Battery, Plymouth"
+lat = 50.3640
+lon = -4.1310
+
+[forecast_point]
+# Open water the boat actually runs in, a few miles off. Use this to ask "can we go out".
+name = "Plymouth Sound, offshore"
+lat = 50.3100
+lon = -4.1500
+
+
+# ── The skipper's limits ─────────────────────────────────────────────────────────────
+# Comfort limits, not survival limits, and the distinction is the point. The cost of a
+# missed nice day is nothing; the cost of a frightened passenger is the rest of the
+# season. Set these where *you* would turn back, not where the boat would.
+
+[limits]
+max_wind_kn = 15.0
+max_gust_kn = 20.0
+max_wave_m = 0.8
+max_rain_mm = 0.2
+daylight_from_h = 7
+daylight_to_h = 19
+
+
+# ── Signal K paths ───────────────────────────────────────────────────────────────────
+# Only override the ones your boat names differently. One boat's engine is
+# `propulsion.engine_1`, another's is `propulsion.port`. A path that does not exist on
+# your boat reads as "no sender", which is the honest answer and not an error.
+
+[paths]
+# engine_temperature = "propulsion.port.temperature"
+# battery_voltage = "electrical.batteries.house.voltage"
+
+
+# ── Alarm bands ──────────────────────────────────────────────────────────────────────
+# Empty by default, and that is deliberate. OpenBoat does not know what is hot for your
+# engine. A raw-water cooled engine runs a thermostat near 60 °C; a freshwater-cooled one
+# runs near 85 °C. Copying the wrong set is how a dashboard stays green through a real
+# overheat. Fill these in from your engine's manual, or leave them out and read the number
+# yourself.
+#
+# Format: [[low, high, severity]] in the reading's own unit, severity "warn" or "bad".
+#
+# [bands]
+# engine_temperature = [[82, 90, "warn"], [90, 999, "bad"]]

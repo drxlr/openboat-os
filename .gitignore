@@ -1,0 +1,31 @@
+# The owner's boat. Never commit one.
+boat.toml
+*.local.toml
+.private-markers
+
+# Secrets and local state
+.env
+.env.*
+*.key
+*.pem
+security.json
+.local/
+
+# Generated
+reports/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db

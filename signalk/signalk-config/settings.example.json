@@ -1,0 +1,42 @@
+{
+  "interfaces": {},
+  "ssl": false,
+  "pipedProviders": [
+    {
+      "id": "sim-nmea0183",
+      "enabled": true,
+      "pipeElements": [
+        {
+          "type": "providers/simple",
+          "options": {
+            "logging": false,
+            "type": "NMEA0183",
+            "subOptions": {
+              "type": "tcp",
+              "host": "host.docker.internal",
+              "port": 10110
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "engine-bridge",
+      "enabled": true,
+      "pipeElements": [
+        {
+          "type": "providers/simple",
+          "options": {
+            "logging": false,
+            "type": "SignalK",
+            "subOptions": {
+              "type": "tcp",
+              "host": "host.docker.internal",
+              "port": 10120
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

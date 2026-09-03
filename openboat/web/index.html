@@ -1,0 +1,1409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>OpenBoat</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  /* Three palettes, one set of token names. Everything below reads tokens, never hex, so
+     the whole page — helm tiles, weather, chart chrome — follows the palette.
+
+     day    sun-readable: white tiles, near-black numerals. Measured 18.6:1 on numerals,
+            13.0:1 on labels, 7.9:1 on the small line — all past WCAG AAA (7:1).
+     dusk   the boat's dark palette, neutral, full colour. 14.2:1 / 9.6:1 / 6.1:1.
+     night  red on black to spare night vision. A red hue cannot pass 7:1 on black
+            without adding green, so the numeral is an orange-red at 7.2:1 and the labels
+            sit at 5.2:1; the rest is deliberately dim.
+     The numbers are computed, not eyeballed — see docs/openboat/70-helm-ui.md.        */
+  :root {
+    color-scheme:light;
+    --paper:#EEF1EF; --panel:#FFFFFF; --ink:#0F1412; --ink-soft:#2B3330; --muted:#4A5350;
+    --rule:#7E8984; --rule-soft:#C9D0CC;
+    --red:#B3261E; --water:#175E7E; --rust:#7A5200; --good:#2B6B3E;
+    --bar:#FFFFFF; --panel-bad:#FFF4F2; --shadow:none; --lift:0 14px 34px rgba(15,20,18,.28);
+  }
+  :root[data-mode="dusk"] {
+    color-scheme:dark;
+    --paper:#15181A; --panel:#1D2123; --ink:#EEF0ED; --ink-soft:#C2C8C4; --muted:#98A09C;
+    --rule:#6B7578; --rule-soft:#2E3436;
+    --red:#F07A66; --water:#74BBD9; --rust:#E3A75E; --good:#7CBD8F;
+    --bar:#1A1E20; --panel-bad:#33201D; --lift:0 14px 34px rgba(0,0,0,.6);
+  }
+  :root[data-mode="night"] {
+    color-scheme:dark;
+    --paper:#000000; --panel:#0A0303; --ink:#FF6A3C; --ink-soft:#E0512E; --muted:#B4401F;
+    --rule:#5C2116; --rule-soft:#2A0E09;
+    --red:#FF8A60; --water:#FF6A3C; --rust:#FF6A3C; --good:#E0512E;
+    --bar:#050101; --panel-bad:#3A0C05; --lift:0 14px 34px rgba(0,0,0,.9);
+  }
+  /* Fallback only: the script below sets data-mode before first paint. If it cannot run,
+     the OS preference still decides between the sun palette and the dark one. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-mode]) {
+      color-scheme:dark;
+      --paper:#15181A; --panel:#1D2123; --ink:#EEF0ED; --ink-soft:#C2C8C4; --muted:#98A09C;
+      --rule:#6B7578; --rule-soft:#2E3436;
+      --red:#F07A66; --water:#74BBD9; --rust:#E3A75E; --good:#7CBD8F;
+      --bar:#1A1E20; --panel-bad:#33201D;
+    }
+  }
+
+  /* Numerals: system sans, tabular figures, so 9.8 → 10.1 never shifts the tile. Sizes are
+     per viewport class, not fluid — a helm value has a known reading distance.
+       tablet landscape   S 60 px ≈ 7.5 mm cap height on the Pixel Tablet (276 ppi, 2×)
+       tablet portrait    S 50 px
+       phone              S 42 px                                                     */
+  :root { --cols:4; --rows:3; --ratio:.72; --gap:12px; --side:16px;
+          --num-s:60px; --num-m:78px; --num-l:108px; --top:64px; --dock:72px; }
+  @media (max-width:1099px) { :root { --cols:3; --num-s:50px; --num-m:66px; --num-l:92px; } }
+  @media (max-width:1099px) and (orientation:portrait) { :root { --rows:4; --ratio:1.05; } }
+  @media (max-width:599px)  { :root { --cols:2; --side:12px; --gap:10px;
+                                      --num-s:42px; --num-m:56px; --num-l:74px; } }
+
+  *,*::before,*::after { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  html,body { height:100%; }
+  body {
+    margin:0; background:var(--paper); color:var(--ink); font-size:18px; line-height:1.5;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; overscroll-behavior:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .n { font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+       font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+  .num { font-variant-numeric:tabular-nums; font-weight:700; letter-spacing:-.015em; }
+  a { color:var(--water); }
+  button { font:inherit; color:inherit; }
+  :focus-visible { outline:3px solid var(--water); outline-offset:3px; border-radius:8px; }
+  svg { fill:none; }
+
+  /* --- the shell: a top bar for identity and the page you are arranging, a dock at the
+         bottom for the apps and the palette. Every control in both is at least 56 px. --- */
+  .top { position:sticky; top:0; z-index:40; background:var(--bar);
+         border-bottom:1px solid var(--rule-soft); height:var(--top);
+         display:flex; align-items:center; gap:.6rem; padding:0 var(--side); }
+  .top h1 { margin:0; font-size:1.25rem; letter-spacing:-.02em; white-space:nowrap; }
+  .top .sub { color:var(--muted); font-size:.95rem; white-space:nowrap; }
+  .pages { display:flex; gap:6px; margin-left:.3rem; overflow-x:auto; scrollbar-width:none; }
+  .pages::-webkit-scrollbar { display:none; }
+  .chip { min-height:56px; min-width:56px; padding:0 1.1rem; border-radius:14px;
+          border:2px solid transparent; background:none; color:var(--muted); font-weight:600;
+          font-size:1.05rem; cursor:pointer; white-space:nowrap; }
+  .chip[aria-pressed="true"] { color:var(--ink); border-color:var(--rule); background:var(--panel); }
+  .link { margin-left:auto; min-height:44px; display:inline-flex; align-items:center; gap:.5rem;
+          padding:0 .9rem; border:2px solid var(--rule-soft); border-radius:999px;
+          font-size:1rem; font-weight:600; color:var(--muted); white-space:nowrap; }
+  .link::before { content:""; width:14px; height:14px; border-radius:50%; background:var(--rule);
+                  flex:0 0 auto; }
+  .link.on { color:var(--good); border-color:var(--good); }
+  .link.on::before { background:var(--good); }
+  .link.stale { color:var(--rust); border-color:var(--rust); }
+  .link.stale::before { background:var(--rust); }
+  .tool { min-height:56px; min-width:56px; padding:0 1.1rem; border-radius:14px;
+          border:2px solid var(--rule); background:var(--panel); color:var(--ink);
+          font-weight:600; font-size:1.05rem; cursor:pointer; display:inline-flex;
+          align-items:center; gap:.5rem; white-space:nowrap; }
+  .tool svg { width:24px; height:24px; stroke:currentColor; stroke-width:2.2;
+              stroke-linecap:round; stroke-linejoin:round; }
+  .tool.on { background:var(--ink); color:var(--panel); border-color:var(--ink); }
+  @media (max-width:599px) {
+    .top .sub { display:none; }
+    .link { padding:0; width:44px; justify-content:center; font-size:0; }
+    .link::before { width:16px; height:16px; }
+    .tool .word { display:none; }
+    .tool { padding:0; width:56px; justify-content:center; }
+  }
+
+  main { max-width:1480px; margin:0 auto; touch-action:pan-y;
+         padding:var(--gap) var(--side) calc(var(--dock) + env(safe-area-inset-bottom) + var(--gap)); }
+  body.sheet-open main { padding-bottom:calc(var(--dock) + env(safe-area-inset-bottom) + var(--sheet, 200px)); }
+  .app[hidden] { display:none; }
+
+  .dock { position:fixed; left:0; right:0; bottom:0; z-index:40; background:var(--bar);
+          border-top:1px solid var(--rule-soft); display:flex; align-items:stretch;
+          height:calc(var(--dock) + env(safe-area-inset-bottom));
+          padding-bottom:env(safe-area-inset-bottom); }
+  nav { flex:1 1 auto; display:flex; overflow-x:auto; scrollbar-width:none; min-width:0; }
+  nav::-webkit-scrollbar { display:none; }
+  nav button { flex:0 0 auto; min-width:96px; min-height:56px; padding:0 1.15rem;
+    background:none; border:0; border-top:4px solid transparent; color:var(--muted);
+    font-size:1.05rem; font-weight:600; cursor:pointer; }
+  nav button[aria-selected="true"] { color:var(--ink); border-top-color:var(--water); }
+  .mode { flex:0 0 auto; min-width:128px; border:0; border-left:1px solid var(--rule-soft);
+          background:none; color:var(--ink); cursor:pointer; display:flex; align-items:center;
+          gap:.6rem; padding:0 1rem; text-align:left; user-select:none; -webkit-user-select:none; }
+  .mode svg { width:28px; height:28px; stroke:currentColor; stroke-width:2; stroke-linecap:round;
+              stroke-linejoin:round; flex:0 0 auto; }
+  .mode b { display:block; font-size:1.05rem; line-height:1.15; }
+  .mode small { display:block; font-size:.8rem; color:var(--muted); line-height:1.15; }
+  @media (max-width:599px) { .mode { min-width:100px; padding:0 .7rem; } .mode small { display:none; } }
+
+  .card { background:var(--panel); border:2px solid var(--rule-soft); border-radius:14px;
+          padding:1.1rem 1.2rem; margin-bottom:.9rem; }
+  .card h2 { margin:0 0 .7rem; font-size:1rem; font-weight:600; letter-spacing:-.01em; }
+  .quiet { color:var(--muted); font-size:.95rem; }
+
+  /* --- helm: a grid of tiles from a layout document ---------------------------------
+     Tile height follows the tile width (so a tile keeps its shape when the column count
+     changes) but is capped so the default page fills a tablet without scrolling: three
+     rows in landscape, four in portrait, where tiles are allowed to stand taller.      */
+  .grid {
+    --tw:calc((min(100vw, 1480px) - 2 * var(--side) - (var(--cols) - 1) * var(--gap)) / var(--cols));
+    --row:clamp(150px, min(calc((100vh - var(--top) - var(--dock) - (var(--rows) + 1) * var(--gap)) / var(--rows)),
+                            calc(var(--tw) * var(--ratio))), 260px);
+    --row:clamp(150px, min(calc((100dvh - var(--top) - var(--dock) - (var(--rows) + 1) * var(--gap)) / var(--rows)),
+                            calc(var(--tw) * var(--ratio))), 260px);
+    display:grid; grid-template-columns:repeat(var(--cols), minmax(0, 1fr));
+    grid-auto-rows:var(--row); gap:var(--gap); grid-auto-flow:dense;
+  }
+  .tile { background:var(--panel); border:2px solid var(--rule); border-radius:16px;
+          padding:12px 18px 12px; position:relative; overflow:hidden; min-width:0;
+          display:flex; flex-direction:column; }
+  .tile.M { grid-column:span 2; }
+  .tile.L { grid-column:span 2; grid-row:span 2; }
+  .tlabel { font-size:1.15rem; font-weight:600; color:var(--ink-soft); line-height:1.2;
+            display:flex; justify-content:space-between; align-items:baseline; gap:.5rem; }
+  .tvalue { margin-top:auto; line-height:1; white-space:nowrap; }
+  .tile .num { font-size:var(--num-s); line-height:1; display:block; }
+  .tile.M .num { font-size:var(--num-m); }
+  .tile.L .num { font-size:var(--num-l); }
+  .num .unit { font-size:.36em; font-weight:600; color:var(--muted); margin-left:.14em;
+               letter-spacing:0; }
+  .range { display:block; width:100%; height:6px; margin-top:10px; }
+  .range .track { fill:var(--rule-soft); }
+  .range .fill { fill:var(--water); }
+  .twhy { margin-top:6px; font-size:1rem; color:var(--muted); line-height:1.25; min-height:1.25em;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .twhy .glyph { display:none; margin-right:.35em; }
+  .tile.absent .num { color:var(--muted); font-weight:500; }
+  .tile.absent .range .fill { display:none; }
+  /* A verdict is colour AND a shape AND words, never colour alone. */
+  .tile.warn { border-color:var(--rust); border-width:3px; }
+  .tile.warn .range .fill { fill:var(--rust); }
+  .tile.warn .twhy { color:var(--ink); font-weight:600; }
+  .tile.warn .glyph { display:inline; color:var(--rust); }
+  .tile.warn .glyph::before { content:"●"; }
+  .tile.bad { border-color:var(--red); border-width:3px; background:var(--panel-bad); }
+  .tile.bad .num { color:var(--red); }
+  .tile.bad .range .fill { fill:var(--red); }
+  .tile.bad .twhy { color:var(--ink); font-weight:700; }
+  .tile.bad .glyph { display:inline; color:var(--red); }
+  .tile.bad .glyph::before { content:"▲"; }
+
+  .tile.compass { padding:10px 14px 12px; }
+  .tile.compass .rose { flex:1 1 auto; min-height:0; width:100%; }
+  .tile.compass .rose svg { display:block; width:100%; height:100%; }
+  .bearings { display:grid; grid-template-columns:repeat(3, 1fr); gap:.5rem; flex:0 0 auto;
+              border-top:1px solid var(--rule-soft); margin-top:.4rem; padding-top:.6rem; }
+  .bearings .blab { font-size:.95rem; font-weight:600; }
+  .tile .bearings .bval { font-size:calc(var(--num-s) * .62); line-height:1.05; }
+  .bearings .bsub { font-size:.9rem; color:var(--muted); white-space:nowrap; overflow:hidden;
+                    text-overflow:ellipsis; }
+  .tile.compass.M { flex-direction:row; align-items:stretch; gap:1rem; }
+  .tile.compass.M .rose { flex:0 0 auto; width:auto; }
+  .tile.compass.M .rose svg { width:auto; height:100%; }
+  .tile.compass.M .bearings { flex:1 1 auto; grid-template-columns:1fr; border-top:0;
+                              margin:0; padding:0; align-content:center; }
+  .tile.clock .num { font-weight:600; }
+  .tile.missing .tlabel { color:var(--muted); }
+
+  /* --- arranging: one obvious button, tiles you drag, a sheet for the rest ----------- */
+  .grid.editing .tile { cursor:grab; touch-action:pan-y; user-select:none;
+                        -webkit-user-select:none; -webkit-touch-callout:none; }
+  .grid.editing .tile::after { content:attr(data-size); position:absolute; top:10px; right:12px;
+    min-width:34px; height:34px; padding:0 .5rem; border-radius:10px; background:var(--ink);
+    color:var(--panel); font-size:.95rem; font-weight:700; display:flex; align-items:center;
+    justify-content:center; }
+  .grid.editing .tile.picked { outline:4px solid var(--water); outline-offset:2px; }
+  .tile.dragging { pointer-events:none; z-index:6; box-shadow:var(--lift); opacity:.96;
+                   transform:scale(1.03); }
+  .editbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+             margin:0 0 var(--gap); padding:10px 12px; border:2px solid var(--rule);
+             border-radius:16px; background:var(--panel); }
+  .editbar .word { font-weight:600; color:var(--muted); padding:0 .4rem; }
+  .bt { min-height:56px; min-width:56px; padding:0 1rem; border-radius:12px;
+        border:2px solid var(--rule); background:var(--panel); color:var(--ink);
+        font-weight:600; font-size:1.05rem; cursor:pointer; white-space:nowrap; }
+  .bt[aria-pressed="true"] { background:var(--ink); color:var(--panel); border-color:var(--ink); }
+  .bt.arm { border-color:var(--red); color:var(--red); }
+  .bt:disabled { opacity:.45; cursor:default; }
+  .sheet { position:fixed; left:0; right:0; z-index:45; background:var(--bar);
+           border-top:3px solid var(--rule); padding:12px var(--side) 14px; box-shadow:var(--lift);
+           bottom:calc(var(--dock) + env(safe-area-inset-bottom)); }
+  .sheet[hidden] { display:none; }
+  .sheet .srow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .sheet .srow + .srow { margin-top:8px; }
+  .sheet .title { font-weight:700; font-size:1.15rem; margin-right:.5rem; }
+  .sheet .grow { flex:1 1 auto; }
+
+  /* --- generic -------------------------------------------------------------------- */
+  ul.rows { list-style:none; margin:0; padding:0; }
+  ul.rows li { display:flex; justify-content:space-between; gap:1rem; padding:.55rem 0;
+               border-top:1px solid var(--rule-soft); flex-wrap:wrap; }
+  ul.rows li:first-child { border-top:0; }
+  .len { color:var(--good); font-weight:600; }
+  .lead { font-size:1.5rem; font-weight:600; letter-spacing:-.02em; line-height:1.25; }
+  .lead .when { color:var(--good); }
+  .lead.bad .when { color:var(--red); }
+
+  .strip { display:flex; gap:2px; align-items:flex-end; height:80px; overflow-x:auto; }
+  .barw { flex:0 0 9px; border-radius:2px 2px 0 0; position:relative; background:var(--rule-soft); }
+  .barw .f { position:absolute; bottom:0; left:0; right:0; border-radius:2px 2px 0 0; }
+  .ok{background:var(--good)} .mid{background:var(--rust)} .badf{background:var(--red)}
+  .night { opacity:.34; }
+  .ticks { display:flex; gap:2px; overflow-x:auto; font-size:.7rem; color:var(--muted); }
+  .ticks span { flex:0 0 9px; text-align:center; }
+  .ticks .day { color:var(--ink-soft); font-weight:700; white-space:nowrap; overflow:visible; }
+
+  #map { height:min(62vh, 30rem); border-radius:12px; border:2px solid var(--rule-soft); }
+  .leaflet-control-zoom a { width:56px !important; height:56px !important;
+                            line-height:56px !important; font-size:26px !important; }
+  :root[data-mode="night"] #map { filter:brightness(.42) sepia(1) saturate(2.4) hue-rotate(-25deg); }
+  :root[data-mode="night"] iframe.report { filter:brightness(.5) sepia(.8) saturate(1.6) hue-rotate(-25deg); }
+  button.act { min-height:56px; padding:0 1.1rem; border-radius:12px; font-size:1.05rem;
+    font-weight:600; border:2px solid var(--rule); background:var(--panel); color:var(--ink);
+    cursor:pointer; }
+  .warntext { color:var(--rust); font-size:.95rem; }
+  iframe.report { display:block; width:100%; height:min(80vh, 52rem);
+    border:2px solid var(--rule-soft); border-radius:14px; background:var(--panel); }
+
+  .empty { text-align:left; padding:1.4rem 0 .4rem; }
+  .empty h3 { margin:0 0 .3rem; font-size:1.1rem; font-weight:600; }
+  .empty code, .card code { background:var(--rule-soft); padding:.1rem .35rem; border-radius:4px;
+                            font-size:.85em; }
+  @media (prefers-reduced-motion:no-preference) {
+    .swing { transition:transform .7s cubic-bezier(.32,.72,.28,1); }
+  }
+</style>
+<script>
+// ── The boat's identity ───────────────────────────────────────────────────────────────
+// This file contains no boat facts. The name, the subtitle, the chart's home position and
+// the About card are all fetched from /api/profile, which reads boat.toml. That is what
+// lets this dashboard live in a public repository while describing your boat.
+window.OB_HOME = [0, 0];
+window.OB_BERTH_NAME = 'Berth';
+window.OB_PROFILE = null;
+(function () {
+  var request = new XMLHttpRequest();
+  try {
+    request.open('GET', '/api/profile', false);   // before first paint: the chart needs it
+    request.send(null);
+    if (request.status === 200) {
+      var p = JSON.parse(request.responseText);
+      window.OB_PROFILE = p;
+      window.OB_HOME = [p.berth.lat, p.berth.lon];
+      window.OB_BERTH_NAME = p.berth.name || 'Berth';
+    }
+  } catch (e) { /* no profile: the page still runs, showing no boat rather than a wrong one */ }
+})();
+function obApplyProfile() {
+  var p = window.OB_PROFILE;
+  if (!p) return;
+  var v = p.vessel || {};
+  var name = v.name || 'OpenBoat';
+  document.title = name;
+  var h1 = document.getElementById('boatname');
+  if (h1) h1.textContent = name;
+  var sub = document.getElementById('sub');
+  if (sub) {
+    var bits = [];
+    if (v.kind) bits.push(v.kind);
+    if (v.length_m) bits.push(Number(v.length_m).toFixed(2).replace('.', ',') + ' m');
+    if (p.berth && p.berth.name) bits.push(p.berth.name);
+    sub.textContent = bits.join(' · ');
+  }
+  var boatRow = document.getElementById('about-boat');
+  if (boatRow) {
+    var dims = [];
+    if (v.length_m) dims.push(Number(v.length_m).toFixed(2).replace('.', ',') + ' m');
+    if (v.beam_m) dims.push(Number(v.beam_m).toFixed(2).replace('.', ',') + ' m beam');
+    if (v.draft_m) dims.push('draft ' + Number(v.draft_m).toFixed(2).replace('.', ',') + ' m');
+    boatRow.textContent = [name].concat(dims).join(' · ');
+  }
+  var engineRow = document.getElementById('about-engine');
+  if (engineRow) {
+    var e = [];
+    if (v.engine_kw) e.push(Number(v.engine_kw).toFixed(0) + ' kW');
+    if (v.engine_note) e.push(v.engine_note);
+    engineRow.textContent = e.length ? e.join(' · ') : 'not recorded';
+  }
+  var un = document.getElementById('about-unsourced');
+  if (un && p.unsourced && p.unsourced.length) {
+    un.textContent = ' Unsourced right now: ' + p.unsourced.join(', ') + '.';
+  }
+}
+// Alarm bands from the profile, keyed by the short metric name (engine_temperature,
+// battery_voltage, ...). A band set there replaces whatever the SIGNALS table holds; a
+// metric with no band anywhere gets no verdict, which is the honest state for an engine
+// nobody has characterised yet.
+function obApplyBands(signals) {
+  var p = window.OB_PROFILE;
+  if (!p || !p.bands || !signals) return;
+  var byKey = {};
+  for (var path in signals) {
+    if (signals[path] && signals[path].key) byKey[signals[path].key] = signals[path];
+  }
+  var alias = { engine_temperature:'coolant_c', engine_oil_pressure:'oil_bar',
+                battery_voltage:'volts', fuel_level:'fuel_pct', engine_revolutions:'rpm',
+                depth:'depth_m', water_temperature:'water_c',
+                speed_over_ground:'sog_kn', wind_speed:'wind_apparent_kn' };
+  for (var name in p.bands) {
+    var target = byKey[alias[name] || name];
+    if (target) target.bands = p.bands[name];
+  }
+}
+document.addEventListener('DOMContentLoaded', obApplyProfile);
+
+/* Palette before first paint, so a night-time load never flashes white at the helm.
+   Auto follows the sun's height over the boat — the berth when the boat is offline —
+   not the clock: 3° and above is day, down to −6° (end of civil twilight) is dusk, below
+   is night. Same low-precision solar formula as the Astronomical Almanac, good to ~0.01°. */
+(function () {
+  const KEY = 'openboat.mode.v1', HOME = (window.OB_HOME || [0, 0]);
+  function solarElevation(date, lat, lon) {
+    const rad = Math.PI / 180;
+    const n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;      // days since J2000
+    const L = (280.460 + 0.9856474 * n) % 360;
+    const g = ((357.528 + 0.9856003 * n) % 360) * rad;
+    const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+    const eps = (23.439 - 0.0000004 * n) * rad;
+    const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+    const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+    const gmst = (18.697374558 + 24.06570982441908 * n) % 24;
+    const ha = (gmst * 15 + lon) * rad - ra;
+    return Math.asin(Math.sin(lat * rad) * Math.sin(dec) +
+                     Math.cos(lat * rad) * Math.cos(dec) * Math.cos(ha)) / rad;
+  }
+  function resolve(pref, lat, lon) {
+    if (pref === 'day' || pref === 'dusk' || pref === 'night') return pref;
+    const el = solarElevation(new Date(), lat ?? HOME[0], lon ?? HOME[1]);
+    return el >= 3 ? 'day' : el >= -6 ? 'dusk' : 'night';
+  }
+  let pref = 'auto';
+  try { pref = localStorage.getItem(KEY) || 'auto'; } catch (e) {}
+  document.documentElement.dataset.mode = resolve(pref);
+  window.Palette = { KEY, HOME, pref, resolve, solarElevation };
+})();
+</script>
+</head>
+<body>
+
+<header class="top">
+  <h1 id="boatname">OpenBoat</h1>
+  <span class="sub" id="sub"></span>
+  <div class="pages" id="pages" hidden></div>
+  <span class="link" id="link" title="boat link">looking for the boat</span>
+  <button class="tool" id="arrange" hidden aria-pressed="false" aria-label="Arrange the helm">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/>
+      <circle cx="9" cy="7" r="2.2" fill="var(--panel)"/><circle cx="15" cy="12" r="2.2" fill="var(--panel)"/>
+      <circle cx="8" cy="17" r="2.2" fill="var(--panel)"/></svg>
+    <span class="word">Arrange</span>
+  </button>
+</header>
+
+<main id="main"></main>
+
+<div class="dock">
+  <nav id="nav" role="tablist" aria-label="Apps"></nav>
+  <button class="mode" id="mode" aria-label="Palette: tap for the next, hold for automatic"></button>
+</div>
+
+<div class="sheet" id="sheet" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+
+/* ── the shell ─────────────────────────────────────────────────────────────────────
+   One poll loop, one state object, apps that register against it. An app renders from
+   `state` and never fetches for itself, so eight open tabs cost one request, and every
+   app sees the same boat at the same instant.                                        */
+
+const OS = {
+  apps: [],
+  state: { boat: null, boatAt: 0, windows: null, forecast: null },
+  current: null,
+
+  app(def) { this.apps.push(def); },
+
+  start() {
+    const nav = document.getElementById('nav'), main = document.getElementById('main');
+    this.apps.forEach(a => {
+      const b = document.createElement('button');
+      b.textContent = a.title; b.id = 'tab-' + a.id;
+      b.setAttribute('role', 'tab'); b.setAttribute('aria-controls', 'app-' + a.id);
+      b.onclick = () => this.show(a.id);
+      nav.appendChild(b);
+      const s = document.createElement('section');
+      s.className = 'app'; s.id = 'app-' + a.id; s.hidden = true;
+      s.setAttribute('role', 'tabpanel');
+      main.appendChild(s);
+      a.el = s;
+    });
+
+    const wanted = location.hash.slice(1) || localStorage.getItem('openboat.app');
+    this.show(this.apps.some(a => a.id === wanted) ? wanted : this.apps[0].id);
+    addEventListener('hashchange', () => this.show(location.hash.slice(1)));
+
+    this.swipe(main);
+    this.modeButton();
+    this.pollBoat(); setInterval(() => this.pollBoat(), 2000);
+    this.pollWeather(); setInterval(() => this.pollWeather(), 600000);
+  },
+
+  show(id) {
+    const app = this.apps.find(a => a.id === id);
+    if (!app || this.current === id) return;
+    if (this.current === 'helm') Helm.stopEditing();
+    this.current = id;
+    try { localStorage.setItem('openboat.app', id); } catch (e) {}
+    if (location.hash.slice(1) !== id) history.replaceState(null, '', '#' + id);
+
+    this.apps.forEach(a => {
+      a.el.hidden = a.id !== id;
+      document.getElementById('tab-' + a.id).setAttribute('aria-selected', a.id === id);
+    });
+    document.getElementById('tab-' + id).scrollIntoView({ inline: 'center', block: 'nearest' });
+    if (!app.ready) { app.mount?.(app.el); app.ready = true; }
+    app.render?.(app.el, this.state);
+    Helm.chrome(id === 'helm');
+  },
+
+  step(dir) {
+    const i = this.apps.findIndex(a => a.id === this.current) + dir;
+    if (i >= 0 && i < this.apps.length) this.show(this.apps[i].id);
+  },
+
+  // A horizontal swipe on the content moves one app along; vertical stays a scroll
+  // (touch-action:pan-y on main). The map, the report frames and the wind strip own
+  // their own horizontal gestures and are left alone.
+  swipe(main) {
+    let sx = 0, sy = 0, live = false;
+    main.addEventListener('pointerdown', e => {
+      live = false;
+      if (e.pointerType !== 'touch' || Helm.editing) return;
+      if (e.target.closest('#map, iframe, .strip, .ticks, [data-noswipe]')) return;
+      sx = e.clientX; sy = e.clientY; live = true;
+    });
+    main.addEventListener('pointerup', e => {
+      if (!live) return;
+      live = false;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) this.step(dx < 0 ? 1 : -1);
+    });
+    main.addEventListener('pointercancel', () => { live = false; });
+  },
+
+  paint() {
+    const app = this.apps.find(a => a.id === this.current);
+    app?.render?.(app.el, this.state);
+  },
+
+  async pollBoat() {
+    try {
+      const r = await fetch('/api/state');
+      const s = await r.json();
+      this.state.boat = s.online ? s : null;
+      this.state.reason = s.reason;
+      if (s.online) this.state.boatAt = Date.now();
+    } catch (e) { this.state.boat = null; }
+    this.link(); this.mode(); this.paint();
+  },
+
+  async pollWeather() {
+    try {
+      const [w, f] = await Promise.all([
+        fetch('/api/windows?days=7&min_hours=3').then(r => r.json()),
+        fetch('/api/forecast?days=3').then(r => r.json())]);
+      this.state.windows = w; this.state.forecast = f;
+    } catch (e) {}
+    this.paint();
+  },
+
+  link() {
+    const el = document.getElementById('link'), b = this.state.boat;
+    if (!b) { el.textContent = 'boat offline'; el.className = 'link'; el.title = 'boat offline'; return; }
+    const age = (Date.now() - this.state.boatAt) / 1000;
+    el.textContent = `${fmtNum(b.sog_kn, 1, '–')} kn · ${b.cog_deg ?? '–'}°`;
+    el.title = el.textContent;
+    el.className = 'link ' + (age > 10 ? 'stale' : 'on');
+  },
+
+  /* ── palette: auto by the sun over the boat, one tap to override, hold to go back ── */
+  MODES: ['day', 'dusk', 'night'],
+  GLYPH: {
+    day: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/>' +
+         '<path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>',
+    dusk: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/>' +
+          '<path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>',
+    night: '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+           '<path d="M19 14.5A8 8 0 0 1 9.5 5a8 8 0 1 0 9.5 9.5z" fill="currentColor"/></svg>',
+  },
+  mode() {
+    const b = this.state.boat;
+    const shown = Palette.resolve(Palette.pref, b?.lat ?? null, b?.lon ?? null);
+    if (document.documentElement.dataset.mode !== shown) document.documentElement.dataset.mode = shown;
+    const btn = document.getElementById('mode');
+    const name = shown[0].toUpperCase() + shown.slice(1);
+    btn.innerHTML = this.GLYPH[shown] + `<span><b>${name}</b><small>${
+      Palette.pref === 'auto' ? 'automatic' : 'hold for automatic'}</small></span>`;
+  },
+  setMode(pref) {
+    Palette.pref = pref;
+    try { pref === 'auto' ? localStorage.removeItem(Palette.KEY) : localStorage.setItem(Palette.KEY, pref); }
+    catch (e) {}
+    this.mode();
+  },
+  modeButton() {
+    const btn = document.getElementById('mode');
+    let held = null, long = false;
+    btn.addEventListener('pointerdown', e => {
+      long = false;
+      held = setTimeout(() => { long = true; this.setMode('auto'); }, 550);
+    });
+    const release = () => { clearTimeout(held); held = null; };
+    btn.addEventListener('pointerup', () => {
+      if (held === null) return;
+      release();
+      if (long) return;
+      const shown = document.documentElement.dataset.mode;
+      this.setMode(this.MODES[(this.MODES.indexOf(shown) + 1) % this.MODES.length]);
+    });
+    btn.addEventListener('pointercancel', release);
+    btn.addEventListener('pointerleave', release);
+    btn.addEventListener('contextmenu', e => e.preventDefault());
+    btn.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault();
+        const shown = document.documentElement.dataset.mode;
+        this.setMode(this.MODES[(this.MODES.indexOf(shown) + 1) % this.MODES.length]); }
+      if (e.key === 'Escape' || e.key === 'Backspace') this.setMode('auto');
+    });
+    this.mode();
+    setInterval(() => this.mode(), 60000);      // the sun moves even when the boat is silent
+  },
+};
+
+/* ── shared helpers ───────────────────────────────────────────────────────────────── */
+
+const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const pad = n => String(n).padStart(2, '0');
+const hhmm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const fmt = iso => { const d = new Date(iso);
+  return `${DAYS[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth()+1)} ${hhmm(d)}`; };
+const fmtNum = (v, dp, dash) => v === null || v === undefined ? (dash ?? '—') : v.toFixed(dp);
+const POINTS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const compass = d => d === null || d === undefined ? '––' : POINTS[Math.round(d/22.5) % 16];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function empty(el, heading, body) {
+  el.innerHTML = `<div class="card empty"><h3>${heading}</h3><div class="quiet">${body}</div></div>`;
+}
+
+/* ── signals: what a tile can bind to ─────────────────────────────────────────────────
+   Keyed by Signal K path so a layout document means the same thing on any boat; `key`
+   is the field `/api/state` carries it in. Instance names (engine_1, house, main) are
+   the ones arduino/xdr_bridge.py publishes. `bands` turn a value into a verdict; `why` puts
+   the verdict into words, because a colour alone is not a verdict.
+
+   Bands set in your boat profile override anything here — see obApplyBands below. */
+const SIGNALS = {
+  'navigation.speedOverGround': { key:'sog_kn', label:'Speed', unit:'kn', dp:1, max:40,
+    why:() => 'over ground' },
+  'environment.depth.belowTransducer': { key:'depth_m', label:'Depth', unit:'m', dp:1, max:50,
+    bands:[[0,3,'bad'],[3,6,'warn']],
+    why:v => v < 3 ? 'shoal — below the transducer' : v < 6 ? 'shelving' : 'below transducer' },
+  'environment.wind.speedApparent': { key:'wind_apparent_kn', label:'Wind', unit:'kn', dp:1, max:40,
+    extra:b => b.wind_apparent_deg === null || b.wind_apparent_deg === undefined ? 'apparent' :
+      `apparent, ${Math.round(b.wind_apparent_deg)}° ${compass(b.wind_apparent_deg)}` },
+  'propulsion.engine_1.revolutions': { key:'rpm', label:'Engine', unit:'rpm', dp:0, max:5000,
+    bands:[[4600,9999,'warn']], why:v => v > 4600 ? 'over cruise' : '' },
+  // ⚠️ NO DEFAULT BANDS on the engine readings, deliberately.
+  //
+  // What counts as hot depends entirely on the engine. A raw-water cooled engine runs a
+  // thermostat near 60 °C; a freshwater-cooled one runs near 85 °C. Shipping the wrong pair
+  // leaves the dashboard a calm green straight through a real overheat, which is worse than
+  // showing nothing at all. So engine bands come from your profile's [bands] table or not
+  // at all, and an unbanded tile shows the number with no verdict rather than false comfort.
+  'propulsion.engine_1.temperature': { key:'coolant_c', label:'Coolant', unit:'°C', dp:1, max:120,
+    why:() => '' },
+  'propulsion.engine_1.oilPressure': { key:'oil_bar', label:'Oil pressure', unit:'bar', dp:2, max:6,
+    why:() => '' },
+  'electrical.batteries.house.voltage': { key:'volts', label:'Battery', unit:'V', dp:2, max:15,
+    bands:[[0,11.9,'bad'],[11.9,12.4,'warn']],
+    why:v => v > 13.2 ? 'charging' : v < 11.9 ? 'flat' : 'at rest' },
+  'tanks.fuel.main.currentLevel': { key:'fuel_pct', label:'Fuel', unit:'%', dp:0, max:100,
+    bands:[[0,15,'bad'],[15,30,'warn']], why:v => v < 30 ? 'getting low' : 'in the tank' },
+  'environment.water.temperature': { key:'water_c', label:'Sea', unit:'°C', dp:1, max:35,
+    why:() => 'at the transducer' },
+  'environment.outside.temperature': { key:'air_c', label:'Air', unit:'°C', dp:1, max:45,
+    why:() => 'outside' },
+  'navigation.headingTrue': { key:'heading_deg', label:'Heading', unit:'°', dp:0, max:360,
+    why:v => compass(v) },
+  'navigation.courseOverGroundTrue': { key:'cog_deg', label:'Course', unit:'°', dp:0, max:360,
+    why:v => `over ground, ${compass(v)}` },
+};
+obApplyBands(SIGNALS);
+
+/* ── the layout document ───────────────────────────────────────────────────────────
+   Plain JSON, one per device class, versioned, nothing in it is DOM state. This is the
+   thing that will sync between devices later and the thing the AI layer writes when
+   asked "show me depth, engine temp and the anchor circle, big".
+
+   { schema:"openboat.layout/1", id, device:"tablet"|"phone", rev, updated,
+     pages:[{ id, name, tiles:[{ id, widget, bind, size:"S"|"M"|"L", hidden, options }] }] }
+
+   `bind` is a Signal K path, or for a widget that needs several, an object of them.  */
+const Layout = {
+  KEY: 'openboat.layout.v1', SCHEMA: 'openboat.layout/1',
+  device() { return matchMedia('(max-width:599px)').matches ? 'phone' : 'tablet'; },
+
+  defaults(device) {
+    const t = (id, widget, bind, size, extra = {}) =>
+      ({ id, widget, bind, size, hidden: false, options: {}, ...extra });
+    const rose = () => t('rose', 'compass', { heading: 'navigation.headingTrue',
+      cog: 'navigation.courseOverGroundTrue', wind: 'environment.wind.directionTrue' }, 'L');
+    return {
+      schema: this.SCHEMA, id: `openboat-${device}`, device, rev: 1,
+      updated: new Date().toISOString(),
+      pages: [
+        { id: 'helm', name: 'Helm', tiles: [
+          rose(),
+          t('sog', 'numeral', 'navigation.speedOverGround', 'S'),
+          t('depth', 'numeral', 'environment.depth.belowTransducer', 'S'),
+          t('wind', 'numeral', 'environment.wind.speedApparent', 'S'),
+          t('rpm', 'numeral', 'propulsion.engine_1.revolutions', 'S'),
+          t('coolant', 'numeral', 'propulsion.engine_1.temperature', 'S'),
+          t('oil', 'numeral', 'propulsion.engine_1.oilPressure', 'S'),
+          t('volts', 'numeral', 'electrical.batteries.house.voltage', 'S'),
+          t('fuel', 'numeral', 'tanks.fuel.main.currentLevel', 'S'),
+          t('sea', 'numeral', 'environment.water.temperature', 'S', { hidden: device !== 'phone' }),
+          t('clock', 'clock', null, 'S', { hidden: true }),
+        ] },
+        { id: 'engine', name: 'Engine', tiles: [
+          t('rpm', 'numeral', 'propulsion.engine_1.revolutions', 'L'),
+          t('coolant', 'numeral', 'propulsion.engine_1.temperature', 'M'),
+          t('oil', 'numeral', 'propulsion.engine_1.oilPressure', 'M'),
+          t('volts', 'numeral', 'electrical.batteries.house.voltage', 'S'),
+          t('fuel', 'numeral', 'tanks.fuel.main.currentLevel', 'S'),
+          t('sea', 'numeral', 'environment.water.temperature', 'S'),
+          t('clock', 'clock', null, 'S'),
+        ] },
+      ],
+    };
+  },
+
+  load() {
+    const device = this.device();
+    try {
+      const raw = localStorage.getItem(`${this.KEY}.${device}`);
+      if (raw) {
+        const doc = JSON.parse(raw);
+        if (doc.schema === this.SCHEMA && Array.isArray(doc.pages) && doc.pages.length) return doc;
+      }
+    } catch (e) {}
+    return this.defaults(device);
+  },
+
+  save(doc) {
+    doc.rev = (doc.rev || 0) + 1;
+    doc.updated = new Date().toISOString();
+    try { localStorage.setItem(`${this.KEY}.${doc.device}`, JSON.stringify(doc)); } catch (e) {}
+    if (Helm.editing) console.log('[openboat.layout] ' + JSON.stringify(doc));
+  },
+
+  reset() {
+    const device = this.device();
+    try { localStorage.removeItem(`${this.KEY}.${device}`); } catch (e) {}
+    const doc = this.defaults(device);
+    console.log('[openboat.layout] reset ' + JSON.stringify(doc));
+    return doc;
+  },
+};
+
+/* ── widgets: how a tile draws itself ──────────────────────────────────────────────
+   build(tile) returns a node with an `_update(state)` that writes into it — the DOM is
+   made once per layout and only the numbers move, so a drag is never interrupted by a
+   re-render and nothing flickers every two seconds.                                 */
+
+function bindLabel(tile) {
+  const sig = typeof tile.bind === 'string' ? SIGNALS[tile.bind] : null;
+  return tile.options?.label || sig?.label || WIDGETS[tile.widget]?.label ||
+         (typeof tile.bind === 'string' ? tile.bind : tile.id);
+}
+
+const WIDGETS = {
+  numeral: {
+    sizes: ['S', 'M', 'L'],
+    build(tile) {
+      const sig = typeof tile.bind === 'string' ? SIGNALS[tile.bind] : null;
+      const node = document.createElement('div');
+      node.innerHTML = `<div class="tlabel"><span></span></div>
+        <div class="tvalue"><span class="num"><span class="v">—</span><span class="unit"></span></span></div>
+        <svg class="range" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true">
+          <rect class="track" x="0" y="1" width="100" height="4" rx="2"/>
+          <rect class="fill" x="0" y="1" width="0" height="4" rx="2"/></svg>
+        <div class="twhy"><span class="glyph" aria-hidden="true"></span><span class="txt"></span></div>`;
+      node.querySelector('.tlabel span').textContent = bindLabel(tile);
+      const v = node.querySelector('.v'), unit = node.querySelector('.unit'),
+            fill = node.querySelector('.fill'), why = node.querySelector('.txt');
+      node._update = st => {
+        const b = st.boat, value = sig && b ? b[sig.key] : null;
+        node.classList.remove('warn', 'bad');
+        if (value === null || value === undefined) {
+          node.classList.add('absent');
+          v.textContent = '—'; unit.textContent = '';
+          fill.setAttribute('width', 0);
+          why.textContent = sig ? 'no sender' : 'unknown signal';
+          return;
+        }
+        node.classList.remove('absent');
+        let cls = '';
+        for (const [lo, hi, c] of (sig.bands || [])) if (value >= lo && value < hi) cls = c;
+        if (cls) node.classList.add(cls);
+        v.textContent = value.toFixed(sig.dp); unit.textContent = sig.unit;
+        fill.setAttribute('width', Math.max(0, Math.min(1, value / sig.max)) * 100);
+        why.textContent = sig.extra ? sig.extra(b) : (sig.why ? sig.why(value) : '') || ' ';
+      };
+      return node;
+    },
+  },
+
+  compass: {
+    sizes: ['M', 'L'], label: 'Compass rose',
+    build(tile) {
+      const node = document.createElement('div');
+      node.innerHTML = `<div class="rose"><svg viewBox="0 0 300 300" role="img" aria-label="Compass rose">
+          <g class="static"></g><g class="live"></g></svg></div>
+        <div class="bearings"></div>`;
+      drawRoseStatic(node.querySelector('.static'));
+      const live = node.querySelector('.live'), bearings = node.querySelector('.bearings');
+      node._update = st => drawRoseLive(live, bearings, st.boat);
+      return node;
+    },
+  },
+
+  clock: {
+    sizes: ['S', 'M'], label: 'Time',
+    build() {
+      const node = document.createElement('div');
+      node.innerHTML = `<div class="tlabel"><span>Time</span></div>
+        <div class="tvalue"><span class="num"><span class="v"></span></span></div>
+        <div class="twhy"><span class="txt"></span></div>`;
+      const v = node.querySelector('.v'), why = node.querySelector('.txt');
+      node._update = () => {
+        const d = new Date();
+        v.textContent = hhmm(d);
+        why.textContent = `${DAYS[d.getDay()]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)} · local`;
+      };
+      return node;
+    },
+  },
+
+  missing: {
+    sizes: ['S', 'M', 'L'],
+    build(tile) {
+      const node = document.createElement('div');
+      node.innerHTML = `<div class="tlabel"><span></span></div>
+        <div class="tvalue"><span class="num"><span class="v">—</span></span></div>
+        <div class="twhy"><span class="txt">no such widget in this build</span></div>`;
+      node.querySelector('.tlabel span').textContent = `${esc(tile.widget)} · ${bindLabel(tile)}`;
+      node.classList.add('absent');
+      node._update = () => {};
+      return node;
+    },
+  },
+};
+
+/* ── the rose ─────────────────────────────────────────────────────────────────────
+   One analogue instrument, on purpose. Three directions — where the bow points, where
+   the boat is actually going, and where the wind is from — only mean anything against
+   each other. Everything else is a numeral, which is faster to read in sunlight.     */
+
+function drawRoseStatic(g) {
+  let s = '<circle cx="150" cy="150" r="132" stroke="var(--rule)" stroke-width="1.5"/>' +
+          '<circle cx="150" cy="150" r="104" stroke="var(--rule-soft)"/>';
+  for (let d = 0; d < 360; d += 5) {
+    const major = d % 30 === 0, mid = d % 10 === 0;
+    const len = major ? 14 : mid ? 8 : 5;
+    const a = (d - 90) * Math.PI / 180;
+    const r1 = 132, r2 = 132 - len;
+    s += `<line x1="${150+r1*Math.cos(a)}" y1="${150+r1*Math.sin(a)}"
+                x2="${150+r2*Math.cos(a)}" y2="${150+r2*Math.sin(a)}"
+                stroke="${major ? 'var(--ink-soft)' : 'var(--rule)'}" stroke-width="${major?2:1.2}"/>`;
+    if (major) {
+      const rt = 132 - 27;
+      const label = d === 0 ? 'N' : d === 90 ? 'E' : d === 180 ? 'S' : d === 270 ? 'W' : d;
+      const cardinal = d % 90 === 0;
+      s += `<text x="${150+rt*Math.cos(a)}" y="${150+rt*Math.sin(a)+5}" text-anchor="middle"
+             class="num" style="font-size:${cardinal?16:12}px;font-weight:${cardinal?700:600};
+             fill:${cardinal?'var(--ink)':'var(--ink-soft)'}">${label}</text>`;
+    }
+  }
+  g.innerHTML = s;
+}
+
+function drawRoseLive(g, bearings, b) {
+  const hdg = b?.heading_deg ?? null;
+  const cog = b?.cog_deg ?? null;
+  const wind = b?.wind_true_deg ?? b?.wind_apparent_deg ?? null;
+  const windKn = b?.wind_true_kn ?? b?.wind_apparent_kn ?? null;
+  let s = '';
+
+  // Pointers ride the ring rather than crossing the middle. Lines through the centre look
+  // like an instrument and read like a scribble: three of them meet exactly where the eye
+  // wants to rest, and each one crosses the other two.
+  const pointer = (deg, colour, filled) => `
+    <g class="swing" transform="rotate(${deg} 150 150)">
+      <polygon points="150,56 139,80 161,80"
+               fill="${filled ? colour : 'var(--panel)'}" stroke="${colour}" stroke-width="3"/>
+    </g>`;
+
+  if (wind !== null) s += pointer(wind, 'var(--rust)', false);
+  if (cog !== null) s += pointer(cog, 'var(--water)', true);
+
+  // The hull sits in the middle at the size of a boat on a chart, pointing where the bow
+  // points. Small enough that the dial stays a dial.
+  if (hdg !== null) {
+    s += `<g class="swing" transform="rotate(${hdg} 150 150)">
+      <path d="M150 104 C161 124 165 143 165 163 L165 181 C165 187 159 190 150 190
+               C141 190 135 187 135 181 L135 163 C135 143 139 124 150 104 Z"
+            fill="var(--panel)" stroke="var(--ink)" stroke-width="2.5" stroke-linejoin="round"/>
+      <line x1="150" y1="112" x2="150" y2="182" stroke="var(--ink)" stroke-width="1.5"
+            opacity=".4"/>
+    </g>`;
+  } else {
+    s += `<circle cx="150" cy="150" r="6" stroke="var(--muted)" stroke-width="1.5"
+                  stroke-dasharray="3 4"/>`;
+  }
+  g.innerHTML = s;
+
+  const box = (label, value, sub, colour) => `
+    <div><div class="blab" style="color:${colour}">${label}</div>
+      <div class="bval num">${value}</div><div class="bsub">${sub}</div></div>`;
+  const deg = v => v === null ? '–––' : String(Math.round(v)).padStart(3, '0') + '°';
+
+  bearings.innerHTML =
+    box('Bow', deg(hdg), hdg === null ? 'no compass' : compass(hdg), 'var(--ink-soft)') +
+    box('Made good', deg(cog), cog === null ? 'no fix' : compass(cog), 'var(--water)') +
+    box('Wind from', deg(wind),
+        windKn === null ? 'no sender' : `${windKn.toFixed(1)} kn ${compass(wind)}`,
+        'var(--rust)');
+}
+
+/* ── app: helm ─────────────────────────────────────────────────────────────────────
+   Renders the layout document. Arrange mode: drag a tile to move it, tap it for size,
+   hide and order; hidden tiles wait in the bar above the grid. Every change is saved
+   as the document and printed to the console, so what syncs later is what you see. */
+
+const Helm = {
+  doc: null, page: 0, editing: false, picked: null, nodes: new Map(),
+  el: null, grid: null, editbar: null, sheet: null, resetArmed: 0,
+
+  mount(el) {
+    this.el = el;
+    el.innerHTML = `<div class="editbar" id="editbar" hidden></div><div class="grid" id="grid"></div>`;
+    this.grid = el.querySelector('#grid');
+    this.editbar = el.querySelector('#editbar');
+    this.sheet = document.getElementById('sheet');
+    this.doc = Layout.load();
+    this.build();
+    this.drag();
+    document.getElementById('arrange').onclick = () => this.editing ? this.stopEditing() : this.startEditing();
+    matchMedia('(max-width:599px)').addEventListener('change', () => {
+      this.stopEditing(); this.doc = Layout.load(); this.page = 0; this.build();
+    });
+  },
+
+  render(st) { for (const node of this.nodes.values()) node._update(st); },
+
+  current() { return this.doc.pages[Math.min(this.page, this.doc.pages.length - 1)]; },
+
+  build() {
+    const page = this.current();
+    this.grid.innerHTML = ''; this.nodes.clear();
+    this.grid.classList.toggle('editing', this.editing);
+    for (const tile of page.tiles) {
+      if (tile.hidden) continue;
+      const w = WIDGETS[tile.widget] || WIDGETS.missing;
+      const size = w.sizes.includes(tile.size) ? tile.size : w.sizes[0];
+      const node = w.build(tile);
+      node.className = `tile ${WIDGETS[tile.widget] ? tile.widget : 'missing'} ${size}`;
+      node.dataset.id = tile.id; node.dataset.size = size;
+      node.setAttribute('role', this.editing ? 'button' : 'group');
+      node.setAttribute('aria-label', bindLabel(tile));
+      if (this.editing) { node.tabIndex = 0; node.classList.toggle('picked', tile.id === this.picked); }
+      this.grid.appendChild(node);
+      this.nodes.set(tile.id, node);
+    }
+    this.render(OS.state);
+    this.pages();
+    this.bar();
+    if (this.picked && !this.sheet.hidden) this.openSheet(this.picked);
+  },
+
+  chrome(onHelm) {
+    document.getElementById('arrange').hidden = !onHelm;
+    document.getElementById('pages').hidden = !onHelm || !this.doc || (this.doc.pages.length < 2 && !this.editing);
+    document.getElementById('sub').hidden = onHelm && this.doc && (this.doc.pages.length > 1 || this.editing);
+  },
+
+  pages() {
+    const box = document.getElementById('pages');
+    box.innerHTML = '';
+    this.doc.pages.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.className = 'chip'; b.textContent = p.name;
+      b.setAttribute('aria-pressed', i === this.page);
+      b.onclick = () => { this.page = i; this.picked = null; this.closeSheet(); this.build(); };
+      box.appendChild(b);
+    });
+    this.chrome(OS.current === 'helm');
+  },
+
+  startEditing() {
+    this.editing = true;
+    const btn = document.getElementById('arrange');
+    btn.classList.add('on'); btn.setAttribute('aria-pressed', 'true');
+    btn.querySelector('.word').textContent = 'Done';
+    console.log('[openboat.layout] ' + JSON.stringify(this.doc));
+    this.build();
+  },
+
+  stopEditing() {
+    if (!this.editing) return;
+    this.editing = false; this.picked = null; this.closeSheet();
+    const btn = document.getElementById('arrange');
+    btn.classList.remove('on'); btn.setAttribute('aria-pressed', 'false');
+    btn.querySelector('.word').textContent = 'Arrange';
+    this.build();
+  },
+
+  bar() {
+    const bar = this.editbar;
+    bar.hidden = !this.editing;
+    if (!this.editing) return;
+    const page = this.current();
+    bar.innerHTML = '';
+    const add = (label, fn, cls = 'bt') => {
+      const b = document.createElement('button'); b.className = cls; b.textContent = label;
+      b.onclick = fn; bar.appendChild(b); return b;
+    };
+    const word = t => { const s = document.createElement('span'); s.className = 'word';
+      s.textContent = t; bar.appendChild(s); };
+    const hidden = page.tiles.filter(t => t.hidden);
+    word(hidden.length ? 'Show' : 'Every tile is on the page');
+    hidden.forEach(t => add(bindLabel(t), () => { t.hidden = false; this.commit(); }));
+    word('·');
+    add('Add tile', () => this.addTile());
+    add('Add page', () => {
+      const name = prompt('Name for the new page', 'Page ' + (this.doc.pages.length + 1));
+      if (!name) return;
+      this.doc.pages.push({ id: 'p' + Date.now().toString(36), name: name.trim(), tiles: [] });
+      this.page = this.doc.pages.length - 1; this.commit();
+    });
+    add('Rename page', () => {
+      const name = prompt('Page name', page.name);
+      if (name && name.trim()) { page.name = name.trim(); this.commit(); }
+    });
+    const del = add('Delete page', () => {
+      if (this.doc.pages.length < 2) return;
+      this.doc.pages.splice(this.page, 1); this.page = 0; this.commit();
+    });
+    del.disabled = this.doc.pages.length < 2;
+    const reset = add(this.resetArmed > Date.now() ? 'Tap again to reset' : 'Reset layout', () => {
+      if (this.resetArmed > Date.now()) {
+        this.resetArmed = 0; this.doc = Layout.reset(); this.page = 0; this.picked = null;
+        this.closeSheet(); this.build();
+      } else {
+        this.resetArmed = Date.now() + 4000; this.bar();
+        setTimeout(() => { if (this.editing && this.resetArmed <= Date.now()) this.bar(); }, 4200);
+      }
+    });
+    if (this.resetArmed > Date.now()) reset.classList.add('arm');
+  },
+
+  addTile() {
+    const page = this.current();
+    const used = new Set(page.tiles.map(t => typeof t.bind === 'string' ? t.bind : t.widget));
+    const choices = Object.keys(SIGNALS).filter(p => !used.has(p));
+    if (!page.tiles.some(t => t.widget === 'compass')) choices.unshift('compass');
+    if (!page.tiles.some(t => t.widget === 'clock')) choices.unshift('clock');
+    const sheet = this.sheet;
+    sheet.hidden = false;
+    sheet.innerHTML = `<div class="srow"><span class="title">Add a tile</span><span class="grow"></span>
+      <button class="bt" id="s-close">Close</button></div><div class="srow" id="s-choices"></div>`;
+    const row = sheet.querySelector('#s-choices');
+    if (!choices.length) row.innerHTML = '<span class="word">Every signal is already on this page</span>';
+    choices.forEach(p => {
+      const b = document.createElement('button'); b.className = 'bt';
+      b.textContent = p === 'compass' ? 'Compass rose' : p === 'clock' ? 'Time' : SIGNALS[p].label;
+      b.onclick = () => {
+        const id = (p === 'compass' || p === 'clock' ? p : SIGNALS[p].key) + '-' + Date.now().toString(36);
+        const tile = p === 'compass'
+          ? { id, widget: 'compass', size: 'L', hidden: false, options: {}, bind: { heading: 'navigation.headingTrue',
+              cog: 'navigation.courseOverGroundTrue', wind: 'environment.wind.directionTrue' } }
+          : p === 'clock' ? { id, widget: 'clock', bind: null, size: 'S', hidden: false, options: {} }
+          : { id, widget: 'numeral', bind: p, size: 'S', hidden: false, options: {} };
+        page.tiles.push(tile); this.picked = id; this.commit(); this.openSheet(id);
+      };
+      row.appendChild(b);
+    });
+    sheet.querySelector('#s-close').onclick = () => this.closeSheet();
+    this.sheetOpen();
+  },
+
+  commit() { Layout.save(this.doc); this.build(); },
+
+  openSheet(id) {
+    const page = this.current(), tile = page.tiles.find(t => t.id === id);
+    if (!tile) return this.closeSheet();
+    this.picked = id;
+    for (const [tid, node] of this.nodes) node.classList.toggle('picked', tid === id);
+    const w = WIDGETS[tile.widget] || WIDGETS.missing;
+    const visible = page.tiles.filter(t => !t.hidden), at = visible.indexOf(tile);
+    const sheet = this.sheet;
+    sheet.hidden = false;
+    sheet.innerHTML = `<div class="srow"><span class="title">${esc(bindLabel(tile))}</span>
+        <span class="word">Size</span>
+        ${w.sizes.map(s => `<button class="bt" data-size="${s}" aria-pressed="${s === tile.size}">${s}</button>`).join('')}
+        <span class="grow"></span><button class="bt" id="s-close">Close</button></div>
+      <div class="srow"><button class="bt" id="s-earlier" ${at <= 0 ? 'disabled' : ''}>◀ Earlier</button>
+        <button class="bt" id="s-later" ${at >= visible.length - 1 ? 'disabled' : ''}>Later ▶</button>
+        <span class="grow"></span><button class="bt" id="s-hide">Hide</button>
+        <button class="bt" id="s-remove">Remove</button></div>`;
+    sheet.querySelectorAll('[data-size]').forEach(b => b.onclick = () => {
+      tile.size = b.dataset.size; this.commit();
+    });
+    const swap = dir => {
+      const other = visible[at + dir];
+      const i = page.tiles.indexOf(tile), j = page.tiles.indexOf(other);
+      page.tiles[i] = other; page.tiles[j] = tile; this.commit();
+    };
+    sheet.querySelector('#s-earlier').onclick = () => swap(-1);
+    sheet.querySelector('#s-later').onclick = () => swap(1);
+    sheet.querySelector('#s-hide').onclick = () => { tile.hidden = true; this.closeSheet(); this.commit(); };
+    sheet.querySelector('#s-remove').onclick = () => {
+      page.tiles.splice(page.tiles.indexOf(tile), 1); this.closeSheet(); this.commit();
+    };
+    sheet.querySelector('#s-close').onclick = () => this.closeSheet();
+    this.sheetOpen();
+  },
+
+  closeSheet() {
+    this.sheet.hidden = true; this.sheet.innerHTML = ''; this.picked = null;
+    document.body.classList.remove('sheet-open');
+    for (const node of this.nodes.values()) node.classList.remove('picked');
+  },
+
+  // The sheet covers the bottom of the grid; give the page that much more room to scroll.
+  sheetOpen() {
+    document.body.classList.add('sheet-open');
+    document.body.style.setProperty('--sheet', (this.sheet.offsetHeight + 12) + 'px');
+  },
+
+  // Pointer events, so one code path serves a finger, a glove through a wet screen, and
+  // a mouse. A quick tap opens the sheet. With a mouse the tile lifts as soon as it
+  // moves; with a finger it lifts after a short hold, so a plain drag still scrolls the
+  // page — the same rule as a phone's home screen. Once lifted, the tile follows the
+  // pointer and the grid reflows around it; the lifted tile ignores pointer events, so
+  // elementFromPoint sees the tile underneath.
+  drag() {
+    const grid = this.grid;
+    let lifted = false;
+    grid.addEventListener('touchmove', e => { if (lifted) e.preventDefault(); }, { passive: false });
+    grid.addEventListener('contextmenu', e => { if (this.editing) e.preventDefault(); });
+    grid.addEventListener('pointerdown', e => {
+      if (!this.editing) return;
+      const tile = e.target.closest('.tile');
+      if (!tile || tile.parentNode !== grid) return;
+      const touch = e.pointerType !== 'mouse';
+      if (!touch) e.preventDefault();
+      try { tile.setPointerCapture(e.pointerId); } catch (err) {}
+      const start = { x: e.clientX, y: e.clientY };
+      let moved = false, lastUnder = null, lastSwap = 0, timer = null, last = null, raf = 0;
+      lifted = false;
+      const lift = () => { lifted = true; tile.classList.add('dragging'); this.closeSheet(); };
+      if (touch) timer = setTimeout(lift, 280);
+
+      // Holding a lifted tile near the top or bottom edge scrolls the page under it, so a
+      // tile can travel further than one screen on a phone.
+      const edge = () => {
+        raf = 0;
+        if (!lifted || !last) return;
+        const dock = document.querySelector('.dock').offsetHeight, zone = 48;
+        const step = last.clientY < 64 + zone ? -10 : last.clientY > innerHeight - dock - zone ? 10 : 0;
+        if (step) {
+          const before = scrollY;
+          scrollBy(0, step);
+          const d = scrollY - before;
+          if (d) { start.y -= d; move(last); }
+        }
+        raf = requestAnimationFrame(edge);
+      };
+
+      // Listeners live on the window, not the tile: moving the tile in the DOM releases
+      // pointer capture, and a tile that stopped hearing its own pointerup would stay lifted.
+      const move = ev => {
+        if (ev.pointerId !== e.pointerId) return;
+        let dx = ev.clientX - start.x, dy = ev.clientY - start.y;
+        if (!lifted) {
+          if (Math.hypot(dx, dy) < 10) return;
+          if (touch) { clearTimeout(timer); return; }   // a scroll, not a drag
+          lift();
+        }
+        moved = true;
+        last = { pointerId: ev.pointerId, clientX: ev.clientX, clientY: ev.clientY };
+        if (!raf) raf = requestAnimationFrame(edge);
+        tile.style.transform = `translate(${dx}px, ${dy}px) scale(1.03)`;
+        const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.tile');
+        if (!under || under === tile || under.parentNode !== grid) return;
+        if (under === lastUnder && Date.now() - lastSwap < 300) return;
+        const kids = [...grid.children], from = kids.indexOf(tile), to = kids.indexOf(under);
+        const before = tile.getBoundingClientRect();
+        grid.insertBefore(tile, from < to ? under.nextSibling : under);
+        const after = tile.getBoundingClientRect();
+        start.x += after.left - before.left; start.y += after.top - before.top;
+        dx = ev.clientX - start.x; dy = ev.clientY - start.y;
+        tile.style.transform = `translate(${dx}px, ${dy}px) scale(1.03)`;
+        lastUnder = under; lastSwap = Date.now();
+      };
+      const up = ev => {
+        if (ev.pointerId !== e.pointerId) return;
+        clearTimeout(timer); cancelAnimationFrame(raf); raf = 0; last = null;
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        tile.classList.remove('dragging'); tile.style.transform = '';
+        const wasLifted = lifted; lifted = false;
+        if (!wasLifted) {
+          if (ev.type === 'pointerup' && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 10)
+            this.openSheet(tile.dataset.id);
+          return;
+        }
+        if (!moved) return;
+        const page = this.current();
+        const order = [...grid.children].map(n => n.dataset.id);
+        page.tiles.sort((a, b) => {
+          const ia = order.indexOf(a.id), ib = order.indexOf(b.id);
+          return (ia < 0 ? order.length : ia) - (ib < 0 ? order.length : ib);
+        });
+        Layout.save(this.doc);
+        this.bar();
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    });
+    grid.addEventListener('keydown', e => {
+      if (!this.editing) return;
+      const tile = e.target.closest('.tile');
+      if (tile && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); this.openSheet(tile.dataset.id); }
+    });
+  },
+};
+
+OS.app({ id: 'helm', title: 'Helm',
+         mount: el => Helm.mount(el), render: (el, st) => Helm.render(st) });
+
+/* ── app: weather ─────────────────────────────────────────────────────────────────── */
+OS.app({
+  id:'weather', title:'Weather',
+  render(el, st) {
+    if (!st.windows) return empty(el, 'Fetching the forecast', 'One call to Open-Meteo, no key. If the boat has no internet this stays empty — the helm does not need it.');
+    const d = st.windows, soonest = [...d.windows].sort((a,b)=>new Date(a.start)-new Date(b.start))[0];
+    const verdict = soonest
+      ? `<div class="lead">Yes — <span class="when">${fmt(soonest.start)}</span></div>
+         <div class="quiet">${soonest.hours} h window, up to ${Math.round(soonest.wind_kn)} kn
+         gusting ${Math.round(soonest.gust_kn)}${soonest.wave_m!=null?`, sea ${soonest.wave_m.toFixed(1)} m`:''}</div>`
+      : `<div class="lead bad">Nothing <span class="when">this week</span>.</div>`;
+
+    let strip = '', ticks = '';
+    if (st.forecast) {
+      const hrs = st.forecast.hours.slice(0, 72);
+      const peak = Math.max(...hrs.map(h => h.gust_kn), 25);
+      strip = hrs.map(h => {
+        const grade = h.wind_kn <= 12 ? 'ok' : h.wind_kn <= 18 ? 'mid' : 'badf';
+        const local = new Date(h.time).getHours();
+        const night = (local < 7 || local >= 19) ? ' night' : '';
+        return `<div class="barw${night}" style="height:${Math.round(h.gust_kn/peak*80)}px"
+          title="${fmt(h.time)} — ${h.wind_kn.toFixed(0)} kn gust ${h.gust_kn.toFixed(0)} ${h.wind_name}">
+          <div class="f ${grade}" style="height:${Math.round(h.wind_kn/peak*80)}px"></div></div>`;
+      }).join('');
+      ticks = hrs.map(h => { const t = new Date(h.time), n = t.getHours();
+        return n === 0 ? `<span class="day">${DAYS[t.getDay()]}</span>`
+                       : `<span>${n % 6 === 0 ? n : ''}</span>`; }).join('');
+    }
+
+    el.innerHTML = `
+      <div class="card"><h2>Can we go out?</h2>${verdict}</div>
+      <div class="card"><h2>Windows, next seven days</h2>
+        <ul class="rows">${d.windows.map(w => `<li>
+          <span>${fmt(w.start)} → ${hhmm(new Date(w.end))}</span>
+          <span class="n"><span class="len">${w.hours} h</span> · ${Math.round(w.wind_kn)} kn
+          gust ${Math.round(w.gust_kn)}${w.wave_m!=null?` · ${w.wave_m.toFixed(1)} m`:''}</span>
+        </li>`).join('') || '<li>No window inside the limits.</li>'}</ul>
+        <p class="quiet" style="margin:.7rem 0 0">Forecast point
+          ${d.point[0].toFixed(4)}, ${d.point[1].toFixed(4)} — the sea, not the berth:
+          the marina's grid cell is land-influenced and reads gusts about half again too
+          high. Limits are up to ${d.limits.max_wind_kn} kn, gusts ${d.limits.max_gust_kn} kn,
+          sea ${d.limits.max_wave_m} m, between ${d.limits.daylight[0]} and
+          ${d.limits.daylight[1]}. Change them in <code>jarvis/windows.py</code>.</p>
+      </div>
+      <div class="card"><h2>Wind, next 72 hours</h2>
+        <div class="strip">${strip}</div><div class="ticks">${ticks}</div>
+        <p class="quiet" style="margin:.6rem 0 0">Knots. The solid bar is the sustained
+          wind, the pale one behind it the gust. Night hours are dimmed.</p>
+      </div>`;
+  }
+});
+
+/* ── app: chart ───────────────────────────────────────────────────────────────────── */
+// Filled from /api/profile before the chart opens; never a literal in this file.
+const HOME = (window.OB_HOME || [0, 0]);
+let map, boatMark, marks = [], line = null, waypoints = [];
+
+OS.app({
+  id:'chart', title:'Chart',
+  mount(el) {
+    // Leaflet and the tiles come from the internet. Aboard, there often is none — say so
+    // and leave the rest of the page alone.
+    if (typeof L === 'undefined') {
+      this.dead = true;
+      return empty(el, 'The chart needs the internet',
+        'The map library and the tiles load from the network and did not arrive. Route planning waits until the tablet has a connection; every other page works without one.');
+    }
+    el.innerHTML = `<div class="card"><h2>Route</h2><div id="map"></div>
+      <p class="quiet" style="margin:.8rem 0 0;display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
+        <span>Tap to drop waypoints; seamarks are the OpenSeaMap overlay.</span>
+        <button class="act" id="clear">Clear route</button></p>
+      <div class="lead n" id="rtotal" style="margin-top:.7rem"></div>
+      <div id="rlegs" style="font-size:.95rem"></div>
+      <p class="warntext">No land, depth or restricted-area check. Verify every route on a
+        real chart.</p></div>`;
+
+    map = L.map('map').setView(HOME, 11);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom:18, attribution:'© OpenStreetMap'}).addTo(map);
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+      {maxZoom:18, attribution:'© OpenSeaMap'}).addTo(map);
+    L.marker(HOME).addTo(map).bindPopup(window.OB_BERTH_NAME || 'Berth');
+    boatMark = L.circleMarker(HOME, {radius:8, color:'#A93E2F', fillOpacity:1});
+
+    map.on('click', e => {
+      waypoints.push([e.latlng.lat, e.latlng.lng]);
+      marks.push(L.circleMarker(e.latlng, {radius:6, color:'#1E6B8C', fillOpacity:1})
+        .addTo(map).bindTooltip('WP' + waypoints.length));
+      route();
+    });
+    document.getElementById('clear').onclick = () => {
+      marks.forEach(m => map.removeLayer(m));
+      if (line) map.removeLayer(line);
+      waypoints = []; marks = []; line = null;
+      document.getElementById('rtotal').textContent = '';
+      document.getElementById('rlegs').innerHTML = '';
+    };
+  },
+  render(el, st) {
+    if (this.dead) return;
+    setTimeout(() => map.invalidateSize(), 0);
+    if (st.boat?.lat) boatMark.setLatLng([st.boat.lat, st.boat.lon]).addTo(map);
+    else map.removeLayer(boatMark);
+  }
+});
+
+async function route() {
+  if (line) map.removeLayer(line);
+  line = L.polyline(waypoints, {color:'#1E6B8C', weight:3, dashArray:'6 5'}).addTo(map);
+  if (waypoints.length < 2) return;
+  const q = waypoints.map((w, i) => `${w[0]},${w[1]},WP${i+1}`).join(';');
+  const r = await fetch(`/api/route?speed_kn=20&litres_per_hour=60&waypoints=${encodeURIComponent(q)}`)
+    .then(x => x.json());
+  if (r.error) { document.getElementById('rtotal').textContent = r.error; return; }
+  document.getElementById('rtotal').textContent =
+    `${r.distance_nm.toFixed(1)} nm · ${r.hours.toFixed(1)} h at 20 kn · about ${r.fuel_litres.toFixed(0)} L`;
+  document.getElementById('rlegs').innerHTML = r.legs.map(l => {
+    const w = l.weather;
+    const wx = w ? `${Math.round(w.wind_kn)} kn ${w.wind_name} Bft${w.beaufort}` +
+      (w.wave_m != null ? `, sea ${w.wave_m.toFixed(1)} m` : '') : 'no forecast';
+    return `<div class="n" style="padding:.4rem 0;border-top:1px solid var(--rule-soft)">
+      ${l.from} → ${l.to}: ${l.distance_nm.toFixed(1)} nm ${l.bearing_deg}° ${l.bearing_name}
+      · ${hhmm(new Date(l.depart))}–${hhmm(new Date(l.arrive))} · ${wx}</div>`;
+  }).join('');
+}
+
+/* ── app: anchor ──────────────────────────────────────────────────────────────────── */
+OS.app({
+  id:'anchor', title:'Anchor',
+  render(el, st) {
+    const b = st.boat;
+    el.innerHTML = `<div class="card"><h2>Anchor watch</h2>
+      <div class="lead">Runs on the boat, not in this tab.</div>
+      <p class="quiet">A watch that only works while a browser is open is not a watch. The
+        real one is <code>50-anchor-watch/anchor.py</code> on the Pi, which keeps running
+        with every screen asleep and alarms through Signal K.</p>
+      <p class="quiet">It tells swinging from dragging by fitting the centre of the swing
+        circle: a boat lying to its anchor sweeps an arc about a fixed point, a dragging
+        boat's centre walks. That fires while the boat is still well inside the alarm
+        radius — and it does not mistake more scope for a drag, which a plain range alarm
+        cannot help doing.</p>
+      <p class="quiet n">${b?.lat
+        ? `Boat now at ${b.lat.toFixed(5)}, ${b.lon.toFixed(5)}, depth ${fmtNum(b.depth_m,1)} m —
+           <code>python3 50-anchor-watch/anchor.py --rode 35 --depth ${fmtNum(b.depth_m,0,'8')}</code>`
+        : 'No position, so no anchor can be marked.'}</p></div>`;
+  }
+});
+
+/* ── apps: the two generated reports, held in frame rather than linked ────────────── */
+[['season','Season','/reports/season.html','Ten years of ERA5 for this berth.'],
+ ['engine','Engine log','/reports/engine.html','Hours and cooling drift.']]
+.forEach(([id, title, src, sub]) => OS.app({
+  id, title,
+  mount(el) {
+    el.innerHTML = `<p class="quiet" style="margin:.1rem .2rem .6rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
+      <span>${sub}</span>
+      <a href="${src}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;min-height:44px">Open on its own</a></p>
+      <iframe class="report" src="${src}" title="${title}" loading="lazy"></iframe>`;
+  }
+}));
+
+/* ── app: about ───────────────────────────────────────────────────────────────────── */
+OS.app({
+  id:'about', title:'About',
+  render(el, st) {
+    el.innerHTML = `<div class="card"><h2>What this is, and what it is not</h2>
+      <p>An instrument panel and a planning desk for one boat, reading a Signal K server
+         over the network. Everything here is read-only: nothing steers, switches, sends
+         or pays.</p>
+      <ul class="rows">
+        <li><span>Boat</span><span class="n" id="about-boat">—</span></li>
+        <li><span>Engine</span><span class="n" id="about-engine">—</span></li>
+        <li><span>Signal K</span><span class="n">${st.boat ? 'answering' : (st.reason || 'not answering')}</span></li>
+      </ul>
+      <p class="warntext" style="margin-top:.8rem">Not a chartplotter and not a safety
+        device. Routes are arithmetic over waypoints — they know nothing about land, depth
+        or restricted areas. Fuel figures multiply hours by a burn rate that is only worth
+        anything once somebody has measured it on this engine.</p>
+      <p class="quiet">Every figure above comes from your <code>boat.toml</code>. A field
+        with no source is listed as unsourced rather than presented as a fact, and where a
+        number is unknown it stays blank rather than being estimated.
+        <span id="about-unsourced"></span></p></div>
+      <div class="card"><h2>Using the screen</h2>
+      <p class="quiet"><b>Palette.</b> Day, dusk and night follow the sun's height over
+        the boat. Tap the button at the bottom right for the next palette; hold it to go
+        back to automatic. At night, also turn the tablet's brightness down — the palette
+        chooses colours, the tablet chooses how much light reaches your eyes.</p>
+      <p class="quiet"><b>Arranging.</b> On the Helm, <em>Arrange</em> lets you drag tiles,
+        tap one for its size, hide it or move it, and keep more than one page. The layout
+        is saved on this device as a small document; <em>Reset layout</em> brings the
+        default back.</p>
+      <p class="quiet"><b>Swipe</b> left or right to move between the apps.</p></div>`;
+  }
+});
+
+OS.start();
+</script>
+</body>
+</html>

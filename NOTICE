@@ -1,0 +1,22 @@
+OpenBoat OS
+Copyright 2026 The OpenBoat OS contributors
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this
+file except in compliance with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+This product depends on services and data provided by third parties, each under its own
+terms. OpenBoat OS bundles none of them and speaks to them over the network:
+
+  * Open-Meteo (https://open-meteo.com) — weather and marine forecasts. Free for
+    non-commercial use; check its terms before building a commercial service on it.
+  * Signal K (https://signalk.org) — the open marine data standard, Apache-2.0. OpenBoat
+    reads a Signal K server over its REST API and never writes to it.
+  * OpenStreetMap and OpenSeaMap (https://www.openseamap.org) — chart and seamark tiles in
+    the optional chart view, under the Open Database License.
+  * ERA5 reanalysis via Copernicus (https://cds.climate.copernicus.eu) — historical
+    climatology, under the Copernicus licence.
+
+No part of this project is affiliated with, endorsed by, or derived from any marine
+electronics manufacturer.

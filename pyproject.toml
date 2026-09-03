@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openboat-os"
+version = "0.1.0"
+description = "An open skipper's layer for a boat: weather windows, routes with per-leg forecasts, anchor watch, engine log, and read-only MCP tools for an AI assistant."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+keywords = ["marine", "boat", "sailing", "signalk", "nmea", "weather", "mcp", "anchor"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Atmospheric Science",
+]
+
+# Deliberately empty. The package is stdlib-only so that it runs on a Raspberry Pi with
+# nothing installed and no virtualenv. A dependency has to earn its place against that.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/drxlr/openboat-os"
+Issues = "https://github.com/drxlr/openboat-os/issues"
+
+[project.scripts]
+openboat = "openboat.server:main"
+
+[tool.setuptools]
+packages = ["openboat"]
+
+[tool.setuptools.package-data]
+openboat = ["web/*"]

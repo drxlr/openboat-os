@@ -1,0 +1,25 @@
+# Signal K, runnable anywhere Docker runs — a laptop for development, a Pi aboard.
+# Identical image, identical config either way.
+#
+#   cp signalk-config/defaults.example.json signalk-config/defaults.json
+#   cp signalk-config/settings.example.json signalk-config/settings.json
+#   docker compose up -d          then http://localhost:3000
+#
+# The `sim-nmea0183` connection in signalk-config/settings.json points at
+# host.docker.internal:10110 — run simulate.py and the boat exists.
+# On the real boat, swap that connection for the USB NMEA adapter (see README.md).
+
+services:
+  signalk:
+    image: signalk/signalk-server:latest
+    container_name: signalk
+    restart: unless-stopped
+    ports:
+      - "3000:3000"        # admin UI, REST and WebSocket
+      - "10110:10110/udp"  # NMEA 0183 in, if a device broadcasts
+    volumes:
+      - ./signalk-config:/home/node/.signalk
+    environment:
+      - TZ=Europe/London   # adjust to your boat's timezone
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -1,0 +1,14 @@
+{
+  "vessels": {
+    "self": {
+      "name": "Demo Boat",
+      "design": {
+        "length": { "value": { "overall": 9.00 } },
+        "beam": { "value": 2.60 },
+        "draft": { "value": { "maximum": 0.90 } },
+        "displacement": { "value": 3700 },
+        "aisShipType": { "value": { "id": 37, "name": "Pleasure craft" } }
+      }
+    }
+  }
+}
