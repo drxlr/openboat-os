@@ -98,35 +98,33 @@ each manufacturer's page before buying. ⚠️ marks anything this list could no
 a primary source.
 
 Everything here was read off the manufacturers' own pages, the projects' own repositories,
-or gpsd's hardware compatibility database on **4 September 2026**. No URLs are printed
-because the ones written down could not be re-verified at the time of writing, and a link
-that 404s is worse than none. Search the model number; these are all current products from
-companies that are easy to find. If you check one and it has changed, a pull request
-correcting this table is welcome — that is the kind of fact that goes stale fastest.
+or gpsd's hardware compatibility database, checked on **4 September 2026** and linked from
+each entry below. If you check one and it has changed, a pull request correcting this table
+is welcome — that is the kind of fact that goes stale fastest.
 
 ### NMEA 2000 → USB (the main route on anything built after roughly 2005)
 
 | Product | Power | Isolated | Signal K / canboat | Note |
 |---|---|---|---|---|
-| Actisense NGT-1 | Bus-powered from N2K | Yes | canboat's native driver targets this device's protocol | **Discontinued**, replaced by the NGX-1 |
-| Actisense NGX-1 | Bus-powered from N2K (9–30 V) | Yes, opto/ISO-Drive | ⚠️ Not named explicitly in canboat's docs, but the direct successor to the NGT-1, widely reported to run in NGT-1-compatible mode | Replaces both the NGT-1 and the NGW-1; also speaks NMEA 0183 |
-| Yacht Devices YDNU-02 | ⚠️ Not stated on the product page | Yes, galvanic | canboat reads its RAW format natively (shared with the YDWG-02) | Several connector variants |
-| Digital Yacht iKonvert | Bus-powered from N2K | Yes, full galvanic | **Confirmed by the manufacturer**: "already compatible with CanBoat and the popular Signal K Node Server" | The most directly-confirmed plug-and-play option |
-| Maretron USB100 | ⚠️ Not stated | ⚠️ Not stated | Not mentioned by Maretron; canboat names only the Ethernet-based IPG100, not this USB unit | Built for Maretron's N2KView — weaker fit for an open-source stack |
+| [Actisense NGT-1](https://www.actisense.com/products/) | Bus-powered from N2K | Yes | [canboat](https://github.com/canboat/canboat)'s native driver targets this device's protocol | **Discontinued**, replaced by the NGX-1 |
+| [Actisense NGX-1](https://www.actisense.com/product/ngx-1/) | Bus-powered from N2K (9–30 V) | Yes, opto/ISO-Drive | ⚠️ Not named explicitly in [canboat's docs](https://github.com/canboat/canboat), but the direct successor to the NGT-1, widely reported to run in NGT-1-compatible mode | Replaces both the NGT-1 and the NGW-1; also speaks NMEA 0183 |
+| [Yacht Devices YDNU-02](https://www.yachtd.com/products/usb_gateway.html) | ⚠️ Not stated on the product page | Yes, galvanic | [canboat](https://github.com/canboat/canboat) reads its RAW format natively (shared with the YDWG-02) | Several connector variants |
+| [Digital Yacht iKonvert](https://digitalyachtamerica.com/product/ikonvert-usb/) | Bus-powered from N2K | Yes, full galvanic | **Confirmed by the manufacturer**: "already compatible with CanBoat and the popular Signal K Node Server" | The most directly-confirmed plug-and-play option |
+| [Maretron USB100](https://www.maretron.com/products/usb100.php) | ⚠️ Not stated | ⚠️ Not stated | Not mentioned by Maretron; [canboat](https://github.com/canboat/canboat) names only the Ethernet-based IPG100, not this USB unit | Built for Maretron's N2KView — weaker fit for an open-source stack |
 
 ### NMEA 2000 → Raspberry Pi HAT (CAN on the GPIO header)
 
 | Product | Power | Isolated | Signal K | Note |
 |---|---|---|---|---|
-| PICAN-M (SK Pang) | Optional 3 A SMPS variant runs the Pi off the 12 V line; a no-SMPS variant exists | CAN side isolated; ⚠️ 12 V-to-Pi power path isolation isn't stated | **Confirmed**: manufacturer lists SocketCAN, Signal K, CANboat, OpenCPN and OpenPlotter by name | Also sold in the US through Copperhill Technologies, same board |
-| Waveshare 2-CH CAN FD HAT | No onboard 12 V supply — Pi power is still your problem | Yes, isolated CAN transceivers with surge/ESD/short-circuit protection | ⚠️ Not marine-branded, not mentioned; works through the same SocketCAN path any CAN HAT does | Two independent CAN channels — N2K on one, engine J1939 on the other; generic industrial board |
+| [PICAN-M](https://www.skpang.co.uk/products/pican-m-with-can-bus-micro-c-and-rs422-connector-3a-smps) (SK Pang) | Optional 3 A SMPS variant runs the Pi off the 12 V line; a no-SMPS variant exists | CAN side isolated; ⚠️ 12 V-to-Pi power path isolation isn't stated | **Confirmed**: manufacturer lists SocketCAN, Signal K, CANboat, OpenCPN and OpenPlotter by name | Also sold in the US through [Copperhill Technologies](https://copperhilltech.com), same board |
+| [Waveshare 2-CH CAN FD HAT](https://www.waveshare.com/2-ch-can-fd-hat.htm) | No onboard 12 V supply — Pi power is still your problem | Yes, isolated CAN transceivers with surge/ESD/short-circuit protection | ⚠️ Not marine-branded, not mentioned; works through the same SocketCAN path any CAN HAT does | Two independent CAN channels — N2K on one, engine J1939 on the other; generic industrial board |
 
 ### NMEA 0183 → USB
 
 The gap that matters here is isolation, not USB-to-serial conversion — any USB-serial chip
 moves the bytes.
 
-- **Actisense USG-2**: opto-isolated listener, isolated (ISO-Drive) talker, bidirectional, RS422/RS232, 300–230400 baud, shows up as a virtual COM port — a proper isolated marine adapter.
+- **[Actisense USG-2](https://actisense.com/products/usg-2/)**: opto-isolated listener, isolated (ISO-Drive) talker, bidirectional, RS422/RS232, 300–230400 baud, shows up as a virtual COM port — a proper isolated marine adapter.
 - A plain USB-to-serial cable (FTDI, CH340, whatever came with a cheap Arduino) has none of that. It moves the same bytes but ties your computer's ground straight to the boat's — the ground-loop and pin-killing risk from the isolation note above. Fine on a test bench, not on a boat.
 
 ### NMEA 0183 ↔ NMEA 2000, bidirectional
@@ -135,28 +133,28 @@ For a boat carrying both generations of instrument:
 
 | Product | Note |
 |---|---|
-| Actisense NGX-1 | Same device as above — one box, both protocols, both directions |
-| Actisense NGW-1 | **Discontinued**, folded into the NGX-1 |
-| Yacht Devices YDNG-03 | Confirmed bidirectional 0183↔2000, with AIS sentence pass-through |
-| Quark-elec A032 | Bidirectional N2K/0183 gateway with USB and WiFi in the same unit |
+| [Actisense NGX-1](https://www.actisense.com/product/ngx-1/) | Same device as above — one box, both protocols, both directions |
+| [Actisense NGW-1](https://www.actisense.com/products/) | **Discontinued**, folded into the NGX-1 |
+| [Yacht Devices YDNG-03](https://www.yachtd.com/products/) | Confirmed bidirectional 0183↔2000, with AIS sentence pass-through |
+| [Quark-elec A032](https://www.quark-elec.com) | Bidirectional N2K/0183 gateway with USB and WiFi in the same unit |
 
 ### GPS sources
 
-- **Digital Yacht GPS160-USB**: multi-GNSS (GPS, GLONASS, BeiDou, Galileo), self-powered from USB, manufacturer states Linux support directly, appears as a virtual COM port. ⚠️ Chipset not stated.
-- **u-blox chipset USB "mouse" GPS pucks**: the cheap, generic route, and it works because `gpsd`'s hardware compatibility database lists many as known-good — e.g. the Navisys GR-701W (u-blox 7, USB, PPS output). Nothing to install; it shows up as a serial port.
+- **[Digital Yacht GPS160-USB](https://digitalyachtamerica.com/product/gps160-usb/)**: multi-GNSS (GPS, GLONASS, BeiDou, Galileo), self-powered from USB, manufacturer states Linux support directly, appears as a virtual COM port. ⚠️ Chipset not stated.
+- **u-blox chipset USB "mouse" GPS pucks**: the cheap, generic route, and it works because [gpsd's hardware compatibility database](https://gpsd.io/hardware.html) lists many as known-good — e.g. the Navisys GR-701W (u-blox 7, USB, PPS output). Nothing to install; it shows up as a serial port.
 - **A phone already aboard**: an app that broadcasts NMEA 0183 over WiFi (UDP or TCP) feeds Signal K's network input with zero extra hardware — the phones-are-underrated-hardware point below, applied to position specifically.
 
 ### AIS receivers
 
-- **dAISy-catcher** (Wegmatt, built with the AIS-catcher project): a genuine simultaneous dual-channel receiver, not channel-hopping — USB device or Raspberry Pi HAT, outputs standard NMEA AIVDM sentences.
-- **An RTL-SDR dongle running AIS-catcher** (open source): decodes both AIS channels off one wideband SDR. Confirmed support includes RTL-SDR (including the RTL-SDR Blog v4 and ShipXplorer AIS dongle), Airspy, HackRF, SDRplay and SoapySDR. Output is NMEA over UDP/TCP/HTTP, which lands in Signal K through its ordinary NMEA 0183-over-network input. Cheapest route, more setup, and the SDR can't do anything else while it runs.
-- **Antenna**: a receive-only setup is happy on its own cheap antenna. Sharing the VHF antenna needs an *active* splitter with a fail-safe bypass, not a passive Y-cable — the Digital Yacht SPL1500 is a confirmed example: 12 V/24 V powered, passes VHF straight through if it loses power, rated for Class B transmit too, not just receive.
+- **[dAISy-catcher](https://shop.wegmatt.com/products/daisy-catcher-high-performance-ais-receiver)** (Wegmatt, built with the [AIS-catcher](https://github.com/jvde-github/AIS-catcher) project): a genuine simultaneous dual-channel receiver, not channel-hopping — USB device or Raspberry Pi HAT, outputs standard NMEA AIVDM sentences.
+- **An RTL-SDR dongle running [AIS-catcher](https://github.com/jvde-github/AIS-catcher)** (open source): decodes both AIS channels off one wideband SDR. Confirmed support includes RTL-SDR (including the RTL-SDR Blog v4 and ShipXplorer AIS dongle), Airspy, HackRF, SDRplay and SoapySDR. Output is NMEA over UDP/TCP/HTTP, which lands in Signal K through its ordinary NMEA 0183-over-network input. Cheapest route, more setup, and the SDR can't do anything else while it runs.
+- **Antenna**: a receive-only setup is happy on its own cheap antenna. Sharing the VHF antenna needs an *active* splitter with a fail-safe bypass, not a passive Y-cable — the [Digital Yacht SPL1500](https://digitalyachtamerica.com/product/spl1500-vhf-ais-antenna-splitter/) is a confirmed example: 12 V/24 V powered, passes VHF straight through if it loses power, rated for Class B transmit too, not just receive.
 
 ### Analogue sender front ends
 
-- **ADS1115 breakout**: the same 16-bit I2C ADC named in the pins section above — 4 single-ended or 2 differential channels, programmable gain up to 16×, address-selectable so up to 4 boards share one I2C bus.
-- **Yacht Devices YDTA-04**: up to four resistive tank senders into one NMEA 2000 box, with preset curves for common tank shapes.
-- **Maretron TLA100**: one resistive tank sender, American (240–33 Ω) or European (10–180 Ω) standard, or any custom curve from 0–300 Ω, calibratable for irregular tank shapes.
+- **[ADS1115](https://www.adafruit.com/product/1085) breakout**: the same 16-bit I2C ADC named in the pins section above — 4 single-ended or 2 differential channels, programmable gain up to 16×, address-selectable so up to 4 boards share one I2C bus.
+- **[Yacht Devices YDTA-04](https://www.yachtd.com/products/)**: up to four resistive tank senders into one NMEA 2000 box, with preset curves for common tank shapes.
+- **[Maretron TLA100](https://www.maretron.com/products/tla100.php)**: one resistive tank sender, American (240–33 Ω) or European (10–180 Ω) standard, or any custom curve from 0–300 Ω, calibratable for irregular tank shapes.
 
 Both are built for **tanks** specifically. There is no equally tidy off-the-shelf N2K box
 for a generic oil-pressure or coolant-temperature sender — that is still
@@ -166,10 +164,10 @@ ADS1115-and-calibrate-it-yourself territory, or the microcontroller route this p
 
 | Product | Note |
 |---|---|
-| Quark-elec A034B | Bidirectional WiFi ↔ NMEA 2000, with NMEA 0183 and SeaTalk in and out — current, closest one-box answer to "get everything onto WiFi" |
-| Yacht Devices YDWG-02 | NMEA 2000 to WiFi, built for viewing on a phone or tablet |
-| Shipmodul MiniPlex-3 family | NMEA 0183 multiplexer/router/filter, USB and WiFi variants. ⚠️ NMEA 2000 bridging on the PRO variant not independently confirmed here |
-| Digital Yacht iKommunicate | The device Signal K's docs long pointed to. **Appeared discontinued when checked on 4 September 2026** — absent from Digital Yacht's catalogue then. Their current NMEA-2000-to-network product, NjordLINK+, targets Digital Yacht's own cloud service, not a local Signal K bridge, so it isn't a drop-in replacement |
+| [Quark-elec A034B](https://www.quark-elec.com) | Bidirectional WiFi ↔ NMEA 2000, with NMEA 0183 and SeaTalk in and out — current, closest one-box answer to "get everything onto WiFi" |
+| [Yacht Devices YDWG-02](https://www.yachtd.com/products/) | NMEA 2000 to WiFi, built for viewing on a phone or tablet |
+| [Shipmodul MiniPlex-3](https://www.shipmodul.com) family | NMEA 0183 multiplexer/router/filter, USB and WiFi variants. ⚠️ NMEA 2000 bridging on the PRO variant not independently confirmed here |
+| Digital Yacht iKommunicate | The device Signal K's docs long pointed to. **Appeared discontinued when checked on 4 September 2026** — absent from [Digital Yacht's NMEA-interfaces catalogue](https://digitalyachtamerica.com/product-category/interfacing/nmea-interfaces/) then. Their current NMEA-2000-to-network product, [NjordLINK+](https://digitalyachtamerica.com/product/njordlink/), targets Digital Yacht's own cloud service, not a local Signal K bridge, so it isn't a drop-in replacement |
 
 ### Which one do I need
 
