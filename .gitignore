@@ -11,6 +11,13 @@ boat.toml
 security.json
 .local/
 
+# The Signal K config a user actually runs. The *.example.json templates are tracked; the
+# files copied from them carry a real vessel name, MMSI and position, so they are not.
+signalk/signalk-config/*.json
+signalk/signalk-config/plugin-config-data/*.json
+!signalk/signalk-config/*.example.json
+!signalk/signalk-config/plugin-config-data/*.example.json
+
 # Generated
 reports/
 *.sqlite
