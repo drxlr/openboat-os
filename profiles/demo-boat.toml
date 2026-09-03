@@ -115,3 +115,38 @@ daylight_to_h = 19
 #
 # [bands]
 # engine_temperature = [[82, 90, "warn"], [90, 999, "bad"]]
+
+
+# ── Maintenance ──────────────────────────────────────────────────────────────────────
+# Intervals come from your engine's manual and nowhere else. OpenBoat ships none, because
+# "every 100 hours" is right for some engines and wrong for others, and a schedule that is
+# confidently wrong is worse than no schedule: it gets followed. An item with no interval
+# is still counted, it just gets no verdict.
+#
+#   python3 -m openboat.maintenance                 what is due
+#   python3 -m openboat.maintenance --did flush     record one
+#
+# The fresh-water flush is the one item the code assesses whether or not it appears here.
+# A raw-water engine sits full of the sea it was cooled by, and standing salt crystallises
+# out in the exhaust riser and elbow — the narrow passages the cooling depends on. So a
+# flush is owed per salt-water outing, not per hour, and the outings are read from the
+# engine log rather than from your memory. Delete this block if your engine has a closed
+# freshwater circuit and never draws the sea through itself.
+
+[maintenance.flush]
+description = "Fresh-water flush of the raw-water circuit"
+
+# Examples, with invented intervals. Replace them from your own manual or delete them.
+# [maintenance.impeller]
+# description = "Raw-water pump impeller"
+# hours = 100
+# months = 12
+#
+# [maintenance.oil]
+# description = "Engine oil and filter"
+# hours = 100
+# months = 12
+#
+# [maintenance.anodes]
+# description = "Sacrificial anodes, checked and replaced"
+# months = 6

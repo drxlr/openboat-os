@@ -138,6 +138,13 @@ class Profile:
     #: invented band is a green light through a real overheat.
     bands: dict[str, list] = field(default_factory=dict)
 
+    #: Service intervals, per item, as {"impeller": {"hours": 100, "months": 12}}. Empty by
+    #: default: the intervals belong to your engine's manual, and one invented here would be
+    #: confidently wrong for most engines and would still get followed. The fresh-water
+    #: flush is the exception the code knows about, because it is a property of raw-water
+    #: cooling rather than of a particular engine — see `openboat/maintenance.py`.
+    maintenance: dict[str, dict] = field(default_factory=dict)
+
     sources: dict[str, str] = field(default_factory=dict)
     path: Path | None = None
 
@@ -242,6 +249,8 @@ def load(path: str | os.PathLike | None = None) -> Profile:
                                                                   "http://localhost:3000")),
         paths={**DEFAULT_PATHS, **(data.get("paths") or {})},
         bands=dict(data.get("bands") or {}),
+        maintenance={k: dict(v) for k, v in (data.get("maintenance") or {}).items()
+                     if isinstance(v, dict)},
         sources=sources,
         path=chosen,
     )
