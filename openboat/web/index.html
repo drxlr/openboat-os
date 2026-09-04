@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<!-- A compass rose, drawn for 16 pixels rather than shrunk to them: four
+     points, a filled north, and nothing else — a ship's wheel or an anchor
+     turns to mush at tab size. Inline as a data URI so it survives with no
+     network, like everything else here. -->
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzEiIGZpbGw9IiMwQjExMTYiLz48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIyOS41IiBmaWxsPSJub25lIiBzdHJva2U9IiMyQzQ2NTUiIHN0cm9rZS13aWR0aD0iMS41Ii8+PHBhdGggZD0iTTMyIDQgTDM3LjUgMjYuNSBMNjAgMzIgTDM3LjUgMzcuNSBMMzIgNjAgTDI2LjUgMzcuNSBMNCAzMiBMMjYuNSAyNi41IFoiIGZpbGw9IiM4RkI2QzkiLz48cGF0aCBkPSJNMzIgNCBMMzcuNSAyNi41IEwzMiAzMiBMMjYuNSAyNi41IFoiIGZpbGw9IiNGRjZBM0MiLz48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIzIiBmaWxsPSIjMEIxMTE2Ii8+PC9zdmc+">
 <title>OpenBoat</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -300,6 +305,42 @@
   .pick { font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
     color:var(--good); border:1px solid var(--good); border-radius:999px;
     padding:.1rem .45rem; margin-left:.5rem; vertical-align:.1em; }
+  /* the dial. Stroke widths are in viewBox units, so they scale with the tile. */
+  .dialwrap { position:relative; flex:1; display:flex; align-items:center; justify-content:center;
+    min-height:0; }
+  .dial { width:100%; height:100%; max-height:100%; overflow:visible; }
+  .dial .track { fill:none; stroke:var(--rule-soft); stroke-width:7; stroke-linecap:round; }
+  .dial .band  { fill:none; stroke-width:7; stroke-linecap:butt; opacity:.85; }
+  .dial .band.warn { stroke:var(--rust); }
+  .dial .band.bad  { stroke:var(--red); }
+  .dial .sweep { fill:none; stroke:var(--ink); stroke-width:7; stroke-linecap:round;
+    opacity:.55; transition:d .25s linear; }
+  /* transform-box matters here. A CSS transform on an SVG element resolves its origin
+     against the element's own bounding box by default, not the viewBox — so "50px 50px"
+     meant fifty units from the corner of the needle line, and the needle swung around a
+     point out in space instead of the hub. view-box puts it back in the dial's own
+     coordinates, where 50,50 is the centre. */
+  .dial .needle { stroke:var(--ink); stroke-width:2.6; stroke-linecap:round;
+    transform-box:view-box; transform-origin:50px 50px;
+    transition:transform .25s cubic-bezier(.22,.8,.3,1); }
+  .dial .hub { fill:var(--panel); stroke:var(--ink); stroke-width:2.2; }
+  .hasnum .dial .hub { display:none; }
+  .hasnum .dial .needle { stroke-width:2.2; }
+  .tile.warn .dial .needle, .tile.warn .dial .sweep { stroke:var(--rust); }
+  .tile.bad  .dial .needle, .tile.bad  .dial .sweep { stroke:var(--red); }
+  .tile.absent .dial .needle, .tile.absent .dial .sweep { stroke:var(--rule); opacity:.5; }
+  /* The number sits in the dial's own opening rather than beside it — the gap at the
+     bottom of a 270° sweep is exactly the space a figure wants, and using it keeps the
+     dial as large as the tile allows. */
+  .dialnum { position:absolute; left:50%; top:57%; transform:translate(-50%,-50%);
+    display:flex; align-items:baseline; gap:.08em; font-variant-numeric:tabular-nums;
+    font-weight:650; letter-spacing:-.02em; pointer-events:none; }
+  .dialnum .v { font-size:clamp(1.1rem, 3.4cqw + .5rem, 2.6rem); color:var(--ink); }
+  .dialnum .unit { font-size:.62em; color:var(--muted); font-weight:600; }
+  .tile.warn .dialnum .v { color:var(--rust); }
+  .tile.bad  .dialnum .v { color:var(--red); }
+  .tile.absent .dialnum .v { color:var(--rule); }
+
   /* the companion */
   .askbar { display:flex; gap:.6rem; margin:.2rem 0 .6rem; flex-wrap:wrap; }
   .askin { flex:1 1 14rem; min-height:56px; padding:0 1rem; font-size:1.1rem;
@@ -905,7 +946,119 @@ function bindLabel(tile) {
          (typeof tile.bind === 'string' ? tile.bind : tile.id);
 }
 
+/* ── one place where a tile's settings are resolved ───────────────────────────────────
+   A signal knows what it usually is — a range, a unit, how many decimals are worth
+   reading. A boat knows better. Coolant on a raw-water engine tops out around 60 °C and on
+   a freshwater one around 85, and the same is true of every range in SIGNALS: they are
+   sensible starting points, not truths.
+
+   So every widget reads through here, and anything in the tile's own `options` wins. The
+   ranges and the alarm bands you set on your own boat are yours; nothing overwrites them,
+   and nothing here invents one you did not ask for — a tile with no bands shows the number
+   with no verdict, which is the honest thing when nobody has said what hot means.        */
+function cfg(tile, sig) {
+  const o = tile.options || {};
+  return {
+    label: o.label || (sig ? sig.label : bindLabel(tile)),
+    unit:  o.unit  !== undefined ? o.unit : (sig ? sig.unit : ''),
+    dp:    o.dp    !== undefined ? +o.dp  : (sig ? sig.dp : 1),
+    min:   o.min   !== undefined ? +o.min : 0,
+    max:   o.max   !== undefined ? +o.max : (sig ? sig.max : 100),
+    bands: Array.isArray(o.bands) ? o.bands : (sig && sig.bands ? sig.bands : []),
+    sig,
+  };
+}
+
+function bandClass(bands, value) {
+  let cls = '';
+  for (const [lo, hi, c] of bands || []) if (value >= lo && value < hi) cls = c;
+  return cls;
+}
+
+/* ── the dial ─────────────────────────────────────────────────────────────────────────
+   A needle exists for one reason a number cannot manage: it shows where a reading sits in
+   its range without being read. Glancing at an engine gauge and seeing the needle further
+   round than it was an hour ago is a different act from reading 86 and remembering 82.
+
+   270° of sweep, opening at the bottom, which is the convention every engine gauge on
+   every dashboard has used for a century — the reason to follow it is that people already
+   know how to read it. Alarm bands are painted onto the arc itself, so the redline is a
+   place on the dial rather than a colour the number turns after it is too late.          */
+const SWEEP = 270, START = 135, R = 39;
+
+function polar(t) {
+  const a = (START + t * SWEEP) * Math.PI / 180;
+  return [50 + R * Math.cos(a), 50 + R * Math.sin(a)];
+}
+
+function arcPath(t0, t1) {
+  const [x0, y0] = polar(Math.max(0, Math.min(1, t0)));
+  const [x1, y1] = polar(Math.max(0, Math.min(1, t1)));
+  const large = (t1 - t0) * SWEEP > 180 ? 1 : 0;
+  return `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${R} ${R} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+
+function dialWidget(withNumber) {
+  return {
+    sizes: ['S', 'M', 'L'],
+    build(tile) {
+      const sig = typeof tile.bind === 'string' ? SIGNALS[tile.bind] : null;
+      const c = cfg(tile, sig);
+      const span = (c.max - c.min) || 1;
+      const at = v => (v - c.min) / span;
+
+      // Bands are painted once, at build: they do not change while the boat is running.
+      const painted = (c.bands || []).map(([lo, hi, cls]) =>
+        `<path class="band ${cls}" d="${arcPath(at(lo), at(hi))}"/>`).join('');
+
+      const node = document.createElement('div');
+      if (withNumber) node.classList.add('hasnum');
+      node.innerHTML = `<div class="tlabel"><span>${c.label}</span></div>
+        <div class="dialwrap">
+          <svg class="dial" viewBox="0 0 100 100" aria-hidden="true">
+            <path class="track" d="${arcPath(0, 1)}"/>
+            ${painted}
+            <path class="sweep" d=""/>
+            <line class="needle" x1="50" y1="50" x2="50" y2="14"/>
+            <circle class="hub" cx="50" cy="50" r="4.5"/>
+          </svg>
+          ${withNumber ? `<div class="dialnum"><span class="v">—</span><span class="unit"></span></div>` : ''}
+        </div>
+        <div class="twhy"><span class="txt"></span></div>`;
+
+      const needle = node.querySelector('.needle'), sweep = node.querySelector('.sweep');
+      const v = node.querySelector('.v'), unit = node.querySelector('.unit');
+      const why = node.querySelector('.txt');
+
+      node._update = st => {
+        const b = st.boat, value = sig && b ? b[sig.key] : null;
+        node.classList.remove('warn', 'bad');
+        if (value === null || value === undefined) {
+          node.classList.add('absent');
+          needle.setAttribute('transform', `rotate(${START + 90} 50 50)`);
+          sweep.setAttribute('d', '');
+          if (v) { v.textContent = '—'; unit.textContent = ''; }
+          why.textContent = sig ? 'no sender' : 'unknown signal';
+          return;
+        }
+        node.classList.remove('absent');
+        const cls = bandClass(c.bands, value);
+        if (cls) node.classList.add(cls);
+        const t = Math.max(0, Math.min(1, at(value)));
+        needle.setAttribute('transform', `rotate(${START + 90 + t * SWEEP} 50 50)`);
+        sweep.setAttribute('d', arcPath(0, t));
+        if (v) { v.textContent = value.toFixed(c.dp); unit.textContent = c.unit; }
+        why.textContent = (sig && sig.extra) ? sig.extra(b)
+                        : (sig && sig.why ? sig.why(value) : '') || ' ';
+      };
+      return node;
+    },
+  };
+}
+
 const WIDGETS = {
+  dial: dialWidget(false),
+  gauge: dialWidget(true),
   numeral: {
     sizes: ['S', 'M', 'L'],
     build(tile) {
@@ -917,7 +1070,8 @@ const WIDGETS = {
           <rect class="track" x="0" y="1" width="100" height="4" rx="2"/>
           <rect class="fill" x="0" y="1" width="0" height="4" rx="2"/></svg>
         <div class="twhy"><span class="glyph" aria-hidden="true"></span><span class="txt"></span></div>`;
-      node.querySelector('.tlabel span').textContent = bindLabel(tile);
+      const c = cfg(tile, sig);
+      node.querySelector('.tlabel span').textContent = c.label;
       const v = node.querySelector('.v'), unit = node.querySelector('.unit'),
             fill = node.querySelector('.fill'), why = node.querySelector('.txt');
       node._update = st => {
@@ -931,11 +1085,11 @@ const WIDGETS = {
           return;
         }
         node.classList.remove('absent');
-        let cls = '';
-        for (const [lo, hi, c] of (sig.bands || [])) if (value >= lo && value < hi) cls = c;
+        const cls = bandClass(c.bands, value);
         if (cls) node.classList.add(cls);
-        v.textContent = value.toFixed(sig.dp); unit.textContent = sig.unit;
-        fill.setAttribute('width', Math.max(0, Math.min(1, value / sig.max)) * 100);
+        v.textContent = value.toFixed(c.dp); unit.textContent = c.unit;
+        fill.setAttribute('width',
+          Math.max(0, Math.min(1, (value - c.min) / ((c.max - c.min) || 1))) * 100);
         why.textContent = sig.extra ? sig.extra(b) : (sig.why ? sig.why(value) : '') || ' ';
       };
       return node;
@@ -1733,16 +1887,71 @@ if ((window.OB_PROFILE && window.OB_PROFILE.chart || {}).windy_map_key) OS.app({
 });
 
 /* ── app: about ───────────────────────────────────────────────────────────────────── */
+function aboutSenders(st) {
+  const data = st.paths;
+  if (!data) return `<p class="quiet">Reading what Signal K is publishing…</p>`;
+  if (!data.online) {
+    return `<p class="quiet">Signal K is not answering${data.reason ? ' — ' + esc(data.reason) : ''}.
+      Paths in <code>boat.toml</code> still stand; they will bind when the boat does.</p>`;
+  }
+  const mapped = data.mapped || {};
+  const byPath = {};
+  (data.paths || []).forEach(row => { byPath[row.path] = row; });
+  const interesting = (data.paths || []).filter(row =>
+    /^(propulsion|electrical|tanks|environment|steering)\./.test(row.path));
+  const rows = Object.keys(mapped).sort().map(key => {
+    const path = mapped[key];
+    const live = byPath[path];
+    const mark = live ? 'live' : 'no sender';
+    return `<li><span>${esc(key)}</span><span class="n">${esc(path)} · ${mark}</span></li>`;
+  }).join('');
+  const extras = interesting.filter(row =>
+    !Object.values(mapped).includes(row.path));
+  const extra = extras.slice(0, 24).map(row =>
+    `<li><span class="quiet">${esc(row.path)}</span><span class="n">${
+      row.unit ? esc(String(row.unit)) : 'live'}</span></li>`).join('');
+  return `<ul class="rows">${rows}</ul>
+    ${extras.length
+      ? `<p class="quiet" style="margin-top:.8rem">Also publishing, not mapped in
+          <code>[paths]</code> — copy a line into <code>boat.toml</code> to bind it.</p>
+         <ul class="rows">${extra}</ul>
+         ${extras.length > 24
+           ? `<p class="quiet">${extras.length - 24} more on <code>GET /api/paths</code>.</p>`
+           : ''}`
+      : `<p class="quiet" style="margin-top:.8rem">Nothing else under propulsion,
+          electrical, tanks, environment or steering.</p>`}`;
+}
+
 OS.app({
   id:'about', title:'About',
   render(el, st) {
+    const p = window.OB_PROFILE || {};
+    const v = p.vessel || {};
+    const dims = [];
+    if (v.length_m) dims.push(Number(v.length_m).toFixed(2).replace('.', ',') + ' m');
+    if (v.beam_m) dims.push(Number(v.beam_m).toFixed(2).replace('.', ',') + ' m beam');
+    if (v.draft_m) dims.push('draft ' + Number(v.draft_m).toFixed(2).replace('.', ',') + ' m');
+    const boatLine = [v.name || 'OpenBoat'].concat(dims).join(' · ') || '—';
+    const engineBits = [];
+    if (v.engine_kw) engineBits.push(Number(v.engine_kw).toFixed(0) + ' kW');
+    if (v.engine_note) engineBits.push(v.engine_note);
+    const unsourced = (p.unsourced && p.unsourced.length)
+      ? ' Unsourced right now: ' + p.unsourced.join(', ') + '.'
+      : '';
+    if (!st._pathsFetch && (!st.paths || Date.now() - (st.pathsAt || 0) > 15000)) {
+      OS.state._pathsFetch = true;
+      fetch('/api/paths').then(r => r.json()).then(data => {
+        OS.state.paths = data; OS.state.pathsAt = Date.now();
+        if (OS.current === 'about') OS.paint();
+      }).catch(() => {}).finally(() => { OS.state._pathsFetch = false; });
+    }
     el.innerHTML = `<div class="card"><h2>What this is, and what it is not</h2>
       <p>An instrument panel and a planning desk for one boat, reading a Signal K server
          over the network. Everything here is read-only: nothing steers, switches, sends
          or pays.</p>
       <ul class="rows">
-        <li><span>Boat</span><span class="n" id="about-boat">—</span></li>
-        <li><span>Engine</span><span class="n" id="about-engine">—</span></li>
+        <li><span>Boat</span><span class="n">${esc(boatLine)}</span></li>
+        <li><span>Engine</span><span class="n">${esc(engineBits.join(' · ') || 'not recorded')}</span></li>
         <li><span>Signal K</span><span class="n">${st.boat ? 'answering' : (st.reason || 'not answering')}</span></li>
       </ul>
       <p class="warntext" style="margin-top:.8rem">Not a chartplotter and not a safety
@@ -1752,7 +1961,12 @@ OS.app({
       <p class="quiet">Every figure above comes from your <code>boat.toml</code>. A field
         with no source is listed as unsourced rather than presented as a fact, and where a
         number is unknown it stays blank rather than being estimated.
-        <span id="about-unsourced"></span></p></div>
+        ${esc(unsourced)}</p></div>
+      <div class="card"><h2>What the boat is publishing</h2>
+      <p class="quiet">Instance names differ. This list is the live Signal K tree against
+        the <code>[paths]</code> table in your profile — that is how a Victron bank, a
+        second engine or a tank that is not called <code>main</code> gets onto the helm.</p>
+      ${aboutSenders(st)}</div>
       <div class="card"><h2>Using the screen</h2>
       <p class="quiet"><b>Palette.</b> Day, dusk and night follow the sun's height over
         the boat. Tap the button at the bottom right for the next palette; hold it to go

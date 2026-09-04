@@ -45,9 +45,12 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import secrets
 import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import knowledge, mcp
 
@@ -70,6 +73,7 @@ CHATGPT_TOOLS = [
         "inputSchema": {"type": "object",
                         "properties": {"query": {"type": "string"}},
                         "required": ["query"]},
+        "annotations": {"title": "search", **mcp.READ_ONLY},
     },
     {
         "name": "fetch",
@@ -77,6 +81,7 @@ CHATGPT_TOOLS = [
         "inputSchema": {"type": "object",
                         "properties": {"id": {"type": "string"}},
                         "required": ["id"]},
+        "annotations": {"title": "fetch", **mcp.READ_ONLY},
     },
 ]
 
@@ -138,19 +143,41 @@ def handle(request: dict) -> dict | None:
     return mcp.handle(request)
 
 
+#: Open SSE streams, by session id. One queue each; the POST handler drops answers in and
+#: the GET handler, blocked on the queue, writes them out.
+SESSIONS: dict[str, queue.Queue] = {}
+
+
 class Door(BaseHTTPRequestHandler):
     token = ""
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
         sys.stderr.write(f"{self.address_string()} {fmt % args}\n")
 
     def _authorised(self) -> bool:
-        """Constant-time compare. The token is short and an attacker can retry all night."""
+        """A Bearer header, or the token as the first path segment. Constant-time either way.
+
+        The header is the right way and the path is the way that works. A hosted assistant's
+        connector setup often takes a URL and nothing else — no place to put a header — and
+        the alternative to a token in the path is no token at all, on a public URL, in front
+        of a boat's papers and position. A secret in a URL leaks more easily than one in a
+        header (it lands in logs, in history, in anything that stores the link), so treat
+        the whole URL as the credential: do not paste it anywhere you would not paste a
+        password, and rotate it by restarting with a new token.
+        """
         offered = self.headers.get("Authorization", "")
-        prefix = "Bearer "
-        if not offered.startswith(prefix):
-            return False
-        return secrets.compare_digest(offered[len(prefix):], self.token)
+        if offered.startswith("Bearer "):
+            return secrets.compare_digest(offered[len("Bearer "):], self.token)
+        first = self.path.lstrip("/").split("/")[0].split("?")[0]
+        return bool(first) and secrets.compare_digest(first, self.token)
+
+    def _route(self) -> str:
+        """The path with any leading token segment removed."""
+        parts = [p for p in self.path.split("?")[0].split("/") if p]
+        if parts and secrets.compare_digest(parts[0], self.token):
+            parts = parts[1:]
+        return "/" + "/".join(parts)
 
     def _refuse(self) -> None:
         self.send_response(401)
@@ -159,24 +186,55 @@ class Door(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        """Open an SSE session, or answer a health check.
+
+        This is the older HTTP+SSE transport, and it has one step that is easy to miss and
+        fatal to omit: immediately after the stream opens the server must send an
+        `endpoint` event naming the URL the client should POST its requests to. Without it
+        the client has a stream and nowhere to talk back, so it hangs up — which is exactly
+        what a first attempt at this did. Every reply then travels back down this stream
+        rather than in the POST's own body.
+        """
         if not self._authorised():
             return self._refuse()
-        if self.path.rstrip("/") not in ("/sse", "/mcp"):
+        route = self._route().rstrip("/")
+        if route not in ("/sse", "/mcp", ""):
             self.send_response(404); self.send_header("Content-Length", "0"); self.end_headers()
             return
-        # The SSE endpoint OpenAI's connector expects. It stays open; this server has
-        # nothing to push, so it holds the stream and answers on POST like any other
-        # streamable-HTTP MCP server.
+
+        session = uuid.uuid4().hex
+        outbox: queue.Queue = queue.Queue()
+        SESSIONS[session] = outbox
+
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "keep-alive")
+        self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
+
+        # The token stays in the path so the POST is authorised the same way the GET was.
+        prefix = "/" + self.token if self.path.lstrip("/").startswith(self.token) else ""
         try:
-            self.wfile.write(b": openboat mcp\n\n")
-            self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+            self._event("endpoint", f"{prefix}/messages?sessionId={session}")
+            while True:
+                try:
+                    message = outbox.get(timeout=15)
+                except queue.Empty:
+                    self.wfile.write(b": keep-alive\n\n")     # or a proxy closes it for us
+                    self.wfile.flush()
+                    continue
+                if message is None:
+                    break
+                self._event("message", json.dumps(message))
+        except (BrokenPipeError, ConnectionResetError, OSError):
             pass
+        finally:
+            SESSIONS.pop(session, None)
+
+    def _event(self, name: str, data: str) -> None:
+        self.wfile.write(f"event: {name}\ndata: {data}\n\n".encode())
+        self.wfile.flush()
 
     def do_POST(self):
         if not self._authorised():
@@ -187,7 +245,26 @@ class Door(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return self._send({"jsonrpc": "2.0", "id": None,
                                "error": {"code": -32700, "message": "parse error"}})
+
         response = handle(request)
+
+        # A POST that named a session belongs to the SSE transport: acknowledge it here and
+        # put the answer on that session's stream. A POST without one is streamable HTTP,
+        # where the answer goes straight back in this response.
+        session = ""
+        if "?" in self.path:
+            from urllib.parse import parse_qs
+            session = parse_qs(self.path.split("?", 1)[1]).get("sessionId", [""])[0]
+        outbox = SESSIONS.get(session) if session else None
+
+        if outbox is not None:
+            if response is not None:
+                outbox.put(response)
+            self.send_response(202)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
         if response is None:
             self.send_response(202); self.send_header("Content-Length", "0"); self.end_headers()
             return
@@ -217,10 +294,15 @@ def main(argv: list[str] | None = None) -> int:
 
     Door.token = token
     port = int(argv[0]) if argv and argv[0].isdigit() else PORT
-    server = HTTPServer((BIND, port), Door)
-    print(f"OpenBoat MCP on http://{BIND}:{port}/mcp  (SSE at /sse/)\n"
-          f"{len(TOOLS)} tools. Bearer token required. Bound to localhost — expose it with "
-          f"a tunnel, deliberately.", file=sys.stderr)
+    # Threading, because an SSE stream blocks its handler for as long as the client is
+    # connected, and the POSTs that carry the actual requests arrive on other connections
+    # while it does. A single-threaded server accepts the stream and then never hears them.
+    server = ThreadingHTTPServer((BIND, port), Door)
+    print(f"OpenBoat MCP: {len(TOOLS)} tools, bound to {BIND}:{port}\n"
+          f"  header auth   Authorization: Bearer <token>  ->  /mcp  or  /sse/\n"
+          f"  URL auth      /{token}/sse/   (for a client that takes only a link)\n"
+          f"Localhost only. Put it behind a tunnel deliberately; treat the URL as the "
+          f"password.", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

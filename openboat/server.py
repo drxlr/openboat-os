@@ -119,9 +119,20 @@ class OpenBoat(SimpleHTTPRequestHandler):
 
     def send_report(self, report: Path):
         if not report.exists():
-            what = "season" if "season" in report.name else "engine"
-            body = (f"<p>Not generated yet. Run <code>python3 -m openboat.{what}</code> "
-                    f"to build it.</p>").encode()
+            how = ("python3 -m openboat.season" if "season" in report.name
+                   else "python3 -m openboat.engine_report")
+            body = (
+                "<!doctype html><meta charset=utf-8>"
+                "<meta name=viewport content='width=device-width,initial-scale=1'>"
+                "<style>:root{color-scheme:light dark}"
+                "body{margin:0;padding:2rem;font:400 15px/1.6 -apple-system,BlinkMacSystemFont,"
+                "'Segoe UI',Roboto,sans-serif;background:#15181A;color:#C2C8C4}"
+                "@media(prefers-color-scheme:light){body{background:#EEF1EF;color:#2B3330}}"
+                "code{background:rgba(128,128,128,.18);padding:.15em .45em;border-radius:5px}"
+                "</style>"
+                f"<p>Not generated yet. Run <code>{how}</code> to build it.</p>"
+                "<p style='opacity:.7'>It writes into <code>reports/</code>, which is where "
+                "this page is served from.</p>").encode()
             return self.send_html(body, 404)
         return self.send_html(report.read_bytes())
 
@@ -219,6 +230,16 @@ class OpenBoat(SimpleHTTPRequestHandler):
                 return {"online": True, **boat.state()}
             except boat.Offline as exc:
                 return {"online": False, "reason": str(exc)}
+
+        if route == "/api/paths":
+            # The live Signal K tree, so a skipper can copy instance names into [paths]
+            # instead of guessing engine_1 / house / main.
+            try:
+                return {"online": True, "paths": boat.leaves(),
+                        "mapped": boat_profile.paths}
+            except boat.Offline as exc:
+                return {"online": False, "reason": str(exc),
+                        "paths": [], "mapped": boat_profile.paths}
 
         if route == "/api/route":
             # waypoints=lat,lon,name;lat,lon,name

@@ -377,12 +377,23 @@ def table(offshore: list[MonthStats], berth: list[MonthStats], boat: Profile) ->
     return "\n".join(lines)
 
 
+#: Where the dashboard serves it from. Keep the two in step.
+REPORT = Path("reports") / "season.html"
+
+
 def main() -> None:
     from .profile import load as load_profile
 
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--html", nargs="?", const="season.html", metavar="FILE",
-                        help="also write the report page (default season.html)")
+    # The default is reports/season.html because that is exactly where the dashboard
+    # serves it from. It used to default to season.html in the working directory while the
+    # server looked in reports/, so the Season tab could never show anything but its own
+    # "not generated yet" placeholder — a whole feature quietly missing over a path.
+    parser.add_argument("--html", nargs="?", const=str(REPORT), metavar="FILE",
+                        default=str(REPORT),
+                        help=f"write the report page (default {REPORT})")
+    parser.add_argument("--no-html", action="store_true",
+                        help="print the table only, write nothing")
     parser.add_argument("--json", metavar="FILE", help="write the raw numbers")
     parser.add_argument("--refresh", action="store_true", help="bypass the disk cache")
     parser.add_argument("--profile", help="path to a boat.toml (default: the usual search)")
@@ -399,10 +410,12 @@ def main() -> None:
              "berth": [asdict(m) for m in berth]}, indent=1))
         print(f"wrote {args.json}", file=sys.stderr)
 
-    if args.html:
+    if args.html and not args.no_html:
         from . import season_report
-        Path(args.html).write_text(season_report.render(offshore, berth, boat))
-        print(f"wrote {args.html}", file=sys.stderr)
+        out = Path(args.html)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(season_report.render(offshore, berth, boat))
+        print(f"wrote {out}", file=sys.stderr)
 
 
 if __name__ == "__main__":

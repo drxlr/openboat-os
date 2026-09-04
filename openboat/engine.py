@@ -133,10 +133,8 @@ def _age(leaf: dict, now: float) -> float | None:
 def _first_branch(tree: dict, *path: str) -> dict:
     """The first child of a Signal K container branch — `propulsion.*`, `batteries.*`.
 
-    One engine, one bank is the common case, and this returns whichever the server lists
-    first. On a twin-engine boat, or a boat with more than one battery bank, that is the
-    wrong answer for anything except "some engine is running" — name the instance
-    explicitly in your own tooling if you need to tell them apart.
+    Fallback only. `read()` honours `[paths]` first; this hunt runs when the default
+    path is missing. Name the instance in the profile when the boat has more than one.
     """
     node = _leaf(tree, *path)
     for key, child in node.items():
@@ -145,7 +143,7 @@ def _first_branch(tree: dict, *path: str) -> dict:
     return {}
 
 
-def read(vessel_tree: dict | None = None) -> dict:
+def read(vessel_tree: dict | None = None, boat=None) -> dict:
     """One sample from Signal K, in human units.
 
     Pass `vessel_tree` — the raw `vessels/self` document — to parse data you already have.
@@ -153,21 +151,37 @@ def read(vessel_tree: dict | None = None) -> dict:
     parsing and unit conversion can be tested with no boat, no network and no Signal K
     server running. Raises `boat.Offline` when a fetch is needed and the boat does not
     answer.
+
+    Instance names come from the profile's `[paths]`. Without an override this still
+    hunts for the first engine and the first battery bank, which is right for one of
+    each and wrong for two.
     """
     now = time.time()
+    from . import boat as boatmod  # noqa: PLC0415 — imported lazily, see openboat.track.record()
     if vessel_tree is None:
-        from . import boat  # noqa: PLC0415 — imported lazily, see openboat.track.record()
-        vessel_tree = boat._get("vessels/self")
+        vessel_tree = boatmod._get("vessels/self")
+    if boat is None:
+        from .profile import load
+        boat = load()
 
-    engine = _first_branch(vessel_tree, "propulsion")
-    battery = _first_branch(vessel_tree, "electrical", "batteries")
-
-    revs = _leaf(engine, "revolutions")          # Hz — revolutions per SECOND, not minute
-    temp = _leaf(engine, "temperature")          # K
-    oil = _leaf(engine, "oilPressure")           # Pa
-    volts = _leaf(battery, "voltage")            # V
-    sea = _leaf(vessel_tree, "environment", "water", "temperature")   # K
-    sog = _leaf(vessel_tree, "navigation", "speedOverGround")         # m/s
+    revs = boatmod.path_leaf(
+        vessel_tree, "engine_revolutions", boat,
+        fallback=lambda: _leaf(_first_branch(vessel_tree, "propulsion"), "revolutions"))
+    temp = boatmod.path_leaf(
+        vessel_tree, "engine_temperature", boat,
+        fallback=lambda: _leaf(_first_branch(vessel_tree, "propulsion"), "temperature"))
+    oil = boatmod.path_leaf(
+        vessel_tree, "engine_oil_pressure", boat,
+        fallback=lambda: _leaf(_first_branch(vessel_tree, "propulsion"), "oilPressure"))
+    volts = boatmod.path_leaf(
+        vessel_tree, "battery_voltage", boat,
+        fallback=lambda: _leaf(_first_branch(vessel_tree, "electrical", "batteries"), "voltage"))
+    sea = boatmod.path_leaf(
+        vessel_tree, "water_temperature", boat,
+        fallback=lambda: _leaf(vessel_tree, "environment", "water", "temperature"))
+    sog = boatmod.path_leaf(
+        vessel_tree, "speed_over_ground", boat,
+        fallback=lambda: _leaf(vessel_tree, "navigation", "speedOverGround"))
 
     hz = revs.get("value")
     kelvin = temp.get("value")

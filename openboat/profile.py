@@ -44,16 +44,29 @@ DEFAULT_PATHS: dict[str, str] = {
     "speed_over_ground": "navigation.speedOverGround",
     "course_over_ground": "navigation.courseOverGroundTrue",
     "heading": "navigation.headingTrue",
+    "speed_through_water": "navigation.speedThroughWater",
     "depth": "environment.depth.belowTransducer",
     "wind_speed": "environment.wind.speedApparent",
     "wind_angle": "environment.wind.angleApparent",
     "water_temperature": "environment.water.temperature",
+    "air_temperature": "environment.outside.temperature",
+    "pressure": "environment.outside.pressure",
+    "humidity": "environment.outside.humidity",
+    "rudder": "steering.rudderAngle",
     "engine_revolutions": "propulsion.engine_1.revolutions",
     "engine_temperature": "propulsion.engine_1.temperature",
     "engine_oil_pressure": "propulsion.engine_1.oilPressure",
+    "engine_oil_temperature": "propulsion.engine_1.oilTemperature",
+    "engine_exhaust_temperature": "propulsion.engine_1.exhaustTemperature",
+    "engine_load": "propulsion.engine_1.engineLoad",
+    "engine_fuel_rate": "propulsion.engine_1.fuel.rate",
     "engine_hours": "propulsion.engine_1.runTime",
     "battery_voltage": "electrical.batteries.house.voltage",
+    "battery_current": "electrical.batteries.house.current",
+    "battery_soc": "electrical.batteries.house.capacity.stateOfCharge",
     "fuel_level": "tanks.fuel.main.currentLevel",
+    "water_level": "tanks.freshWater.main.currentLevel",
+    "waste_level": "tanks.wasteWater.main.currentLevel",
 }
 
 #: The chart layers. The URLs are configuration rather than constants for a reason that is
@@ -247,6 +260,10 @@ class Profile:
             "knowledge": {"count": len(self.knowledge.get("docs", []))},
             "papers": len(self.papers),
             "unsourced": self.unsourced(),
+            # The dashboard applies these. Omitting them was a silent bug: [bands] and
+            # [paths] were loaded, documented, and then thrown away at the API boundary.
+            "bands": self.bands,
+            "paths": self.paths,
         }
 
 

@@ -48,6 +48,50 @@ def _compass(degrees) -> str:
 
 PROTOCOL = "2025-06-18"
 
+#: MCP tool annotations. Without them a client has to assume the worst, and ChatGPT does
+#: exactly that — it labelled every one of these PUBLIC WRITE, OPEN WORLD and DESTRUCTIVE,
+#: including `boat_state`, which does nothing but read a gauge. That is not a cosmetic
+#: problem: a client that believes reading the coolant temperature might destroy something
+#: will either interrupt the user to confirm it or decline to use it.
+#:
+#: `openWorldHint` is true only where the tool really does reach the open internet — the
+#: forecast and the AIS feed. Everything else stays inside the boat.
+READ_ONLY = {"readOnlyHint": True, "destructiveHint": False,
+             "idempotentHint": True, "openWorldHint": False}
+READ_ONLY_ONLINE = {**READ_ONLY, "openWorldHint": True}
+
+#: The one tool that writes. It appends a line to a maintenance log and can do nothing
+#: else — no edit, no delete — so it is not read-only and not destructive either, and it is
+#: not idempotent because logging the same check twice records two checks.
+APPEND_ONLY = {"readOnlyHint": False, "destructiveHint": False,
+               "idempotentHint": False, "openWorldHint": False}
+
+ANNOTATIONS = {
+    "boat_docs": READ_ONLY, "boat_specs": READ_ONLY, "checks": READ_ONLY,
+    "boat_papers": READ_ONLY, "boat_costs": READ_ONLY, "boat_state": READ_ONLY,
+    "plan_route": READ_ONLY,
+    "marine_forecast": READ_ONLY_ONLINE, "passage_window": READ_ONLY_ONLINE,
+    "ais_targets": READ_ONLY_ONLINE,
+    "log_check": APPEND_ONLY,
+}
+
+
+def annotate(tools: list) -> list:
+    """Attach the annotations, and refuse to ship a tool nobody has classified.
+
+    The failure this guards against is a new tool being added and quietly inheriting the
+    worst-case assumption, which is how `boat_state` came to be marked destructive.
+    """
+    for tool in tools:
+        hints = ANNOTATIONS.get(tool["name"])
+        if hints is None:
+            raise RuntimeError(
+                f"tool {tool['name']!r} has no entry in ANNOTATIONS. Say whether it reads "
+                f"or writes; a client that is not told assumes it destroys things.")
+        tool["annotations"] = {"title": tool["name"].replace("_", " "), **hints}
+    return tools
+
+
 TOOLS = [
     {
         "name": "boat_docs",
@@ -375,6 +419,8 @@ def tool_ais_targets(limit=20):
     return "\n".join(f"{t['name']} ({t['mmsi']}) {t['lat']:.4f},{t['lon']:.4f} "
                      f"{t['sog_kn']} kn" for t in targets)
 
+
+TOOLS = annotate(TOOLS)
 
 HANDLERS = {
     "boat_docs": lambda **kw: tool_boat_docs(**kw),

@@ -159,6 +159,34 @@ def test_chatgpt_contract() -> None:
 
 
 # --------------------------------------------------------------------------------------
+# 6b. Every tool says whether it reads or writes. A client that is not told assumes the
+#     worst — ChatGPT marked `boat_state` DESTRUCTIVE before these existed.
+# --------------------------------------------------------------------------------------
+def test_every_tool_is_annotated() -> None:
+    from openboat import mcp
+    missing = [t["name"] for t in mcp_http.TOOLS if "annotations" not in t]
+    check(not missing, f"every tool carries annotations ({missing or 'clean'})")
+
+    writers = [t["name"] for t in mcp_http.TOOLS
+               if not t["annotations"].get("readOnlyHint")]
+    check(writers == ["log_check"],
+          f"exactly one tool is not read-only, and it is the log ({writers})")
+    check(not any(t["annotations"].get("destructiveHint") for t in mcp_http.TOOLS),
+          "nothing in the tool set is destructive")
+
+    # A new tool must not inherit the worst case by being forgotten.
+    try:
+        mcp.annotate([{"name": "brand_new_tool"}])
+        check(False, "an unclassified tool is refused rather than shipped")
+    except RuntimeError:
+        check(True, "an unclassified tool is refused rather than shipped")
+
+    online = {t["name"] for t in mcp_http.TOOLS if t["annotations"].get("openWorldHint")}
+    check(online == {"marine_forecast", "passage_window", "ais_targets"},
+          f"only the tools that really reach the internet say so ({sorted(online)})")
+
+
+# --------------------------------------------------------------------------------------
 # 7. The log is append-only and refuses a meaningless entry.
 # --------------------------------------------------------------------------------------
 def test_logbook() -> None:
@@ -184,7 +212,8 @@ if __name__ == "__main__":
     print(__doc__.splitlines()[0])
     print("-" * 78)
     for case in (test_citations, test_crosses_languages, test_offline, test_no_helm,
-                 test_http_needs_a_token, test_chatgpt_contract, test_logbook):
+                 test_http_needs_a_token, test_chatgpt_contract,
+                 test_every_tool_is_annotated, test_logbook):
         case()
     print("-" * 78)
     failed = [what for ok, what in results if not ok]

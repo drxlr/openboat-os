@@ -95,9 +95,11 @@ daylight_to_h = 19
 
 
 # ── Signal K paths ───────────────────────────────────────────────────────────────────
-# Only override the ones your boat names differently. One boat's engine is
-# `propulsion.engine_1`, another's is `propulsion.port`. A path that does not exist on
-# your boat reads as "no sender", which is the honest answer and not an error.
+# These are applied. The helm, the engine log and the companion all read the named
+# path first. Only override the ones your boat names differently: one boat's engine is
+# `propulsion.engine_1`, another's is `propulsion.port`. An override that does not
+# exist on your boat reads as "no sender", which is the honest answer and not an error.
+# `GET /api/paths` lists what Signal K is actually publishing.
 
 [paths]
 # engine_temperature = "propulsion.port.temperature"

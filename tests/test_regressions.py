@@ -176,6 +176,9 @@ def test_no_default_engine_bands() -> None:
     check("bands:" not in oil.split("},")[0],
           "oil pressure ships with no default band")
     check("obApplyBands" in page, "profile bands are applied to the signal table")
+    from openboat.profile import Profile
+    check("bands" in Profile().as_dict(),
+          "/api/profile actually carries [bands] — the dashboard cannot apply what it is not sent")
 
 
 # --------------------------------------------------------------------------------------

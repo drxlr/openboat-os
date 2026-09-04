@@ -37,7 +37,9 @@ from zoneinfo import ZoneInfo
 from . import engine_health, engine_hours as hourmeter
 from .engine import DEFAULT_DB, connect, meta_get
 
-DEFAULT_OUT = Path("engine-report.html")
+#: Where the dashboard serves it from — see `openboat/server.py`'s REPORTS map. These two
+#: were different for a while and the Engine log tab showed a placeholder the whole time.
+DEFAULT_OUT = Path("reports") / "engine.html"
 
 # The chart canvas, in viewBox units. Everything scales from here.
 WIDE = (720, 240)
@@ -512,6 +514,7 @@ def main() -> None:
 
     db = connect(args.db)
     synthetic = meta_get(db, "synthetic") == "1"
+    args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(build(db, args.db, profile, tz), encoding="utf-8")
     db.close()
 
