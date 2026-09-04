@@ -33,7 +33,7 @@ import json
 import sys
 from datetime import datetime
 
-from . import boat, knowledge, ledger, logbook, papers, windows
+from . import boat, knowledge, ledger, logbook, notes, papers, windows
 from .marine import forecast
 from .profile import load
 from .route import Waypoint, plan
@@ -73,6 +73,7 @@ ANNOTATIONS = {
     "marine_forecast": READ_ONLY_ONLINE, "passage_window": READ_ONLY_ONLINE,
     "ais_targets": READ_ONLY_ONLINE,
     "log_check": APPEND_ONLY,
+    "add_note": APPEND_ONLY,
 }
 
 
@@ -172,6 +173,21 @@ TOOLS = [
             "year": {"type": "string", "description": "e.g. 2026; omit for all time"}}},
     },
     {
+        "name": "add_note",
+        "description": "Write down something learned about this boat. Appends to the "
+                       "companion's own notes file — it CANNOT edit or delete the boat's "
+                       "documents, and must not be described to the user as if it could. "
+                       "Use it for something established during a job that would "
+                       "otherwise be lost: a measurement taken, a part number read off a "
+                       "casting, what a mechanic actually said. Do not use it to record "
+                       "your own inference as fact; write what was observed and by whom. "
+                       "Ask the owner before writing — it is their record, and nothing "
+                       "here can be unwritten.",
+        "inputSchema": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "the note, in plain words"},
+        }, "required": ["text"]},
+    },
+    {
         "name": "marine_forecast",
         "description": "Wind, gusts and sea state hour by hour for a point at sea. "
                        "Defaults to the boat profile's forecast point. Free Open-Meteo data, no key.",
@@ -246,6 +262,13 @@ TOOLS = [
 
 
 # --- tool implementations -------------------------------------------------------------
+
+def tool_add_note(text):
+    written = notes.add(text, by="assistant")
+    return (f"Noted at {written['at']}.\n\nThis went into the companion's notes file, "
+            f"which is searchable but is NOT one of the boat's documents and is marked "
+            f"unverified. If it matters, the owner should move it into the real file.")
+
 
 def tool_boat_papers(within_days=None):
     found = (papers.expiring(within=int(within_days)) if within_days is not None
@@ -429,6 +452,7 @@ HANDLERS = {
     "checks": lambda **kw: tool_checks(**kw),
     "boat_papers": lambda **kw: tool_boat_papers(**kw),
     "boat_costs": lambda **kw: tool_boat_costs(**kw),
+    "add_note": lambda **kw: tool_add_note(**kw),
     "marine_forecast": tool_marine_forecast,
     "passage_window": tool_passage_window,
     "plan_route": tool_plan_route,

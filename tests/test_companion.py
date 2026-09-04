@@ -167,10 +167,13 @@ def test_every_tool_is_annotated() -> None:
     missing = [t["name"] for t in mcp_http.TOOLS if "annotations" not in t]
     check(not missing, f"every tool carries annotations ({missing or 'clean'})")
 
-    writers = [t["name"] for t in mcp_http.TOOLS
-               if not t["annotations"].get("readOnlyHint")]
-    check(writers == ["log_check"],
-          f"exactly one tool is not read-only, and it is the log ({writers})")
+    writers = sorted(t["name"] for t in mcp_http.TOOLS
+                     if not t["annotations"].get("readOnlyHint"))
+    check(writers == ["add_note", "log_check"],
+          f"the only two writers are the log and the notes file ({writers})")
+    check(all(not t["annotations"].get("destructiveHint") for t in mcp_http.TOOLS
+              if t["name"] in writers),
+          "and neither of them is destructive: both only ever append")
     check(not any(t["annotations"].get("destructiveHint") for t in mcp_http.TOOLS),
           "nothing in the tool set is destructive")
 
@@ -184,6 +187,64 @@ def test_every_tool_is_annotated() -> None:
     online = {t["name"] for t in mcp_http.TOOLS if t["annotations"].get("openWorldHint")}
     check(online == {"marine_forecast", "passage_window", "ais_targets"},
           f"only the tools that really reach the internet say so ({sorted(online)})")
+
+
+# --------------------------------------------------------------------------------------
+# 6c. The companion can write a note, and cannot touch the boat's own documents.
+#     A corpus a model both reads and writes is a prompt-injection amplifier: a sentence
+#     inside a document becomes a fact in that document on the next pass, with a real
+#     citation under a false claim.
+# --------------------------------------------------------------------------------------
+def test_notes_cannot_reach_the_documents() -> None:
+    import ast as _ast
+    from openboat import notes
+
+    src = (ROOT / "openboat" / "knowledge.py").read_text()
+    tree = _ast.parse(src)
+    writes = [getattr(n.func, "attr", getattr(n.func, "id", ""))
+              for n in _ast.walk(tree) if isinstance(n, _ast.Call)]
+    bad = [w for w in writes if w in ("write_text", "write_bytes", "unlink", "rename",
+                                      "truncate", "rmtree", "remove")]
+    check(not bad, f"the document library cannot write, at all ({bad or 'clean'})")
+
+    # Structural, not textual. The first version of this grepped notes.py for '"w"' and
+    # failed on the docstring sentence explaining that it never uses "w" — punishing the
+    # module for documenting its own guarantee. Parse it instead.
+    ntree = _ast.parse((ROOT / "openboat" / "notes.py").read_text())
+    modes, calls = [], []
+    for n in _ast.walk(ntree):
+        if isinstance(n, _ast.Call):
+            fn = getattr(n.func, "attr", getattr(n.func, "id", ""))
+            calls.append(fn)
+            if fn == "open":
+                for arg in list(n.args) + [k.value for k in n.keywords if k.arg == "mode"]:
+                    if isinstance(arg, _ast.Constant):
+                        modes.append(arg.value)
+    check(modes and all(m == "a" for m in modes),
+          f"every open() in notes.py is append mode ({modes})")
+    forbidden = [c for c in calls if c in ("seek", "truncate", "unlink", "writelines",
+                                           "write_text", "write_bytes", "rename")]
+    check(not forbidden, f"notes.py never seeks, truncates or deletes ({forbidden or 'clean'})")
+
+    try:
+        notes.add("   ")
+        check(False, "an empty note is refused")
+    except ValueError:
+        check(True, "an empty note is refused")
+    try:
+        notes.add("x" * 5000)
+        check(False, "a note the size of a document is refused")
+    except ValueError:
+        check(True, "a note the size of a document is refused")
+
+    from openboat import mcp
+    tool = next(t for t in mcp.TOOLS if t["name"] == "add_note")
+    d = tool["description"].lower()
+    check("cannot edit or delete" in d,
+          "the tool tells the model plainly that it cannot edit the boat's documents")
+    check(tool["annotations"]["destructiveHint"] is False
+          and tool["annotations"]["readOnlyHint"] is False,
+          "add_note is a write, and is not destructive")
 
 
 # --------------------------------------------------------------------------------------
@@ -213,7 +274,8 @@ if __name__ == "__main__":
     print("-" * 78)
     for case in (test_citations, test_crosses_languages, test_offline, test_no_helm,
                  test_http_needs_a_token, test_chatgpt_contract,
-                 test_every_tool_is_annotated, test_logbook):
+                 test_every_tool_is_annotated,
+                 test_notes_cannot_reach_the_documents, test_logbook):
         case()
     print("-" * 78)
     failed = [what for ok, what in results if not ok]

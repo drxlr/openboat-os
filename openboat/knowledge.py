@@ -275,6 +275,15 @@ def load(boat=None) -> Library:
     for raw in boat.knowledge.get("docs", []):
         p = Path(raw).expanduser()
         paths.append(p if p.is_absolute() else (base / p))
+
+    # The companion's own notes file, if it exists, is searched alongside the documents —
+    # a note nobody can find again is a note nobody wrote. It is kept separate on disk and
+    # marked as unverified in its own header; see `openboat/notes.py` for why the boat's
+    # real documents stay read-only.
+    from .notes import path_for as notes_path
+    notes = notes_path(boat)
+    if notes.exists() and notes not in paths:
+        paths.append(notes)
     return Library(paths=paths)
 
 
