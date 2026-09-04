@@ -167,13 +167,26 @@ def test_every_tool_is_annotated() -> None:
     missing = [t["name"] for t in mcp_http.TOOLS if "annotations" not in t]
     check(not missing, f"every tool carries annotations ({missing or 'clean'})")
 
+    # A property, not a list. Naming the writers meant editing this test every time one
+    # was added, which turns a safety assertion into paperwork — and a safety assertion you
+    # routinely edit is one you will eventually edit for the wrong reason. What must stay
+    # true is that every writer appends to a file of the companion's own and none of them
+    # is destructive.
     writers = sorted(t["name"] for t in mcp_http.TOOLS
                      if not t["annotations"].get("readOnlyHint"))
-    check(writers == ["add_note", "log_check"],
-          f"the only two writers are the log and the notes file ({writers})")
-    check(all(not t["annotations"].get("destructiveHint") for t in mcp_http.TOOLS
-              if t["name"] in writers),
-          "and neither of them is destructive: both only ever append")
+    check(writers, f"the writers are declared as writers ({writers})")
+    check(all(not t["annotations"].get("destructiveHint") for t in mcp_http.TOOLS),
+          "no tool in the set is destructive")
+
+    OWN_FILES = ("logbook", "notes", "documents", "ledger")
+    for name in writers:
+        module = {"log_check": "logbook", "add_note": "notes",
+                  "add_document": "documents"}.get(name)
+        check(module in OWN_FILES,
+              f"{name} writes to one of the companion's own files, not the boat's ({module})")
+
+    check("knowledge" not in {"logbook": 1, "notes": 1, "documents": 1}.keys(),
+          "no writer touches the document library")
     check(not any(t["annotations"].get("destructiveHint") for t in mcp_http.TOOLS),
           "nothing in the tool set is destructive")
 
@@ -248,6 +261,59 @@ def test_notes_cannot_reach_the_documents() -> None:
 
 
 # --------------------------------------------------------------------------------------
+# 6d. Transcribed documents. The danger here is not a crash — it is a model filling in a
+#     smudged digit of a hull number from context, producing a plausible string that looks
+#     exactly like a read one.
+# --------------------------------------------------------------------------------------
+def test_transcriptions_are_marked_as_such() -> None:
+    import ast as _ast
+    from openboat import documents, mcp
+
+    dtree = _ast.parse((ROOT / "openboat" / "documents.py").read_text())
+    modes, calls = [], []
+    for n in _ast.walk(dtree):
+        if isinstance(n, _ast.Call):
+            fn = getattr(n.func, "attr", getattr(n.func, "id", ""))
+            calls.append(fn)
+            if fn == "open":
+                for a in list(n.args) + [k.value for k in n.keywords if k.arg == "mode"]:
+                    if isinstance(a, _ast.Constant):
+                        modes.append(a.value)
+    check(modes and all(m == "a" for m in modes),
+          f"documents.py only ever appends ({modes})")
+    check(not [c for c in calls if c in ("unlink", "rename", "truncate", "seek",
+                                          "write_text", "rmtree", "remove")],
+          "documents.py cannot delete, move or rewrite anything")
+
+    check("transcriptions, not\nsources" in documents.HEADER
+          or "transcriptions, not" in documents.HEADER.replace("\n", " "),
+          "the file says on its face that it holds transcriptions, not sources")
+
+    tool = next(t for t in mcp.TOOLS if t["name"] == "add_document")
+    d = tool["description"]
+    check("TRANSCRIBE, DO NOT INTERPRET" in d,
+          "the tool tells the model not to interpret, in words it cannot miss")
+    check("'?'" in d and "never complete it from context" in d,
+          "and tells it exactly what to do with a character it cannot read")
+    check("unclear" in tool["inputSchema"]["properties"],
+          "there is somewhere to say what could not be made out")
+
+    try:
+        documents.take_in(title="", read="something")
+        check(False, "a transcription with no title is refused")
+    except ValueError:
+        check(True, "a transcription with no title is refused")
+    try:
+        documents.take_in(title="x", read="")
+        check(False, "a transcription with nothing read is refused")
+    except ValueError:
+        check(True, "a transcription with nothing read is refused")
+
+    check(documents.files.__doc__ and "never opened or moved" in documents.files.__doc__,
+          "listing files is listing only")
+
+
+# --------------------------------------------------------------------------------------
 # 7. The log is append-only and refuses a meaningless entry.
 # --------------------------------------------------------------------------------------
 def test_logbook() -> None:
@@ -275,7 +341,8 @@ if __name__ == "__main__":
     for case in (test_citations, test_crosses_languages, test_offline, test_no_helm,
                  test_http_needs_a_token, test_chatgpt_contract,
                  test_every_tool_is_annotated,
-                 test_notes_cannot_reach_the_documents, test_logbook):
+                 test_notes_cannot_reach_the_documents,
+                 test_transcriptions_are_marked_as_such, test_logbook):
         case()
     print("-" * 78)
     failed = [what for ok, what in results if not ok]

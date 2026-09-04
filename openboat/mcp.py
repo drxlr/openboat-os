@@ -33,7 +33,7 @@ import json
 import sys
 from datetime import datetime
 
-from . import boat, knowledge, ledger, logbook, notes, papers, windows
+from . import boat, documents, knowledge, ledger, logbook, notes, papers, windows
 from .marine import forecast
 from .profile import load
 from .route import Waypoint, plan
@@ -74,6 +74,8 @@ ANNOTATIONS = {
     "ais_targets": READ_ONLY_ONLINE,
     "log_check": APPEND_ONLY,
     "add_note": APPEND_ONLY,
+    "add_document": APPEND_ONLY,
+    "boat_files": READ_ONLY,
 }
 
 
@@ -188,6 +190,43 @@ TOOLS = [
         }, "required": ["text"]},
     },
     {
+        "name": "add_document",
+        "description": "Take in a document the owner has photographed — registration, "
+                       "insurance certificate, a CE or engine plate, an invoice, a "
+                       "handwritten quote — by recording what you can READ on it.\n\n"
+                       "TRANSCRIBE, DO NOT INTERPRET. Hull numbers, engine serials, MMSI, "
+                       "policy numbers and dates are strings where one wrong character is "
+                       "worse than a blank. Copy exactly what is visible. Where a "
+                       "character cannot be made out write '?' and say so in `unclear` — "
+                       "never complete it from context, from the make and model, or from "
+                       "another document. If the photograph is too poor to read a field, "
+                       "say that instead of producing a plausible value.\n\n"
+                       "This is stored as a transcription, not as a source: it does not "
+                       "modify the boat's own documents, and the owner promotes it by "
+                       "hand once they have checked it against the photograph.",
+        "inputSchema": {"type": "object", "properties": {
+            "title": {"type": "string", "description": "what the document is"},
+            "read": {"type": "string",
+                     "description": "the text as it appears, field by field"},
+            "source": {"type": "string",
+                       "description": "what it was read from — a filename, or e.g. "
+                                      "'photo sent in chat, 4 September 2026'"},
+            "kind": {"type": "string", "enum": list(documents.KINDS)},
+            "unclear": {"type": "string",
+                        "description": "anything illegible or uncertain. Empty means you "
+                                       "are claiming every character was legible."},
+        }, "required": ["title", "read"]},
+    },
+    {
+        "name": "boat_files",
+        "description": "List the photographs and PDFs stored with this boat's documents — "
+                       "names, paths and sizes. Use it to find an existing image to refer "
+                       "to, or to check whether something has already been photographed. "
+                       "It lists files; it cannot open, move or delete them.",
+        "inputSchema": {"type": "object", "properties": {
+            "contains": {"type": "string", "description": "filter by filename"}}},
+    },
+    {
         "name": "marine_forecast",
         "description": "Wind, gusts and sea state hour by hour for a point at sea. "
                        "Defaults to the boat profile's forecast point. Free Open-Meteo data, no key.",
@@ -268,6 +307,28 @@ def tool_add_note(text):
     return (f"Noted at {written['at']}.\n\nThis went into the companion's notes file, "
             f"which is searchable but is NOT one of the boat's documents and is marked "
             f"unverified. If it matters, the owner should move it into the real file.")
+
+
+def tool_add_document(title, read, source="", kind="other", unclear=""):
+    entry = documents.take_in(title=title, read=read, source=source, kind=kind,
+                              unclear=unclear)
+    warn = ("" if unclear else
+            "\n\nNote: you left `unclear` empty, which records a claim that every "
+            "character was legible. If anything was a guess, say so now and it can be "
+            "added as a correction.")
+    return (f"Taken in as a transcription at {entry['at']}: {entry['title']}.\n"
+            f"Read from: {entry['source'] or 'not stated'}.\n\n"
+            f"This is searchable but is NOT one of the boat's documents, and nothing was "
+            f"changed in them. Before anybody relies on a number in it, they should look "
+            f"at the photograph.{warn}")
+
+
+def tool_boat_files(contains=""):
+    found = documents.files(contains=contains)
+    if not found:
+        return ("No image or PDF files found beside this boat's documents"
+                + (f" matching {contains!r}" if contains else "") + ".")
+    return "\n".join(f"{f['name']}  ({f['kb']} kB)  {f['path']}" for f in found)
 
 
 def tool_boat_papers(within_days=None):
@@ -453,6 +514,8 @@ HANDLERS = {
     "boat_papers": lambda **kw: tool_boat_papers(**kw),
     "boat_costs": lambda **kw: tool_boat_costs(**kw),
     "add_note": lambda **kw: tool_add_note(**kw),
+    "add_document": lambda **kw: tool_add_document(**kw),
+    "boat_files": lambda **kw: tool_boat_files(**kw),
     "marine_forecast": tool_marine_forecast,
     "passage_window": tool_passage_window,
     "plan_route": tool_plan_route,

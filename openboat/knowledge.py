@@ -280,10 +280,11 @@ def load(boat=None) -> Library:
     # a note nobody can find again is a note nobody wrote. It is kept separate on disk and
     # marked as unverified in its own header; see `openboat/notes.py` for why the boat's
     # real documents stay read-only.
+    from .documents import path_for as transcript_path
     from .notes import path_for as notes_path
-    notes = notes_path(boat)
-    if notes.exists() and notes not in paths:
-        paths.append(notes)
+    for extra in (notes_path(boat), transcript_path(boat)):
+        if extra.exists() and extra not in paths:
+            paths.append(extra)
     return Library(paths=paths)
 
 
