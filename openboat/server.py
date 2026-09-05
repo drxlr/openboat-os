@@ -17,6 +17,7 @@ Tailscale is the boundary, this server has no authentication of its own.
 
 from __future__ import annotations
 
+import errno
 import json
 import sys
 import urllib.parse
@@ -28,7 +29,7 @@ from time import time
 
 from . import boat, knowledge, ledger, logbook, papers, windows
 from .marine import ForecastUnavailable, forecast
-from .profile import load
+from .profile import ProfileError, load, require_point
 from .route import Waypoint, plan
 
 PORT = 8747
@@ -50,7 +51,7 @@ def _cached(lat: float, lon: float, days: int, bucket: int):
 def cached_forecast(lat=None, lon=None, days=7):
     boat_profile = load()
     if lat is None or lon is None:
-        lat, lon = boat_profile.forecast_point
+        lat, lon = require_point(boat_profile, "forecast_point")
     return _cached(lat, lon, days, int(time() // 3600))
 
 
@@ -155,8 +156,12 @@ class OpenBoat(SimpleHTTPRequestHandler):
 
     def dispatch(self, route: str, params: dict):
         boat_profile = load()
-        lat = float(params.get("lat", boat_profile.forecast_point[0]))
-        lon = float(params.get("lon", boat_profile.forecast_point[1]))
+        # Resolved lazily: a boat with no position recorded yet still answers every question
+        # about its equipment, its papers and its log, and only the routes that ask the sky
+        # something need a coordinate.
+        point = boat_profile.forecast_point
+        lat = float(params["lat"]) if "lat" in params else (point[0] if point else None)
+        lon = float(params["lon"]) if "lon" in params else (point[1] if point else None)
 
         if route == "/api/profile":
             # The dashboard has no boat facts of its own: its title, its subtitle and the
@@ -287,13 +292,36 @@ class OpenBoat(SimpleHTTPRequestHandler):
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Start the dashboard, and fail in sentences rather than in tracebacks.
+
+    Both failures caught here belong to the same moment — somebody adding a *second* boat —
+    and a traceback is the wrong answer to either. A profile that refuses to load is
+    OpenBoat working: an incomplete boat is meant to stop, because the alternative is a
+    forecast for an invented position that looks entirely normal. That is worth a sentence
+    saying which field is missing, not forty lines of stack ending in KeyError('lat').
+    """
     argv = sys.argv[1:] if argv is None else argv
     port = int(argv[0]) if argv else PORT
-    boat_profile = load()
+    try:
+        boat_profile = load()
+    except ProfileError as exc:
+        print(f"OpenBoat cannot start: {exc}", file=sys.stderr)
+        print("  The profile is incomplete, which is why it stopped rather than guessed.",
+              file=sys.stderr)
+        raise SystemExit(2) from None
     print(f"OpenBoat on http://localhost:{port}  (Ctrl-C to stop)", file=sys.stderr)
     print(f"  profile: {boat_profile.path}  —  {boat_profile.vessel.name}", file=sys.stderr)
     print(f"  Signal K: {boat_profile.signalk_url}", file=sys.stderr)
-    HTTPServer((BIND, port), OpenBoat).serve_forever()
+    try:
+        HTTPServer((BIND, port), OpenBoat).serve_forever()
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise
+        print(f"Port {port} is already in use — another boat is probably on it.",
+              file=sys.stderr)
+        print(f"  Give this one a port of its own:  python3 -m openboat.server {port + 1}",
+              file=sys.stderr)
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":

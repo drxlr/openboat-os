@@ -16,6 +16,7 @@ between a fixed bug and its return.
 
 from __future__ import annotations
 
+import os
 import socket
 import sys
 import threading
@@ -201,12 +202,96 @@ def test_no_boat_facts_in_the_package() -> None:
         check(True, "require() refuses rather than guessing a missing measurement")
 
 
+# --------------------------------------------------------------------------------------
+# A named profile that does not exist used to serve the demo boat instead.
+#
+# Found while adding a second boat, which is the exact situation that triggers it. Set
+# OPENBOAT_PROFILE to a path with a typo in it and every candidate after it was still
+# tried, so the demo boat loaded and the dashboard came up looking entirely normal —
+# answering about a harbour in Plymouth. No error, no warning, a plausible forecast for
+# the wrong sea. The fallback chain is for somebody who has named nothing; a name that
+# misses is a mistake and must say so.
+# --------------------------------------------------------------------------------------
+def test_named_profile_that_is_missing_refuses() -> None:
+    import os
+
+    from openboat.profile import ProfileError, load
+
+    try:
+        boat = load("/nonexistent/typo-boat.toml")
+        check(False, f"a named missing profile refuses (got {boat.vessel.name})")
+    except ProfileError:
+        check(True, "a named missing profile refuses rather than loading another boat")
+
+    before = os.environ.get("OPENBOAT_PROFILE")
+    os.environ["OPENBOAT_PROFILE"] = "/nonexistent/env-typo.toml"
+    try:
+        boat = load()
+        check(False, f"a missing $OPENBOAT_PROFILE refuses (got {boat.vessel.name})")
+    except ProfileError:
+        check(True, "a missing $OPENBOAT_PROFILE refuses rather than loading another boat")
+    finally:
+        os.environ.pop("OPENBOAT_PROFILE", None)
+        if before is not None:
+            os.environ["OPENBOAT_PROFILE"] = before
+
+    # ...and the fresh-clone path, which the fallback exists for, still works.
+    check(load().vessel.name == "Demo Boat",
+          "naming nothing still falls back to the demo boat")
+
+
+def test_absent_position_is_a_stage_and_malformed_is_a_mistake() -> None:
+    """A boat with no berth yet still works; a half-written berth still refuses.
+
+    Both halves matter and they pull in opposite directions. Somebody describing a boat
+    writes down the equipment and the wiring long before they write down a coordinate, and
+    blocking all of that on a position they have not typed yet is how a knowledge base never
+    gets started. But a `[berth]` that is *present* and half-finished is a typo, and the old
+    default for a missing one was (0.0, 0.0) — a real place in the Gulf of Guinea, which
+    would have produced an entirely normal-looking forecast for it.
+    """
+    import subprocess
+    import tempfile
+
+    from openboat.profile import ProfileError, load, require_point
+
+    with tempfile.TemporaryDirectory() as tmp:
+        absent = Path(tmp) / "absent.toml"
+        absent.write_text('[vessel]\nname = "No Berth Yet"\n')
+        boat = load(absent)
+        check(boat.vessel.name == "No Berth Yet", "a profile with no [berth] still loads")
+        check(boat.berth is None, "an absent berth is None, not (0.0, 0.0)")
+        check(boat.as_dict()["berth"] is None, "the API reports the absent berth as null")
+        try:
+            require_point(boat, "forecast_point")
+            check(False, "asking the sky without a position refuses")
+        except ProfileError:
+            check(True, "asking the sky without a position refuses rather than defaulting")
+
+        broken = Path(tmp) / "broken.toml"
+        broken.write_text('[vessel]\nname = "Half Berth"\n\n[berth]\nname = "somewhere"\n')
+        try:
+            load(broken)
+            check(False, "a [berth] present but missing lat/lon refuses")
+        except ProfileError:
+            check(True, "a [berth] present but missing lat/lon refuses")
+
+        done = subprocess.run([sys.executable, "-m", "openboat.server", "8791"],
+                              cwd=ROOT, capture_output=True, text=True, timeout=30,
+                              env={**os.environ, "OPENBOAT_PROFILE": str(broken)})
+    check(done.returncode == 2, f"server exits 2 on a malformed profile (got {done.returncode})")
+    check("Traceback" not in done.stderr, "server does not print a traceback for a bad profile")
+    check("berth" in done.stderr, "server names the field that is wrong")
+
+
 if __name__ == "__main__":
     print(__doc__.splitlines()[0])
     print("-" * 78)
     for case in (test_forecast_drops_past_hours, test_non_json_two_hundred_is_offline,
                  test_stale_sender_goes_quiet, test_aisstream_subscription_key,
-                 test_no_default_engine_bands, test_no_boat_facts_in_the_package):
+                 test_no_default_engine_bands, test_no_boat_facts_in_the_package,
+                 test_named_profile_that_is_missing_refuses,
+                 test_absent_position_is_a_stage_and_malformed_is_a_mistake):
         case()
     print("-" * 78)
     failed = [what for ok, what in results if not ok]

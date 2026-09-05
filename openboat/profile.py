@@ -158,13 +158,16 @@ class Profile:
     vessel: Vessel = field(default_factory=Vessel)
     limits: Limits = field(default_factory=Limits)
 
-    #: Where the boat physically is when it is not going anywhere.
-    berth: tuple[float, float] = (0.0, 0.0)
+    #: Where the boat physically is when it is not going anywhere. `None` until somebody
+    #: writes it down, and `None` rather than a default pair on purpose: the old default was
+    #: (0.0, 0.0), which is a real place in the Gulf of Guinea and would have produced a
+    #: perfectly normal-looking forecast for it.
+    berth: tuple[float, float] | None = None
     berth_name: str = ""
 
     #: What a forecast is asked about. Offshore of the berth, deliberately — see the
-    #: module docstring and docs/FORECAST.md.
-    forecast_point: tuple[float, float] = (0.0, 0.0)
+    #: module docstring and docs/FORECAST.md. `None` until written down, same reasoning.
+    forecast_point: tuple[float, float] | None = None
     forecast_point_name: str = ""
 
     timezone: str = "UTC"
@@ -252,9 +255,11 @@ class Profile:
         return {
             "vessel": vars(self.vessel),
             "limits": self.limits.as_dict(),
-            "berth": {"lat": self.berth[0], "lon": self.berth[1], "name": self.berth_name},
-            "forecast_point": {"lat": self.forecast_point[0], "lon": self.forecast_point[1],
-                               "name": self.forecast_point_name},
+            "berth": ({"lat": self.berth[0], "lon": self.berth[1], "name": self.berth_name}
+                      if self.berth else None),
+            "forecast_point": ({"lat": self.forecast_point[0], "lon": self.forecast_point[1],
+                                "name": self.forecast_point_name}
+                               if self.forecast_point else None),
             "timezone": self.timezone,
             "chart": self.chart,
             "knowledge": {"count": len(self.knowledge.get("docs", []))},
@@ -300,12 +305,39 @@ def _chart(table: dict) -> dict:
     return chart
 
 
-def _point(table: dict, key: str) -> tuple[tuple[float, float], str]:
-    node = table.get(key) or {}
+def _point(table: dict, key: str) -> tuple[tuple[float, float] | None, str]:
+    """A position from the profile, or None if it has not been written down yet.
+
+    Absent and malformed are different things and are treated differently. A profile with no
+    `[berth]` at all is a boat somebody has started describing — the equipment, the wiring,
+    the papers — and has not yet said where it lies. That is a normal stage and everything
+    not needing a position keeps working. A `[berth]` that *is* there but half-written is a
+    mistake, and still refuses.
+    """
+    node = table.get(key)
+    if node is None:
+        return None, ""
     try:
         return (float(node["lat"]), float(node["lon"])), str(node.get("name", ""))
     except (KeyError, TypeError, ValueError) as exc:
-        raise ProfileError(f"[{key}] needs a numeric lat and lon: {exc}") from exc
+        raise ProfileError(f"[{key}] is present but needs a numeric lat and lon: {exc}") from exc
+
+
+def require_point(boat, key: str = "forecast_point") -> tuple[float, float]:
+    """The position, or a refusal naming the file to fix.
+
+    Everything that asks the sky a question goes through here, because the alternative is a
+    forecast for a default coordinate — which looks exactly like a forecast for your boat.
+    """
+    point = getattr(boat, key, None)
+    if point is None:
+        where = getattr(boat, "path", None) or "the profile"
+        raise ProfileError(
+            f"[{key}] is not set in {where}, so there is nowhere to ask about. "
+            f"Add lat and lon for this boat. OpenBoat will not fall back to a default "
+            f"position: a forecast for the wrong sea looks exactly like a forecast for yours."
+        )
+    return point
 
 
 def load(path: str | os.PathLike | None = None) -> Profile:
@@ -317,6 +349,20 @@ def load(path: str | os.PathLike | None = None) -> Profile:
     typed a word of configuration — and so that nothing in this repository describes a real
     person's boat.
     """
+    # A profile somebody *named* must exist. Falling through to the next candidate when a
+    # named one is missing is a silent wrong answer of the worst kind: a typo in
+    # OPENBOAT_PROFILE quietly serves the demo boat, and a demo boat answers every question
+    # fluently about a harbour in Plymouth. Nothing on the dashboard looks wrong. The
+    # fallback chain exists for the person who has named nothing yet, and only for them.
+    for named, what in ((path, "the profile passed to load()"),
+                        (os.environ.get("OPENBOAT_PROFILE"), "$OPENBOAT_PROFILE")):
+        if named and not Path(named).is_file():
+            raise ProfileError(
+                f"{what} points at {named}, which is not a file. Refusing to fall back to "
+                f"another boat: a profile that is named and missing is a mistake, and the "
+                f"boat you would get instead answers just as confidently about somewhere else."
+            )
+
     candidates = [path, os.environ.get("OPENBOAT_PROFILE"), Path("boat.toml"), DEMO_PROFILE]
     chosen = next((Path(c) for c in candidates if c and Path(c).is_file()), None)
     if chosen is None:
