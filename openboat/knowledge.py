@@ -226,9 +226,35 @@ class Library:
         return ranked[:limit]
 
 
+#: What the retrieval can actually read. Everything here is text a person could open in an
+#: editor; anything else has to be turned into text first — see `openboat.ingest`.
+TEXT_TYPES = {".md", ".markdown", ".txt", ".text", ".rst", ".csv", ""}
+
+
+def _unreadable(path: Path, why: str) -> list[Passage]:
+    """One passage saying the file could not be read, instead of indexing its bytes.
+
+    A PDF pointed at by `[knowledge] docs` used to be read as text, which succeeds: you get
+    one passage beginning `%PDF-1.4` and a corpus with binary in it, scoring against real
+    questions and telling an assistant nothing while looking like a document. Silence would
+    be better and this is better than silence — the gap is retrievable, so asking about the
+    manual returns the reason it is not there yet rather than nothing at all.
+    """
+    return [Passage(path, path.stem, 1,
+                    f"This document is in the boat's library but could not be read: {why}. "
+                    f"Its contents are NOT searchable and nothing here knows what it says. "
+                    f"Turn it into text first — `python3 -m openboat.ingest {path}` — and "
+                    f"point the profile at the markdown it writes.")]
+
+
 def _split(path: Path) -> list[Passage]:
     """Markdown into passages, cut at headings and then at paragraphs if still too long."""
-    lines = path.read_text(errors="ignore").splitlines()
+    if path.suffix.lower() not in TEXT_TYPES:
+        return _unreadable(path, f"{path.suffix or 'no extension'} is not a text format")
+    raw = path.read_bytes()
+    if b"\x00" in raw[:4096]:
+        return _unreadable(path, "it looks like a binary file, not text")
+    lines = raw.decode("utf-8", errors="ignore").splitlines()
     out: list[Passage] = []
     heading, start, buf = path.stem, 1, []
 
@@ -299,6 +325,20 @@ if __name__ == "__main__":
         for p in library.paths:
             print(f"  {'ok ' if p.exists() else 'MISSING'} {p}")
         raise SystemExit(0)
-    for hit in library.search(query):
+    hits = library.search(query)
+    if not hits:
+        # Printing nothing is the one answer this module must never give. A person who gets
+        # an empty screen assumes the tool is broken; a model that gets an empty result
+        # answers from somewhere else. Say plainly that the documents do not cover it — and
+        # say where the fix belongs, which is in the documents rather than in the query.
+        print(f"Nothing in this boat's documents matches {query!r}.")
+        print(f"Searched {len(library.passages())} passages across "
+              f"{len(library.paths)} document(s):")
+        for path in library.paths:
+            print(f"  {path}")
+        print("\nThat is an answer, not a failure: these documents do not cover it. If they "
+              "should, add it — and write the heading in the words somebody would ask with.")
+        raise SystemExit(1)
+    for hit in hits:
         print(f"\n\033[1m{hit.heading}\033[0m  ({hit.where}, score {hit.score:.2f})")
         print(hit.text[:700])
