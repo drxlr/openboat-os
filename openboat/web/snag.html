@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>Snag list</title>
+<style>
+  /* Built for a phone held in one hand on a pontoon: nothing to tap under 56 px, text that
+     survives sunlight, and a dark ground because half of boat jobs happen at dusk. */
+  :root{
+    --bg:#0d1117; --panel:#161b22; --line:#2b3440; --ink:#e9eef5; --dim:#9aa7b6;
+    --accent:#4da3ff; --open:#ffb454; --fixed:#4ec9a0; --danger:#ff6b6b;
+    --tap:56px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    -webkit-text-size-adjust:100%}
+  body{padding:env(safe-area-inset-top) env(safe-area-inset-right)
+        env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  .wrap{max-width:680px;margin:0 auto;padding:16px 16px 48px}
+  h1{font-size:20px;margin:8px 0 16px;letter-spacing:-.01em}
+  h1 span{color:var(--dim);font-weight:400}
+  label{display:block;font-size:13px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--dim);margin:18px 0 8px}
+  select,textarea,input[type=text]{width:100%;background:var(--panel);color:var(--ink);
+    border:1px solid var(--line);border-radius:12px;padding:14px;font:inherit;
+    min-height:var(--tap)}
+  select{min-height:var(--tap);appearance:none;
+    background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),
+                     linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+    background-position:calc(100% - 20px) 24px,calc(100% - 14px) 24px;
+    background-size:6px 6px,6px 6px;background-repeat:no-repeat}
+  textarea{min-height:120px;resize:vertical}
+  button{font:inherit;border:0;border-radius:12px;min-height:var(--tap);padding:0 20px;
+    color:#08131f;background:var(--accent);font-weight:640;width:100%;cursor:pointer}
+  button.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+    font-weight:500}
+  button:disabled{opacity:.5}
+  .tabs{display:flex;gap:8px;margin-bottom:4px}
+  .tabs button{flex:1;background:var(--panel);color:var(--dim);border:1px solid var(--line)}
+  .tabs button[aria-selected=true]{background:var(--accent);color:#08131f;border-color:transparent;
+    font-weight:640}
+  .shots{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .shots figure{margin:0;position:relative}
+  .shots img{width:84px;height:84px;object-fit:cover;border-radius:10px;
+    border:1px solid var(--line);display:block}
+  .shots button{position:absolute;top:-8px;right:-8px;width:28px;height:28px;min-height:28px;
+    padding:0;border-radius:50%;background:var(--danger);color:#fff;font-weight:700;
+    line-height:28px}
+  .snag{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:14px;margin:12px 0}
+  .snag h3{margin:0 0 6px;font-size:16px;line-height:1.35}
+  .meta{font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums;
+    display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .badge{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px}
+  .badge.open{background:rgba(255,180,84,.16);color:var(--open)}
+  .badge.fixed{background:rgba(78,201,160,.16);color:var(--fixed)}
+  .snag p{margin:10px 0 0;white-space:pre-wrap}
+  .snag .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .snag .thumbs img{width:96px;height:96px;object-fit:cover;border-radius:10px;
+    border:1px solid var(--line)}
+  .note{color:var(--dim);font-size:14px;margin:14px 0}
+  .toast{position:fixed;left:16px;right:16px;bottom:20px;background:var(--fixed);color:#062018;
+    padding:16px;border-radius:12px;font-weight:600;text-align:center;
+    box-shadow:0 10px 34px rgba(0,0,0,.5)}
+  .toast.bad{background:var(--danger);color:#fff}
+  .count{font-variant-numeric:tabular-nums}
+  @media (prefers-color-scheme: light){
+    :root{--bg:#f6f8fa;--panel:#fff;--line:#d5dde5;--ink:#111820;--dim:#5b6875;
+          --accent:#0b64c8}
+    button{color:#fff}
+    .tabs button[aria-selected=true]{color:#fff}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Snag list <span id="who"></span></h1>
+
+  <label for="boat">Boat</label>
+  <select id="boat"></select>
+
+  <div class="tabs" style="margin-top:18px">
+    <button id="tab-new"  aria-selected="true">Report</button>
+    <button id="tab-list" aria-selected="false">Open <span class="count" id="openCount"></span></button>
+  </div>
+
+  <section id="view-new">
+    <label for="shot">Photos</label>
+    <input id="shot" type="file" accept="image/*" capture="environment" multiple hidden>
+    <button class="ghost" id="pick">📷 &nbsp;Take or choose photos</button>
+    <div class="shots" id="shots"></div>
+
+    <label for="where">Where on the boat <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
+    <input id="where" type="text" placeholder="starboard saloon locker, engine bay…">
+
+    <label for="note">What is wrong</label>
+    <textarea id="note" placeholder="Push button catch has snapped — the door swings open under way."></textarea>
+
+    <div style="margin-top:20px"><button id="send">Send</button></div>
+    <p class="note">Saved to the boat's own <code>SNAGS.md</code>, appended, never overwritten.
+       Entries are marked unverified — close one by editing its status in that file.</p>
+  </section>
+
+  <section id="view-list" hidden>
+    <div id="list"></div>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const boatSel = $("#boat"), shotsEl = $("#shots"), listEl = $("#list");
+let photos = [];   // data URLs, already resized
+
+function toast(msg, bad){
+  const el = document.createElement("div");
+  el.className = "toast" + (bad ? " bad" : "");
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), bad ? 6000 : 3200);
+}
+
+/* Resize in the browser. A phone photo is ~4 MB and boat wifi is bad; 1600 px on the long
+   edge still shows a cracked fitting clearly, and it is the difference between this page
+   working at the end of a pontoon and spinning forever. */
+function shrink(file, max = 1600, quality = 0.82){
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("cannot read image")); };
+    img.src = url;
+  });
+}
+
+function drawShots(){
+  shotsEl.innerHTML = "";
+  photos.forEach((src, i) => {
+    const fig = document.createElement("figure");
+    const img = document.createElement("img"); img.src = src; img.alt = "";
+    const del = document.createElement("button");
+    del.type = "button"; del.textContent = "×"; del.setAttribute("aria-label", "Remove photo");
+    del.onclick = () => { photos.splice(i, 1); drawShots(); };
+    fig.append(img, del); shotsEl.append(fig);
+  });
+}
+
+$("#pick").onclick = () => $("#shot").click();
+$("#shot").onchange = async e => {
+  for (const f of e.target.files){
+    try { photos.push(await shrink(f)); }
+    catch { toast("Could not read one of the photos", true); }
+  }
+  e.target.value = ""; drawShots();
+};
+
+$("#send").onclick = async () => {
+  const note = $("#note").value.trim();
+  if (!note && !photos.length){ toast("Add a photo or a note first", true); return; }
+  const btn = $("#send"); btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    const r = await fetch("/api/snag", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({boat: boatSel.value, note, where: $("#where").value, photos})
+    });
+    const out = await r.json();
+    if (!r.ok) throw new Error(out.error || r.status);
+    $("#note").value = ""; $("#where").value = ""; photos = []; drawShots();
+    toast("Logged to " + out.boat);
+    loadSnags();
+  } catch (err){
+    toast("Not sent — " + err.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = "Send";
+  }
+};
+
+function show(which){
+  const isNew = which === "new";
+  $("#view-new").hidden = !isNew;
+  $("#view-list").hidden = isNew;
+  $("#tab-new").setAttribute("aria-selected", isNew);
+  $("#tab-list").setAttribute("aria-selected", !isNew);
+  if (!isNew) loadSnags();
+}
+$("#tab-new").onclick  = () => show("new");
+$("#tab-list").onclick = () => show("list");
+
+async function loadSnags(){
+  const key = boatSel.value;
+  listEl.innerHTML = '<p class="note">Loading…</p>';
+  let rows = [];
+  try { rows = await (await fetch("/api/snags?boat=" + encodeURIComponent(key))).json(); }
+  catch { listEl.innerHTML = '<p class="note">Could not load the list.</p>'; return; }
+
+  const open = rows.filter(r => r.open).length;
+  $("#openCount").textContent = open ? "(" + open + ")" : "";
+
+  if (!rows.length){
+    listEl.innerHTML = '<p class="note">Nothing on the list for this boat yet. '
+      + 'That is a real answer, not a loading failure.</p>';
+    return;
+  }
+  listEl.innerHTML = "";
+  for (const r of rows){
+    const card = document.createElement("article"); card.className = "snag";
+    const h = document.createElement("h3"); h.textContent = r.title;
+    const meta = document.createElement("div"); meta.className = "meta";
+    const badge = document.createElement("span");
+    badge.className = "badge " + (r.open ? "open" : "fixed");
+    badge.textContent = r.open ? "open" : r.status;
+    meta.append(badge, Object.assign(document.createElement("span"), {textContent: r.when}));
+    if (r.where) meta.append(Object.assign(document.createElement("span"),
+                                           {textContent: "· " + r.where}));
+    card.append(h, meta);
+    if (r.body){
+      const p = document.createElement("p"); p.textContent = r.body; card.append(p);
+    }
+    if (r.photos && r.photos.length){
+      const box = document.createElement("div"); box.className = "thumbs";
+      for (const path of r.photos){
+        const name = path.split("/").pop();
+        const a = document.createElement("a");
+        a.href = "/photo?boat=" + encodeURIComponent(key) + "&name=" + encodeURIComponent(name);
+        a.target = "_blank"; a.rel = "noopener";
+        const im = document.createElement("img"); im.src = a.href; im.alt = ""; im.loading = "lazy";
+        a.append(im); box.append(a);
+      }
+      card.append(box);
+    }
+    listEl.append(card);
+  }
+}
+
+boatSel.onchange = () => {
+  localStorage.setItem("openboat.snag.boat", boatSel.value);
+  if (!$("#view-list").hidden) loadSnags(); else loadSnags();
+};
+
+(async function start(){
+  let list = [];
+  try { list = await (await fetch("/api/boats")).json(); }
+  catch { toast("Cannot reach the server", true); return; }
+  if (!list.length){ $("#who").textContent = "— no boats configured"; return; }
+  for (const b of list){
+    const o = document.createElement("option");
+    o.value = b.key; o.textContent = b.name; boatSel.append(o);
+  }
+  const saved = localStorage.getItem("openboat.snag.boat");
+  if (saved && list.some(b => b.key === saved)) boatSel.value = saved;
+  loadSnags();
+})();
+</script>
+</body>
+</html>
