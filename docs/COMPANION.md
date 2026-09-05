@@ -62,6 +62,34 @@ Markdown, read where they lie. Nothing is copied, indexed into a database or upl
 a file you edit by hand is a file the next question reads correctly. Paths are relative to
 the profile.
 
+**A PDF is not one of those files, and it used to be read as if it were.** `read_text` on a
+PDF succeeds — you get one passage beginning `%PDF-1.4`, scored against real questions and
+telling you nothing, sitting in a corpus an assistant answers from and looking exactly like
+a document that was actually indexed. `openboat/knowledge.py` now refuses instead: anything
+that isn't a recognised text format, or that is one by name but binary by its first few
+kilobytes, comes back as a single passage saying so and naming the fix. Silence would have
+been an improvement on the old behaviour; saying so is better than silence.
+
+The fix is `openboat.ingest`:
+
+```bash
+python3 -m openboat.ingest engine-manual.pdf          # → engine-manual.md, beside it
+python3 -m openboat.ingest ~/manuals/*.pdf --check     # what is text, what needs OCR first
+```
+
+It turns a PDF into one markdown section per page, each headed with the document's name and
+the page number, so an answer that quotes the manual can be checked against the actual page
+— the same reasoning `openboat.knowledge` uses for a line number in your own notes. A page
+with no text layer — a scanned image inside the PDF wrapper, more common than you'd expect
+in a bag of twenty-year-old manuals — is written out as a stated gap rather than an empty
+section, because an empty section is indistinguishable from a page that was genuinely blank
+and a question landing near it would get answered confidently from the page next door. The
+extractor is whatever the machine already has — `pdftotext`, PyMuPDF, or `pypdf` — because
+this one module is the exception that would otherwise need a dependency everybody carries;
+with none installed it names the install command rather than failing obscurely. Point
+`[knowledge] docs` at the markdown it writes and the manual joins the library like anything
+else.
+
 Ranking is BM25 over words — old, unglamorous, and entirely offline, because the moment you
 most need to know which cap to unscrew is the moment you are least likely to have signal.
 

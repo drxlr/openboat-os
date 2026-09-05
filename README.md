@@ -32,6 +32,13 @@ is the only requirement.
 - **An engine log that writes itself** — hours from the rpm sender, and a cooling trend
   fitted per rpm band against sea temperature, because a raw-water engine swims in the thing
   it is measuring and the seasonal swing is usually larger than the fault you are hunting.
+- **A companion that answers from your own papers** — the survey, the manuals, the invoice
+  that says what was actually replaced — quoted with the file and the page, never guessed.
+  `openboat.ingest` turns a PDF into passages the companion can cite back to; see
+  [docs/COMPANION.md](docs/COMPANION.md).
+- **A snag list you can file from a phone.** Photograph a fault at the pontoon, say what is
+  wrong, send — it lands in the boat's own file in ten seconds, appended and never rewritten.
+  See [docs/SNAGS.md](docs/SNAGS.md).
 - **Five read-only tools for an AI assistant**, over MCP. Ask Claude when the next four-hour
   window is and it answers from live data.
 
@@ -134,7 +141,7 @@ that flushes the engine's raw-water circuit and records it here.
 | `signalk/` | Signal K in Docker, plus an NMEA simulator so everything is testable with no boat |
 | `arduino/` | Analogue engine senders → NMEA → Signal K. ⚠️ Never tested against a real engine |
 | `scripts/` | The private-content check and its git hook |
-| `docs/` | [Hardware](docs/HARDWARE.md) · [Network](docs/NETWORK.md) · [Forecast](docs/FORECAST.md) · [Charts](docs/CHARTS.md) · [Companion](docs/COMPANION.md) · [Private and public](docs/PRIVATE-AND-PUBLIC.md) |
+| `docs/` | [Hardware](docs/HARDWARE.md) · [Network](docs/NETWORK.md) · [Forecast](docs/FORECAST.md) · [Charts](docs/CHARTS.md) · [Companion](docs/COMPANION.md) · [Snags](docs/SNAGS.md) · [Private and public](docs/PRIVATE-AND-PUBLIC.md) |
 
 ## Contributing
 

@@ -78,7 +78,10 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Snag list <span id="who"></span></h1>
+  <h1>Snag list</h1>
+
+  <label for="who">Who are you</label>
+  <input id="who" type="text" placeholder="your name" autocomplete="name">
 
   <label for="boat">Boat</label>
   <select id="boat"></select>
@@ -112,7 +115,7 @@
 
 <script>
 const $ = s => document.querySelector(s);
-const boatSel = $("#boat"), shotsEl = $("#shots"), listEl = $("#list");
+const boatSel = $("#boat"), shotsEl = $("#shots"), listEl = $("#list"), whoEl = $("#who");
 let photos = [];   // data URLs, already resized
 
 function toast(msg, bad){
@@ -171,10 +174,12 @@ $("#send").onclick = async () => {
   try {
     const r = await fetch("/api/snag", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({boat: boatSel.value, note, where: $("#where").value, photos})
+      body: JSON.stringify({boat: boatSel.value, note, where: $("#where").value,
+                            by: whoEl.value.trim(), photos})
     });
     const out = await r.json();
     if (!r.ok) throw new Error(out.error || r.status);
+    localStorage.setItem("openboat.snag.who", whoEl.value.trim());
     $("#note").value = ""; $("#where").value = ""; photos = []; drawShots();
     toast("Logged to " + out.boat);
     loadSnags();
@@ -220,6 +225,8 @@ async function loadSnags(){
     badge.className = "badge " + (r.open ? "open" : "fixed");
     badge.textContent = r.open ? "open" : r.status;
     meta.append(badge, Object.assign(document.createElement("span"), {textContent: r.when}));
+    if (r.by) meta.append(Object.assign(document.createElement("span"),
+                                        {textContent: "· " + r.by}));
     if (r.where) meta.append(Object.assign(document.createElement("span"),
                                            {textContent: "· " + r.where}));
     card.append(h, meta);
@@ -248,10 +255,18 @@ boatSel.onchange = () => {
 };
 
 (async function start(){
-  let list = [];
-  try { list = await (await fetch("/api/boats")).json(); }
+  let payload = {};
+  try { payload = await (await fetch("/api/boats")).json(); }
   catch { toast("Cannot reach the server", true); return; }
-  if (!list.length){ $("#who").textContent = "— no boats configured"; return; }
+  const list = payload.boats || [];
+  if (!list.length){ listEl.innerHTML = '<p class="note">No boats configured.</p>'; return; }
+  // When the server knows who you are from your link, stop asking.
+  if (payload.you){
+    whoEl.value = payload.you; whoEl.disabled = true;
+    whoEl.previousElementSibling.textContent = "Reporting as";
+  } else {
+    whoEl.value = localStorage.getItem("openboat.snag.who") || "";
+  }
   for (const b of list){
     const o = document.createElement("option");
     o.value = b.key; o.textContent = b.name; boatSel.append(o);

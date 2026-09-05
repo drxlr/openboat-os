@@ -51,6 +51,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 from .profile import ProfileError, load
+from .qr import ascii_art, encode, svg
 
 __all__ = ["boats", "record", "read_snags", "main"]
 
@@ -65,6 +66,27 @@ BIND = "0.0.0.0"
 MAX_BODY = 24 * 1024 * 1024
 
 SAFE = re.compile(r"[^a-z0-9]+")
+
+
+def people() -> dict[str, str]:
+    """Who may file, from `$OPENBOAT_SNAG_PEOPLE` — `"skipper:tokenA,crew:tokenB"`.
+
+    Two things at once, and deliberately so. It is the gate, so this can be put on a tunnel
+    and reached from somewhere that is not the boat's wifi. And it is the *name*: the link a
+    person holds says who they are, so attribution costs them nothing and cannot be filled in
+    wrongly by somebody in a hurry.
+
+    Empty when unset, and then the page is open to whoever is on the network and asks for a
+    name instead. That is the right default for a machine on a home LAN and the wrong one for
+    anything reachable from outside — which is why `main()` says so out loud at startup.
+    """
+    raw = os.environ.get("OPENBOAT_SNAG_PEOPLE", "")
+    out = {}
+    for chunk in raw.split(","):
+        name, _, token = chunk.partition(":")
+        if name.strip() and len(token.strip()) >= 12:
+            out[token.strip()] = name.strip()
+    return out
 
 
 def boats() -> list[dict]:
@@ -98,8 +120,15 @@ def _slug(text: str, limit: int = 40) -> str:
     return SAFE.sub("-", text.lower()).strip("-")[:limit] or "snag"
 
 
-def record(boat_key: str, note: str, where: str, images: list[bytes]) -> dict:
-    """Append one snag, with its photographs, to the boat's list. Returns what was written."""
+def record(boat_key: str, note: str, where: str, images: list[bytes],
+           by: str = "") -> dict:
+    """Append one snag, with its photographs, to the boat's list. Returns what was written.
+
+    `by` is who noticed it. On a boat shared between two people that is not bookkeeping: six
+    weeks later the only way to resolve "is this still a problem?" is to ask the person who
+    saw it, and an unattributed line cannot be followed up. It is self-declared and therefore
+    a claim rather than a proof — which is the same status as everything else in the file.
+    """
     known = {b["key"]: b for b in boats()}
     if boat_key not in known:
         raise ValueError(f"unknown boat {boat_key!r}")
@@ -120,6 +149,7 @@ def record(boat_key: str, note: str, where: str, images: list[bytes]) -> dict:
             (shed / name).write_bytes(blob)
             shots.append(f"photos/snags/{name}")
 
+    who = " ".join(by.split())[:60]
     title = (note.splitlines()[0] if note else "photographed, no note")[:70]
     lines = [
         "",
@@ -127,6 +157,8 @@ def record(boat_key: str, note: str, where: str, images: list[bytes]) -> dict:
         "",
         f"**Status:** open",
     ]
+    if who:
+        lines.append(f"**By:** {who}")
     if where.strip():
         lines.append(f"**Where:** {where.strip()}")
     if shots:
@@ -135,7 +167,8 @@ def record(boat_key: str, note: str, where: str, images: list[bytes]) -> dict:
         "",
         note or "_No note — see the photograph._",
         "",
-        f"⚠️ Recorded from a phone at {now:%Y-%m-%d %H:%M %Z} at the moment of noticing, and "
+        f"⚠️ Recorded from a phone{' by ' + who if who else ''} at {now:%Y-%m-%d %H:%M %Z} at "
+        f"the moment of noticing, and "
         f"not verified by anybody since. Close it by editing **Status** in this file, which "
         f"is a decision a person makes at a desk rather than a tap on a phone.",
     ]
@@ -154,12 +187,12 @@ def record(boat_key: str, note: str, where: str, images: list[bytes]) -> dict:
     with open(target, "a", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
     return {"boat": known[boat_key]["name"], "file": str(target), "photos": shots,
-            "title": title}
+            "title": title, "by": who}
 
 
 #: A heading line in a snag file: "## 2026-09-05 15:12 — the locker will not shut".
 HEADING = re.compile(r"^##\s+(?P<when>\d{4}-\d{2}-\d{2}[^—]*)—\s*(?P<title>.+?)\s*$")
-FIELD = re.compile(r"^\*\*(?P<key>Status|Where|Photos):\*\*\s*(?P<value>.*)$")
+FIELD = re.compile(r"^\*\*(?P<key>Status|Where|Photos|By):\*\*\s*(?P<value>.*)$")
 
 
 def read_snags(boat_key: str) -> list[dict]:
@@ -188,7 +221,7 @@ def read_snags(boat_key: str) -> list[dict]:
             if current:
                 out.append(current)
             current = {"when": head["when"].strip(), "title": head["title"].strip(),
-                       "status": "open", "where": "", "photos": [], "body": []}
+                       "status": "open", "where": "", "by": "", "photos": [], "body": []}
             continue
         if current is None:
             continue
@@ -228,20 +261,74 @@ class Snag(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _caller(self, params: dict) -> str | None:
+        """The name behind this request, or None when it may not proceed.
+
+        With no people configured everyone is allowed and nobody is named — the LAN case.
+        With people configured a valid key is required on every route, including the page
+        itself, so a link that is shared is the whole credential and a link that is not
+        held gets nothing at all.
+        """
+        allowed = people()
+        if not allowed:
+            return ""
+        key = (params.get("k") or [""])[0]
+        return allowed.get(key)
+
     def do_GET(self):
         route, _, query = self.path.partition("?")
         params = urllib.parse.parse_qs(query)
+        if self._caller(params) is None:
+            return self._json({"error": "not found"}, status=404)
         if route == "/api/boats":
-            return self._json([{"key": b["key"], "name": b["name"]} for b in boats()])
+            return self._json({"boats": [{"key": b["key"], "name": b["name"]} for b in boats()],
+                               "you": self._caller(params)})
         if route == "/api/snags":
             key = (params.get("boat") or [""])[0]
             return self._json(read_snags(key))
+        if route == "/qr":
+            return self._qr()
         if route == "/photo":
             return self._photo((params.get("boat") or [""])[0],
                                (params.get("name") or [""])[0])
         if self.path in ("/", ""):
             self.path = "/snag.html"
         return super().do_GET()
+
+    def _qr(self):
+        """A page holding one big QR of this server's own LAN address.
+
+        Opened on the machine that runs it, so a phone can be pointed at the screen instead
+        of somebody typing an IP address with wet hands. The address is worked out at request
+        time rather than at startup because a laptop changes networks.
+        """
+        url = f"http://{_lan_address()}:{self.server.server_address[1]}/"
+        page = f"""<!doctype html><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Scan to open the snag list</title>
+<style>
+ html,body{{margin:0;height:100%;display:grid;place-items:center;background:#0d1117;
+   color:#e9eef5;font:16px/1.5 -apple-system,system-ui,sans-serif}}
+ .card{{text-align:center;padding:32px}}
+ svg{{width:min(72vmin,460px);height:auto;border-radius:14px;background:#fff;padding:14px}}
+ h1{{font-size:19px;font-weight:600;margin:0 0 22px;letter-spacing:-.01em}}
+ code{{display:inline-block;margin-top:22px;font-size:17px;color:#4da3ff;
+   font-family:ui-monospace,SFMono-Regular,Menlo,monospace}}
+ p{{color:#9aa7b6;font-size:14px;max-width:34em;margin:14px auto 0}}
+</style>
+<div class=card>
+  <h1>Point a phone at this</h1>
+  {svg(encode(url), module=8, quiet=3)}
+  <div><code>{url}</code></div>
+  <p>Both phones need to be on the same network as this machine. Whoever opens it types
+     their name once and the page remembers it.</p>
+</div>"""
+        body = page.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _photo(self, boat_key: str, name: str):
         """Serve one snag photograph, and refuse anything that is not one.
@@ -265,7 +352,10 @@ class Snag(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         """The only write. Matched exactly, capped, and everything else is a 404."""
-        if self.path.split("?")[0] != "/api/snag":
+        route, _, query = self.path.partition("?")
+        params = urllib.parse.parse_qs(query)
+        who = self._caller(params)
+        if route != "/api/snag" or who is None:
             return self._json({"error": "not found"}, status=404)
         try:
             length = int(self.headers.get("Content-Length", 0))
@@ -273,8 +363,11 @@ class Snag(SimpleHTTPRequestHandler):
                 return self._json({"error": "too much data"}, status=413)
             body = json.loads(self.rfile.read(length) or b"{}")
             images = [base64.b64decode(s.split(",", 1)[-1]) for s in (body.get("photos") or [])]
+            # A configured person's name comes from their link and cannot be typed over;
+            # on an open LAN it comes from the page, where it is a courtesy, not a claim.
             written = record(str(body.get("boat", "")), str(body.get("note", "")),
-                             str(body.get("where", "")), images)
+                             str(body.get("where", "")), images,
+                             by=who or str(body.get("by", "")))
         except ValueError as exc:
             return self._json({"error": str(exc)}, status=400)
         except Exception as exc:                              # noqa: BLE001
@@ -302,8 +395,23 @@ def main(argv: list[str] | None = None) -> None:
         print("No boats found. Set OPENBOAT_BOATS to a directory of boat folders, or "
               "OPENBOAT_PROFILE to one boat.toml.", file=sys.stderr)
         raise SystemExit(2)
-    print(f"Snag list on http://{_lan_address()}:{port}  — open that on your phone",
+    allowed = people()
+    url = f"http://{_lan_address()}:{port}/"
+    print(file=sys.stderr)
+    print(ascii_art(encode(url)), file=sys.stderr)
+    print(f"\nSnag list on {url}  — scan the square above, or open {url}qr",
           file=sys.stderr)
+    if allowed:
+        print(f"  {len(allowed)} people configured; every request needs ?k=<their key>:",
+              file=sys.stderr)
+        for token, name in allowed.items():
+            print(f"    {name:<16} http://{_lan_address()}:{port}/?k={token}", file=sys.stderr)
+    else:
+        print("  OPEN — anyone who can reach this port may read and file snags. That is fine",
+              file=sys.stderr)
+        print("  on a home or boat LAN. Before putting it on a tunnel, set OPENBOAT_SNAG_PEOPLE",
+              file=sys.stderr)
+        print('  to "name:key,name:key" (keys of 12+ characters).', file=sys.stderr)
     for b in known:
         print(f"  {b['name']}  ({b['profile'].parent})", file=sys.stderr)
     try:
