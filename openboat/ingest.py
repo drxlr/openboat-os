@@ -45,7 +45,11 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-__all__ = ["Extraction", "extract", "to_markdown", "ingest", "backends"]
+__all__ = ["Extraction", "extract", "to_markdown", "ingest", "backends", "Refused"]
+
+#: The line every derived file carries. It is how `ingest` recognises its own output and
+#: therefore what it is allowed to overwrite — see `_may_overwrite`.
+BANNER = "This is a derived file — the PDF is the original."
 
 #: Written into a page that produced no text, so the gap is searchable rather than silent.
 #: Phrased as a sentence because it ends up in a corpus an assistant reads: it has to state
@@ -93,12 +97,23 @@ def backends() -> list[str]:
 
 
 def _pdftotext(path: Path) -> list[str]:
-    """Poppler, preferred because it keeps the reading order of a two-column page."""
+    """Poppler, preferred because it keeps the reading order of a two-column page.
+
+    The trailing form feed matters. Poppler writes one after *every* page including the
+    last, so a plain split invents an extra empty page at the end — which this module then
+    faithfully wrote into the corpus as "page 20 of 19, no text layer, needs OCR". A
+    fabricated page asserting that a page which does not exist needs work is exactly the
+    kind of confident wrong statement the corpus must not contain, and it also made the
+    same file report a different page count depending on which extractor the machine had.
+    """
     out = subprocess.run(["pdftotext", "-layout", str(path), "-"],
                          capture_output=True, text=True, timeout=300)
     if out.returncode != 0:
         raise RuntimeError(out.stderr.strip() or "pdftotext failed")
-    return out.stdout.split("\f")
+    pages = out.stdout.split("\f")
+    if pages and not pages[-1].strip():
+        pages.pop()
+    return pages
 
 
 def _pymupdf(path: Path) -> list[str]:
@@ -161,7 +176,7 @@ def to_markdown(found: Extraction, title: str | None = None) -> str:
         f"> Text extracted from `{found.source.name}` on {date.today().isoformat()} "
         f"by `openboat.ingest` using {found.backend}.",
         ">",
-        "> **This is a derived file — the PDF is the original.** If a passage here reads "
+        f"> **{BANNER}** If a passage here reads "
         "wrongly, the paper is right. Re-ingest rather than editing this file by hand, or "
         "the correction is lost the next time it is run.",
         "",
@@ -179,10 +194,34 @@ def to_markdown(found: Extraction, title: str | None = None) -> str:
     return "\n".join(head + body)
 
 
-def ingest(path: Path, out_dir: Path | None = None, backend: str | None = None) -> Path:
+def _may_overwrite(target: Path) -> bool:
+    """True unless the file already there is something a person wrote.
+
+    A `.md` beside a `.pdf` is the ordinary shape of the very directory `[knowledge] docs`
+    points at, so the file about to be written may well be an owner's own notes on that
+    manual — the sentence that says the torque figure in the book is wrong. Overwriting it
+    silently destroys the most valuable document on the boat: the one that exists nowhere
+    else. Only this module's own output, recognised by its banner, may be replaced.
+    """
+    if not target.exists():
+        return True
+    head = target.read_text(encoding="utf-8", errors="ignore")[:2000]
+    return BANNER in head
+
+
+class Refused(RuntimeError):
+    """The target file was written by a person and would have been destroyed."""
+
+
+def ingest(path: Path, out_dir: Path | None = None, backend: str | None = None,
+           force: bool = False) -> Path:
     """Ingest one PDF and write the markdown next to it, or into `out_dir`."""
     found = extract(path, backend)
     target = (out_dir or path.parent) / (path.stem + ".md")
+    if not force and not _may_overwrite(target):
+        raise Refused(
+            f"{target} already exists and was not written by openboat.ingest. Refusing to "
+            f"overwrite it — it may be your own notes. Move it, or pass --force.")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(to_markdown(found), encoding="utf-8")
     return target
@@ -196,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None,
                         help="directory for the markdown (default: beside each PDF)")
     parser.add_argument("--backend", choices=sorted(EXTRACTORS), default=None)
+    parser.add_argument("--force", action="store_true",
+                        help="overwrite a markdown file this tool did not write")
     parser.add_argument("--check", action="store_true",
                         help="report what is text and what is a scan, and write nothing")
     args = parser.parse_args(argv)
@@ -225,6 +266,11 @@ def main(argv: list[str] | None = None) -> int:
             scans.append(pdf)
         if not args.check:
             target = (args.out or pdf.parent) / (pdf.stem + ".md")
+            if not args.force and not _may_overwrite(target):
+                print(f"  REFUSED  {target} exists and openboat.ingest did not write it. "
+                      f"It may be your own notes — move it, or pass --force.", file=sys.stderr)
+                failed.append(pdf)
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(to_markdown(found), encoding="utf-8")
             done.append(target)

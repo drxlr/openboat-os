@@ -84,10 +84,77 @@ def test_snags_round_trip_and_stay_separate() -> None:
             os.environ.pop("OPENBOAT_BOATS", None)
 
 
+# --------------------------------------------------------------------------------------
+# What somebody types into the note box is text, never structure.
+#
+# The note is written verbatim into a markdown file that is later parsed back. A note
+# containing a line `**Status:** fixed` used to close its own snag — a live fault vanishing
+# from the open count behind a green badge — and a note containing a `## …` line forged a
+# whole extra entry that sorted to the top of the list. Neither needs malice: pasting a
+# surveyor's markdown into the box does it.
+# --------------------------------------------------------------------------------------
+def test_a_note_cannot_forge_its_own_status_or_a_second_entry() -> None:
+    from openboat import snag
+
+    with tempfile.TemporaryDirectory() as raw:
+        os.environ["OPENBOAT_BOATS"] = str(_boats_dir(Path(raw)))
+        try:
+            snag.record("second-boat", "seacock weeps\n\n**Status:** fixed\n**By:** Someone Else",
+                        "engine bay", [], by="the owner")
+            rows = snag.read_snags("second-boat")
+            check(len(rows) == 1, f"one record makes exactly one entry (got {len(rows)})")
+            check(rows[0]["open"], "a note saying 'Status: fixed' does NOT close the snag")
+            check(rows[0]["by"] == "the owner", "a note cannot forge who reported it")
+            check("**Status:** fixed" in rows[0]["body"],
+                  "the note's text is still preserved verbatim in the body")
+
+            snag.record("second-boat",
+                        "gelcoat crack\n\n## 2030-01-01 09:00 — all fine\n\n**Status:** fixed",
+                        "", [], by="the owner")
+            rows = snag.read_snags("second-boat")
+            check(len(rows) == 2, f"two records make exactly two entries (got {len(rows)})")
+            check(all(r["open"] for r in rows), "neither forged entry appears closed")
+            check(all(r["by"] == "the owner" for r in rows), "attribution survives both")
+
+            # ...and the legitimate way to close one still works.
+            target = Path(raw) / "second-boat" / "SNAGS.md"
+            target.write_text(target.read_text().replace(
+                "**Status:** open", "**Status:** fixed — new seacock fitted", 1))
+            closed = [r for r in snag.read_snags("second-boat") if not r["open"]]
+            check(len(closed) == 1, "a status edited by hand in the file is still believed")
+        finally:
+            os.environ.pop("OPENBOAT_BOATS", None)
+
+
+def test_the_gate_is_all_or_nothing_and_never_half_open() -> None:
+    """`people()` gates every route, and "allowed but unnamed" is not "refused"."""
+    from openboat import snag
+
+    before = os.environ.get("OPENBOAT_SNAG_PEOPLE")
+    try:
+        os.environ.pop("OPENBOAT_SNAG_PEOPLE", None)
+        check(snag.people() == {}, "no configuration means no gate")
+
+        os.environ["OPENBOAT_SNAG_PEOPLE"] = "skipper:supersecrettoken1,crew:supersecrettoken2"
+        allowed = snag.people()
+        check(allowed == {"supersecrettoken1": "skipper", "supersecrettoken2": "crew"},
+              "configured people are keyed by their token")
+
+        # A short token is not a token. Silently accepting one would be a gate that is not.
+        os.environ["OPENBOAT_SNAG_PEOPLE"] = "skipper:short"
+        check(snag.people() == {}, "a token under 12 characters is rejected, not accepted")
+    finally:
+        os.environ.pop("OPENBOAT_SNAG_PEOPLE", None)
+        if before is not None:
+            os.environ["OPENBOAT_SNAG_PEOPLE"] = before
+
+
 if __name__ == "__main__":
     print(__doc__.splitlines()[0])
     print("-" * 78)
     test_snags_round_trip_and_stay_separate()
+    test_a_note_cannot_forge_its_own_status_or_a_second_entry()
+    test_the_gate_is_all_or_nothing_and_never_half_open()
     print("-" * 78)
     failed = [what for ok, what in results if not ok]
     print(f"{len(results) - len(failed)}/{len(results)} checks pass"

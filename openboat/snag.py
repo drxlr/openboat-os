@@ -163,9 +163,18 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
         lines.append(f"**Where:** {where.strip()}")
     if shots:
         lines.append("**Photos:** " + ", ".join(f"`{s}`" for s in shots))
+    # The note goes in as a blockquote, and that is a correctness measure rather than a
+    # typographic one. It is written verbatim into a file that is later parsed back, so a
+    # note containing a line `**Status:** fixed` used to close its own snag, and one
+    # containing a `## …` line used to forge a whole extra entry that sorted to the top of
+    # the list marked fixed. Neither needs malice — pasting a surveyor's markdown into the
+    # box does it. Prefixed with "> ", no line inside can begin a heading or a field, and
+    # the quotation is also what the text honestly is: what somebody said.
+    quoted = "\n".join("> " + line if line.strip() else ">"
+                       for line in (note or "_No note — see the photograph._").splitlines())
     lines += [
         "",
-        note or "_No note — see the photograph._",
+        quoted,
         "",
         f"⚠️ Recorded from a phone{' by ' + who if who else ''} at {now:%Y-%m-%d %H:%M %Z} at "
         f"the moment of noticing, and "
@@ -215,17 +224,29 @@ def read_snags(boat_key: str) -> list[dict]:
 
     out: list[dict] = []
     current: dict | None = None
+    in_header = False          # fields are only read before the entry's first blank line
     for line in target.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if line.startswith(">"):
+            # Quoted text is somebody's words, never structure. Checked before anything
+            # else so that a heading or a field inside a note cannot be seen at all — and
+            # it also closes the header block, because the note always follows the fields.
+            if current is not None:
+                in_header = False
+                current["body"].append(line.lstrip("> ").rstrip())
+            continue
         head = HEADING.match(line)
         if head:
             if current:
                 out.append(current)
             current = {"when": head["when"].strip(), "title": head["title"].strip(),
                        "status": "open", "where": "", "by": "", "photos": [], "body": []}
+            in_header = True
             continue
         if current is None:
             continue
-        field = FIELD.match(line)
+        if not line.strip():
+            continue                   # blank lines separate the fields from the note
+        field = FIELD.match(line) if in_header else None
         if field:
             key, value = field["key"].lower(), field["value"].strip()
             if key == "photos":
@@ -233,7 +254,8 @@ def read_snags(boat_key: str) -> list[dict]:
             else:
                 current[key] = value
             continue
-        if line.startswith("⚠️") or not line.strip():
+        if line.startswith("⚠️"):
+            in_header = False          # the provenance footer; nothing structural follows
             continue
         current["body"].append(line)
     if current:
@@ -287,22 +309,30 @@ class Snag(SimpleHTTPRequestHandler):
             key = (params.get("boat") or [""])[0]
             return self._json(read_snags(key))
         if route == "/qr":
-            return self._qr()
+            return self._qr((params.get("k") or [""])[0])
         if route == "/photo":
             return self._photo((params.get("boat") or [""])[0],
                                (params.get("name") or [""])[0])
-        if self.path in ("/", ""):
+        if route in ("/", ""):
+            # Matched on the parsed route, never on self.path: with a query string attached
+            # `/?k=…` missed this branch and fell through to the static handler, which
+            # serves this package's *dashboard* out of the same web directory. Following
+            # the QR landed you on the wrong application entirely.
             self.path = "/snag.html"
         return super().do_GET()
 
-    def _qr(self):
+    def _qr(self, key: str = ""):
         """A page holding one big QR of this server's own LAN address.
 
         Opened on the machine that runs it, so a phone can be pointed at the screen instead
         of somebody typing an IP address with wet hands. The address is worked out at request
         time rather than at startup because a laptop changes networks.
         """
-        url = f"http://{_lan_address()}:{self.server.server_address[1]}/"
+        # The key travels with the code. Without it the QR sent a phone to a 404, which
+        # defeats the only thing the QR is for — and the person scanning it is by definition
+        # holding a valid link already, since this page is behind the same gate.
+        suffix = f"?k={urllib.parse.quote(key)}" if key else ""
+        url = f"http://{_lan_address()}:{self.server.server_address[1]}/{suffix}"
         page = f"""<!doctype html><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Scan to open the snag list</title>

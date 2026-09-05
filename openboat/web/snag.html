@@ -115,6 +115,14 @@
 
 <script>
 const $ = s => document.querySelector(s);
+
+/* When the server is gated, the key arrives in this page's own URL and every request back
+   to it has to carry the same key — otherwise the page loads and then every call it makes
+   is refused, and it reports "No boats configured", which is a wrong diagnosis of a
+   configuration that is perfectly correct. */
+const KEY = new URLSearchParams(location.search).get("k") || "";
+const api = path => KEY ? path + (path.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(KEY)
+                        : path;
 const boatSel = $("#boat"), shotsEl = $("#shots"), listEl = $("#list"), whoEl = $("#who");
 let photos = [];   // data URLs, already resized
 
@@ -172,7 +180,7 @@ $("#send").onclick = async () => {
   if (!note && !photos.length){ toast("Add a photo or a note first", true); return; }
   const btn = $("#send"); btn.disabled = true; btn.textContent = "Sending…";
   try {
-    const r = await fetch("/api/snag", {
+    const r = await fetch(api("/api/snag"), {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({boat: boatSel.value, note, where: $("#where").value,
                             by: whoEl.value.trim(), photos})
@@ -205,7 +213,7 @@ async function loadSnags(){
   const key = boatSel.value;
   listEl.innerHTML = '<p class="note">Loading…</p>';
   let rows = [];
-  try { rows = await (await fetch("/api/snags?boat=" + encodeURIComponent(key))).json(); }
+  try { rows = await (await fetch(api("/api/snags?boat=" + encodeURIComponent(key)))).json(); }
   catch { listEl.innerHTML = '<p class="note">Could not load the list.</p>'; return; }
 
   const open = rows.filter(r => r.open).length;
@@ -238,7 +246,7 @@ async function loadSnags(){
       for (const path of r.photos){
         const name = path.split("/").pop();
         const a = document.createElement("a");
-        a.href = "/photo?boat=" + encodeURIComponent(key) + "&name=" + encodeURIComponent(name);
+        a.href = api("/photo?boat=" + encodeURIComponent(key) + "&name=" + encodeURIComponent(name));
         a.target = "_blank"; a.rel = "noopener";
         const im = document.createElement("img"); im.src = a.href; im.alt = ""; im.loading = "lazy";
         a.append(im); box.append(a);
@@ -255,9 +263,15 @@ boatSel.onchange = () => {
 };
 
 (async function start(){
-  let payload = {};
-  try { payload = await (await fetch("/api/boats")).json(); }
+  let res, payload = {};
+  try { res = await fetch(api("/api/boats")); payload = await res.json(); }
   catch { toast("Cannot reach the server", true); return; }
+  if (!res.ok){
+    listEl.innerHTML = '<p class="note">This link was refused by the server. It probably '
+      + 'needs the access key it was shared with — open the full link again.</p>';
+    toast("Link refused — the access key is missing", true);
+    return;
+  }
   const list = payload.boats || [];
   if (!list.length){ listEl.innerHTML = '<p class="note">No boats configured.</p>'; return; }
   // When the server knows who you are from your link, stop asking.

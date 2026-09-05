@@ -92,12 +92,98 @@ def test_extraction_reports_missing_backends_rather_than_crashing() -> None:
         ingest.backends = real
 
 
+# --------------------------------------------------------------------------------------
+# Poppler writes a form feed after the LAST page too.
+#
+# So splitting on it invented an empty page at the end of every document, which this module
+# then wrote into the corpus as "page 20 of 19 — no text layer, needs OCR": a fabricated
+# page asserting that a page which does not exist needs work. It also made the same file
+# report a different page count depending on which extractor the machine happened to have.
+# --------------------------------------------------------------------------------------
+def test_every_backend_agrees_on_the_page_count() -> None:
+    import subprocess
+
+    from openboat.ingest import backends, extract
+
+    sample = ROOT / "profiles" / "demo" / "sample.pdf"
+    if not sample.exists():
+        # Build a two-page PDF with no dependency on anything installed.
+        body = (b"%PDF-1.4\n"
+                b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+                b"2 0 obj<</Type/Pages/Kids[3 0 R 5 0 R]/Count 2>>endobj\n"
+                b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]"
+                b"/Resources<</Font<</F1 7 0 R>>>>/Contents 4 0 R>>endobj\n"
+                b"4 0 obj<</Length 44>>stream\nBT /F1 12 Tf 20 100 Td (Page one here) Tj ET\n"
+                b"endstream endobj\n"
+                b"5 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]"
+                b"/Resources<</Font<</F1 7 0 R>>>>/Contents 6 0 R>>endobj\n"
+                b"6 0 obj<</Length 44>>stream\nBT /F1 12 Tf 20 100 Td (Page two here) Tj ET\n"
+                b"endstream endobj\n"
+                b"7 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n"
+                b"trailer<</Root 1 0 R>>\n%%EOF\n")
+        sample = Path(__file__).parent / "_tmp" / "twopage.pdf"
+        sample.parent.mkdir(exist_ok=True)
+        sample.write_bytes(body)
+
+    counts = {}
+    for name in backends():
+        try:
+            counts[name] = len(extract(sample, name).pages)
+        except Exception:                                  # noqa: BLE001
+            continue
+    if len(counts) < 2:
+        check(True, f"only one extractor present, cannot cross-check ({list(counts)})")
+        return
+    check(len(set(counts.values())) == 1,
+          f"every backend reports the same page count ({counts})")
+
+
+def test_ingest_refuses_to_destroy_a_hand_written_file() -> None:
+    """A .md beside a .pdf is very often the owner's own notes on that manual."""
+    import shutil
+    import tempfile
+
+    from openboat.ingest import BANNER, Refused, ingest
+
+    src = None
+    for candidate in (ROOT / "profiles" / "demo").glob("*.pdf"):
+        src = candidate
+        break
+    if src is None:
+        sample = Path(__file__).parent / "_tmp" / "twopage.pdf"
+        if not sample.exists():
+            check(True, "no sample PDF available to exercise the guard")
+            return
+        src = sample
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = Path(tmp) / "manual.pdf"
+        shutil.copy(src, pdf)
+        note = Path(tmp) / "manual.md"
+        note.write_text("# My own notes\n\nTorque is 9 Nm, NOT the 12 printed in the book.\n")
+        try:
+            ingest(pdf)
+            check(False, "a hand-written markdown file is refused, not overwritten")
+        except Refused:
+            check(True, "a hand-written markdown file is refused, not overwritten")
+        check("9 Nm" in note.read_text(), "the owner's note is still there afterwards")
+
+        ingest(pdf, force=True)
+        check(BANNER in note.read_text(), "--force does overwrite, deliberately")
+
+        # This module's own output may always be replaced — that is a re-ingest.
+        ingest(pdf)
+        check(BANNER in note.read_text(), "re-ingesting its own output needs no --force")
+
+
 if __name__ == "__main__":
     print(__doc__.splitlines()[0])
     print("-" * 78)
     for case in (test_binary_documents_are_not_indexed_as_text,
                  test_a_page_without_text_is_marked_rather_than_dropped,
-                 test_extraction_reports_missing_backends_rather_than_crashing):
+                 test_extraction_reports_missing_backends_rather_than_crashing,
+                 test_every_backend_agrees_on_the_page_count,
+                 test_ingest_refuses_to_destroy_a_hand_written_file):
         case()
     print("-" * 78)
     failed = [what for ok, what in results if not ok]
