@@ -6,11 +6,9 @@
    The measurements, the limits, the papers, what is actually arriving on the wire, and
    — with the same weight as any of it — what is not recorded at all. */
 async function viewBoat() {
-  const v = el("div", "view plain");
-  const scroll = el("div", "scroll");
-  v.append(scroll);
-  mount(v);
-  scroll.append(note("loading", "Reading the profile and the live paths…"));
+  const page = el("div");
+  mount(page);
+  page.append(note("loading", "Reading the profile and the live paths…"));
 
   const [p, papers, paths] = await Promise.all([
     state.profile && !state.profile.error ? Promise.resolve(state.profile)
@@ -18,24 +16,21 @@ async function viewBoat() {
     api("/api/papers"), api("/api/paths"),
   ]);
   if (!p.error) state.profile = p;
-  scroll.textContent = "";
+  page.textContent = "";
 
   if (p.error) {
-    scroll.append(note("error", "The profile could not be read: " + p.error
-                              + ". Nothing below would be about this boat."));
+    page.append(note("error", "The profile could not be read: " + p.error
+                            + ". Nothing below would be about this boat."));
     return;
   }
   const ves = p.vessel || {};
 
-  scroll.append(boatLivePaths(paths));
-
-  const cols = el("div", "cols");
+  page.append(boatLivePaths(paths));
 
   /* ── measurements ─────────────────────────────────────────────────────────────── */
-  const facts = el("div", "card");
-  facts.append(cardHead("Measurements", "VESSEL"));
-  const fb = el("div"); fb.style.padding = "4px 15px 12px";
-  fb.append(kv([
+  const facts = el("div", "card h-100");
+  facts.append(cardHead("Measurements", "Vessel"));
+  facts.append(obKvBody([
     ["Name", ves.name],
     ["Kind", ves.kind],
     ["Length overall", ves.length_m ? ves.length_m + " m" : ""],
@@ -47,14 +42,13 @@ async function viewBoat() {
     ["Engine", ves.engine_kw ? ves.engine_kw + " kW" : ""],
     ["Timezone", p.timezone],
     ["Profile", p.profile],
-  ], null));
-  facts.append(fb);
+  ]));
 
   /* The gaps, given the same weight as the facts. A boat that does not know its own draft
      is the ordinary case, and a panel that only lists what is filled in reads as a
      complete spec sheet — which is the lie this project is built to refuse. */
-  const gaps = el("div", "card");
-  gaps.append(cardHead("What is not recorded", "HONEST GAPS"));
+  const gaps = el("div", "card h-100");
+  gaps.append(cardHead("What is not recorded", "Honest gaps"));
   const missing = [
     ["Berth", p.berth ? `${p.berth.name || "recorded"}` : null],
     ["Forecast point", p.forecast_point ? (p.forecast_point.name || "recorded") : null],
@@ -64,40 +58,44 @@ async function viewBoat() {
     ["Displacement", ves.displacement_kg],
   ].filter(([, val]) => !val).map(([k]) => k);
 
-  const ul = el("ul");
-  missing.forEach(m => {
-    const li = el("li");
-    li.append(statusCell("warn", m));
-    li.append(el("span", "s", "not set"));
-    ul.append(li);
-  });
-  (p.unsourced || []).forEach(u => {
-    const li = el("li");
-    li.append(statusCell("info", u));
-    li.append(el("span", "s", "a value with no source"));
-    ul.append(li);
-  });
-  if (!ul.children.length)
-    gaps.append(Object.assign(el("p"), { textContent:
-      "Nothing missing and nothing unsourced. Every measurement carries a source." }));
-  else gaps.append(ul);
+  const list = el("div", "list-group list-group-flush");
+  const gapRow = (label, why, tone) => {
+    const li = el("div", "list-group-item d-flex align-items-center gap-2");
+    const dot = el("i", "bi bi-circle-fill small " + tone);
+    dot.setAttribute("aria-hidden", "true");
+    li.append(dot, el("span", "fw-medium", label));
+    li.append(el("span", "ms-auto small text-body-secondary text-end", why));
+    list.append(li);
+  };
+  missing.forEach(m => gapRow(m, "not set", "text-warning-emphasis"));
+  (p.unsourced || []).forEach(u => gapRow(u, "a value with no source",
+                                          "text-info-emphasis"));
+  if (!list.children.length)
+    gaps.append(cardBody(el("p", "mb-0 text-body-secondary",
+      "Nothing missing and nothing unsourced. Every measurement carries a source.")));
+  else gaps.append(list);
 
   /* ── limits ───────────────────────────────────────────────────────────────────── */
-  const lim = el("div", "card");
-  lim.append(cardHead("Limits this boat will go out in", "WEATHER"));
-  const lb = el("div"); lb.style.padding = "4px 15px 12px";
+  const lim = el("div", "card h-100");
+  lim.append(cardHead("Limits this boat will go out in", "Weather"));
   const L = p.limits || {};
-  lb.append(kv([
+  lim.append(obKvBody([
     ["Wind", L.max_wind_kn ? L.max_wind_kn + " kn" : ""],
     ["Gust", L.max_gust_kn ? L.max_gust_kn + " kn" : ""],
     ["Wave", L.max_wave_m ? L.max_wave_m + " m" : ""],
     ["Rain", L.max_rain_mm ? L.max_rain_mm + " mm/h" : ""],
     ["Daylight only", L.daylight === undefined ? "" : (L.daylight ? "yes" : "no")],
-  ], null));
-  lim.append(lb);
+  ]));
 
-  cols.append(facts, gaps, lim, boatBands(p), boatPapers(papers));
-  scroll.append(cols);
+  const cols = el("div", "row g-3");
+  const half = node => { const c = el("div", "col-12 col-lg-6"); c.append(node); cols.append(c); };
+  const full = node => { const c = el("div", "col-12"); c.append(node); cols.append(c); };
+  half(facts);
+  half(gaps);
+  half(lim);
+  half(boatBands(p));
+  full(boatPapers(papers));
+  page.append(cols);
 }
 
 /* ── what is actually arriving ─────────────────────────────────────────────────────
@@ -105,31 +103,32 @@ async function viewBoat() {
    turning up, what they carry and how old it is — the difference between "the boat has
    a depth sounder" and "the depth sounder said something in the last ten seconds". */
 function boatLivePaths(paths) {
-  const card = el("div", "card");
-  const h = el("h2");
-  h.append(document.createTextNode("Live paths"));
-  const filter = el("input", "minisearch");
+  const card = el("div", "card mb-3");
+  const head = el("div", "card-header d-flex flex-wrap align-items-center gap-2");
+  head.append(el("h2", "h6 mb-0 fw-semibold", "Live paths"));
+  const filter = el("input", "form-control form-control-sm ob-filter ms-auto");
   filter.type = "search";
   filter.placeholder = "filter…";
   filter.setAttribute("aria-label", "Filter the live paths");
-  h.append(filter);
-  h.append(el("span", "side", paths.error ? "OFFLINE" : `${(paths.paths || []).length} PATHS`));
-  card.append(h);
+  head.append(filter);
+  head.append(el("span", "side", paths.error ? "Offline"
+                                             : `${(paths.paths || []).length} paths`));
+  card.append(head);
 
   const slot = el("div");
   card.append(slot);
 
   if (paths.error) {
-    slot.append(note("error", "No live data: " + paths.error + "."));
+    slot.append(cardBody(obFlat(note("error", "No live data: " + paths.error + "."))));
     filter.disabled = true;
     return card;
   }
   const all = paths.paths || [];
   if (!all.length) {
-    slot.append(note("empty", paths.online === false
+    slot.append(cardBody(obFlat(note("empty", paths.online === false
       ? "The boat is not on the network. Nothing is arriving, which is not the same as "
       + "everything reading zero."
-      : "The bridge is up but no path has carried a value yet."));
+      : "The bridge is up but no path has carried a value yet."))));
     filter.disabled = true;
     return card;
   }
@@ -140,15 +139,18 @@ function boatLivePaths(paths) {
                                   || String(x.source || "").toLowerCase().includes(q))
                    : all;
     slot.textContent = "";
-    slot.append(table([
-      { label: "Path",   cls: "k", w: "32%", get: r => r.path },
-      { label: "Value",  cls: "w", w: "26%", get: r => boatPathValue(r.value) },
-      { label: "Unit",   w: "9%",  prio: "low", get: r => r.unit || "—" },
-      { label: "Source", w: "20%", prio: "low",
-        get: r => el("span", "trunc", r.source || "—") },
-      { label: "Age",    cls: "num", w: "13%", get: r => since(r.timestamp) },
-    ], rows, () => {}, null));
-    if (q && !rows.length) slot.append(note("empty", "No path matches that."));
+    const t = table([
+      { label: "Path", w: "32%",
+        get: r => el("span", "font-monospace small", r.path) },
+      { label: "Value", w: "26%", get: r => boatPathValue(r.value) },
+      { label: "Unit", w: "9%", prio: "low", get: r => r.unit || "—" },
+      { label: "Source", w: "20%", prio: "low", cls: "text-body-secondary",
+        get: r => r.source || "—" },
+      { label: "Age", cls: "num text-nowrap", w: "13%", get: r => since(r.timestamp) },
+    ], rows, null, null);
+    t.querySelector("table").classList.add("table-sm", "ob-paths");
+    slot.append(t);
+    if (q && !rows.length) slot.append(cardBody(obFlat(note("empty", "No path matches that."))));
   };
   filter.oninput = draw;
   draw();
@@ -172,14 +174,14 @@ function boatPathValue(v) {
    value amber or red with these and with nothing else, so an empty table is a fact
    worth printing rather than a panel worth hiding. */
 function boatBands(p) {
-  const card = el("div", "card");
+  const card = el("div", "card h-100");
   const names = Object.keys(p.bands || {});
-  card.append(cardHead("Alarm bands", names.length ? `${names.length} READINGS` : "NONE SET"));
+  card.append(cardHead("Alarm bands", names.length ? `${names.length} readings` : "None set"));
   if (!names.length) {
-    card.append(Object.assign(el("p"), { textContent:
+    card.append(cardBody(el("p", "mb-0 text-body-secondary",
       "No bands set — a panel with no band cannot go red. Every reading on the helm will "
       + "show its number and no verdict until this boat's profile says what counts as "
-      + "wrong." }));
+      + "wrong.")));
     return card;
   }
   const rows = [];
@@ -188,15 +190,13 @@ function boatBands(p) {
     rows.push({ name, low, high, sev });
   }));
   card.append(table([
-    { label: "Reading", cls: "k", w: "42%", get: r => r.name },
-    { label: "Band", cls: "w", w: "34%",
+    { label: "Reading", w: "42%", get: r => r.name },
+    { label: "Band", cls: "num text-nowrap", w: "34%",
       get: r => `${r.low === null || r.low === undefined ? "—" : nf(r.low)} – ` +
                 `${r.high === null || r.high === undefined ? "—" : nf(r.high)}` },
-    { label: "Verdict", cls: "st", w: "24%",
-      get: r => { const pill = el("span", "pill " + (r.sev || "info"));
-                  pill.append(document.createTextNode(r.sev || "unnamed"));
-                  return pill; } },
-  ], rows, () => {}, null));
+    { label: "Verdict", w: "24%",
+      get: r => statusCell(r.sev, r.sev || "unnamed") },
+  ], rows, null, null));
   return card;
 }
 
@@ -206,17 +206,18 @@ function boatBands(p) {
 function boatPapers(papers) {
   const card = el("div", "card");
   if (papers.error) {
-    card.append(cardHead("Papers", "UNREADABLE"));
-    card.append(note("error", "The papers could not be read: " + papers.error + "."));
+    card.append(cardHead("Papers", "Unreadable"));
+    card.append(cardBody(obFlat(
+      note("error", "The papers could not be read: " + papers.error + "."))));
     return card;
   }
   const list = papers.papers || [];
   card.append(cardHead("Papers",
-    papers.expiring ? papers.expiring + " EXPIRING" : "SHIP'S DOCUMENTS"));
+    papers.expiring ? papers.expiring + " expiring" : "Ship's documents"));
   if (!list.length) {
-    card.append(Object.assign(el("p"), { textContent:
+    card.append(cardBody(el("p", "mb-0 text-body-secondary",
       "No papers recorded. Registration, insurance, radio licence and the survey all have "
-      + "dates that matter and none of them are known here." }));
+      + "dates that matter and none of them are known here.")));
     return card;
   }
   const daysLeft = iso => {
@@ -226,18 +227,18 @@ function boatPapers(papers) {
     return Math.ceil((d - Date.now()) / 86400000);
   };
   card.append(table([
-    { label: "Paper", cls: "k", w: "34%",
-      get: x => el("span", "trunc", x.name || x.title || x.kind || "(unnamed)") },
-    { label: "Kind", w: "18%", prio: "low",
-      get: x => el("span", "trunc", x.kind || "—") },
-    { label: "Expires", cls: "st w", w: "24%", get: x => x.expires || "no date" },
-    { label: "Left", cls: "num", w: "20%", get: x => {
+    { label: "Paper", w: "34%", get: x => x.name || x.title || x.kind || "(unnamed)" },
+    { label: "Kind", w: "18%", prio: "low", cls: "text-body-secondary",
+      get: x => x.kind || "—" },
+    { label: "Expires", cls: "num text-nowrap", w: "24%", get: x => x.expires || "no date" },
+    { label: "Left", cls: "num text-nowrap", w: "20%", get: x => {
         const d = daysLeft(x.expires);
         if (d === null) return "—";
-        const s = el("span", d < 0 ? "bad" : d < 60 ? "warn" : "");
+        const s = el("span", d < 0 ? "text-danger-emphasis fw-semibold"
+                          : d < 60 ? "text-warning-emphasis fw-semibold" : "");
         s.textContent = d < 0 ? `${-d} d over` : `${d} d`;
         return s;
       } },
-  ], list, () => {}, null));
+  ], list, null, null));
   return card;
 }

@@ -1,0 +1,47 @@
+/* OpenBoat console — the three read-only views (overview, boat, dashboards).
+
+   Bootstrap covers all but three things, and these are them: a card that behaves like a
+   link, a filter field that must not eat its card header, and an iframe that has to fill
+   what is left of the window. Everything else on those pages is a stock component. */
+
+/* The overview tiles are cards you click, so they have to say so before you click them.
+   Bootstrap has no linked-card state of its own; this is the button's, borrowed. */
+.ob-tile { transition: border-color .12s ease-in-out, box-shadow .12s ease-in-out,
+                       transform .12s ease-in-out; }
+.ob-tile:hover, .ob-tile:focus-visible {
+  border-color: var(--ob-sea);
+  box-shadow: 0 .25rem .75rem rgba(var(--bs-body-color-rgb), .1);
+}
+.ob-tile:focus-visible { outline: .25rem solid rgba(var(--bs-link-color-rgb), .25);
+                         outline-offset: 0; }
+@media (prefers-reduced-motion: reduce) { .ob-tile { transition: none; } }
+
+/* A key/value pair whose value has no spaces in it — a file path, a Signal K source —
+   cannot break, so the table grows past the card and the whole page scrolls sideways on
+   a phone. The value column is allowed to break mid-word; the key column is short. */
+.ob-kv .table.kv td:last-child { overflow-wrap: anywhere; }
+
+/* A Signal K path is one long unbroken token. Left whole on a phone it holds the table
+   at its desktop width, and the wrapper then scrolls the value and the age out of sight —
+   a table of names and nothing else. Let the path break; it is the least useful column.
+   Two columns are hidden on a phone anyway, so the three that remain can be given the
+   width back rather than being squeezed into the desktop proportions. The widths
+   `table()` writes are inline, which is what the !important is for. */
+.ob-paths td:first-child { overflow-wrap: anywhere; }
+@media (max-width: 767.98px) {
+  /* auto layout treats a col width as a hint and hands the space to whichever column
+     cannot wrap; fixed layout is what makes the proportions above mean anything. */
+  .ob-paths { table-layout: fixed; }
+  .ob-paths col:nth-child(1) { width: 44% !important; }
+  .ob-paths col:nth-child(2) { width: 36% !important; }
+  .ob-paths col:nth-child(5) { width: 20% !important; }
+}
+
+/* The live-path filter sits in a card header beside the title and the count. Left to
+   grow it takes the whole row and pushes the count onto a line of its own. */
+.ob-filter { width: auto; max-width: 14rem; flex: 0 1 14rem; }
+
+/* A staged dashboard is the page: fill the window under the top bar and the crumb row,
+   and keep a floor so a short laptop screen still shows something worth reading. */
+.ob-stage { height: calc(100vh - 190px); min-height: 26rem; display: block; }
+@media (max-width: 767.98px) { .ob-stage { height: calc(100vh - 210px); } }

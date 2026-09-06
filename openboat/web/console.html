@@ -1,480 +1,196 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>OpenBoat console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230E1315'/%3E%3Cpath d='M14 44h36M20 44V20l24 12-24 12' stroke='%2300E3A1' stroke-width='4' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+<!-- Bootstrap 5.3 and its icon font, vendored beside Leaflet (see vendor/README.md): the
+     console works with no network, so nothing here is fetched from a CDN. -->
+<link rel="stylesheet" href="vendor/bootstrap.min.css">
+<link rel="stylesheet" href="vendor/bootstrap-icons.css">
 <link rel="stylesheet" href="console/docs.css">
 <link rel="stylesheet" href="console/tasks.css">
+<link rel="stylesheet" href="console/views.css">
+<script>
+  /* Light by default — this page is read at a desk — and dark only when the system is,
+     so a night-mode laptop is not blinding. Set before first paint to avoid a flash. */
+  (function () {
+    const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+    const set = () => document.documentElement.setAttribute("data-bs-theme",
+                                                            dark && dark.matches ? "dark" : "light");
+    set();
+    if (dark && dark.addEventListener) dark.addEventListener("change", set);
+  })();
+</script>
 <style>
-/* ── OpenBoat console ────────────────────────────────────────────────────────────────
-   The workshop end of the boat, as opposed to the helm. `index.html` is built to be read
-   in sunlight at arm's length with wet hands; this is built to be read at a desk with a
-   keyboard, where the questions are "what does the manual say", "what is this boat owed"
-   and "what did somebody photograph last week".
+  /* ── OpenBoat console ────────────────────────────────────────────────────────────────
+     Bootstrap does the work. What is below is only what Bootstrap cannot know: a slightly
+     larger reading size, the sea-blue the helm page already uses, and the few widgets the
+     views share (a numbered code block, the key/value table, a phone rule for low-priority
+     columns). Everything else on the page is a stock Bootstrap component, on purpose: the
+     console is read by somebody in a bad mood in February, and a stock component is one
+     they have used a thousand times before.                                            */
+  :root, [data-bs-theme="light"] {
+    --bs-body-font-size: 1.0625rem;
+    --bs-body-line-height: 1.6;
+    --ob-sea: #175E7E; --bs-primary: #175E7E; --bs-primary-rgb: 23, 94, 126;
+    --bs-link-color: #175E7E;         --bs-link-color-rgb: 23, 94, 126;
+    --bs-link-hover-color: #0F4A66;   --bs-link-hover-color-rgb: 15, 74, 102;
+  }
+  [data-bs-theme="dark"] {
+    --ob-sea: #74BBD9; --bs-primary: #74BBD9; --bs-primary-rgb: 116, 187, 217;
+    --bs-link-color: #74BBD9;         --bs-link-color-rgb: 116, 187, 217;
+    --bs-link-hover-color: #9FD2E8;   --bs-link-hover-color-rgb: 159, 210, 232;
+    /* In the dark the sea-blue is the light colour, so anything filled with it carries
+       dark text. White on #74BBD9 is 2.1:1 — the label on every filled button and on the
+       page you are actually on, unreadable at exactly the moment it matters. */
+    --ob-on-sea: #0B1B22;
+  }
+  [data-bs-theme="dark"] .btn-primary {
+    --bs-btn-color: var(--ob-on-sea); --bs-btn-hover-color: var(--ob-on-sea);
+    --bs-btn-active-color: var(--ob-on-sea); --bs-btn-disabled-color: var(--ob-on-sea);
+    --bs-btn-hover-bg: #9FD2E8; --bs-btn-hover-border-color: #9FD2E8;
+    --bs-btn-active-bg: #9FD2E8; --bs-btn-active-border-color: #9FD2E8; }
+  [data-bs-theme="dark"] .btn-outline-primary { --bs-btn-hover-color: var(--ob-on-sea);
+    --bs-btn-active-color: var(--ob-on-sea); }
+  [data-bs-theme="dark"] .nav-pills { --bs-nav-pills-link-active-color: var(--ob-on-sea); }
+  [data-bs-theme="dark"] #sidebar .nav-link.active { color: var(--ob-on-sea); }
+  body { min-height: 100vh; }
+  .btn-primary { --bs-btn-bg: var(--ob-sea); --bs-btn-border-color: var(--ob-sea);
+                 --bs-btn-hover-bg: #134D68; --bs-btn-hover-border-color: #134D68;
+                 --bs-btn-active-bg: #0F4A66; --bs-btn-active-border-color: #0F4A66; }
+  .btn-outline-primary { --bs-btn-color: var(--ob-sea); --bs-btn-border-color: var(--ob-sea);
+                         --bs-btn-hover-bg: var(--ob-sea); --bs-btn-hover-border-color: var(--ob-sea);
+                         --bs-btn-active-bg: var(--ob-sea); --bs-btn-active-border-color: var(--ob-sea);
+                         --bs-btn-focus-shadow-rgb: var(--bs-link-color-rgb); }
+  .btn-primary { --bs-btn-focus-shadow-rgb: var(--bs-link-color-rgb); }
+  .text-primary { color: var(--ob-sea) !important; }
+  .bg-primary { background-color: var(--ob-sea) !important; }
+  .dropdown-menu { --bs-dropdown-link-active-bg: var(--ob-sea); }
+  .nav-pills { --bs-nav-pills-link-active-bg: var(--ob-sea); }
+  .form-control:focus, .form-select:focus { border-color: var(--ob-sea);
+    box-shadow: 0 0 0 .25rem rgba(var(--bs-link-color-rgb), .25); }
 
-   Monospace throughout, and that is a decision rather than a style. Nearly everything on
-   this page is a quantity, a file name, a line number or a timestamp — the things a
-   proportional font makes harder to compare down a column. Tabular figures mean 9.8 and
-   10.1 occupy the same width, so a column of hours can be scanned instead of read.
+  /* the frame */
+  #sidebar { min-height: calc(100vh - 57px); }
+  @media (min-width: 992px) {
+    #sidebar { position: sticky; top: 57px; height: calc(100vh - 57px); overflow-y: auto; }
+  }
+  #sidebar .nav-link { color: var(--bs-body-color); padding: .55rem .9rem; border-radius: .5rem; }
+  #sidebar .nav-link:hover { background: var(--bs-tertiary-bg); }
+  #sidebar .nav-link.active { color: #fff; }
+  #sidebar .nav-link .bi { width: 1.5rem; display: inline-block; }
+  main { max-width: 1240px; }
+  h1, h2, h3, h4 { letter-spacing: -.01em; }
+  .card { --bs-card-border-color: var(--bs-border-color-translucent); }
+  .card-header { background: transparent; font-weight: 600; }
+  .card-header .side { font-weight: 400; font-size: .8rem; text-transform: uppercase;
+                       letter-spacing: .04em; color: var(--bs-secondary-color); }
+  .table > :not(caption) > * > * { padding: .7rem .75rem; }
+  .table th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em;
+              color: var(--bs-secondary-color); font-weight: 600; border-bottom-width: 1px; }
+  tr[role="button"] { cursor: pointer; }
 
-   It holds no fact about any boat. Every name, number and document on it arrives from the
-   API at run time, which is what lets this file live in a public repository.            */
+  /* Highlights, once, for every view. A selected or hovered row is a tint of the sea-blue
+     the links use, with a bar on its leading edge; a matched search term is a warm mark;
+     the line a citation points at is the same blue tint. Nothing on this page highlights
+     by going dark — a black bar across a light table is the one thing that cannot be read. */
+  .table { --bs-table-hover-bg: rgba(var(--bs-link-color-rgb), .07);
+           --bs-table-active-bg: rgba(var(--bs-link-color-rgb), .13);
+           --bs-table-active-color: var(--bs-body-color); }
+  /* Bootstrap paints a row's active tint as an inset shadow on every cell, so the bar on
+     the first cell has to carry that tint along with it or the cell goes white. */
+  .table > tbody > tr.table-active > td:first-child {
+    box-shadow: inset 4px 0 var(--ob-sea), inset 0 0 0 9999px var(--bs-table-active-bg); }
+  .table > tbody > tr[aria-selected="true"] > td { background: rgba(var(--bs-link-color-rgb), .13); }
+  .list-group { --bs-list-group-active-bg: rgba(var(--bs-link-color-rgb), .13);
+                --bs-list-group-active-color: var(--bs-body-color);
+                --bs-list-group-active-border-color: var(--bs-border-color); }
+  .list-group-item-action.active { box-shadow: inset 4px 0 var(--ob-sea); }
+  .list-group-item.active .text-body-secondary { color: var(--bs-secondary-color) !important; }
+  mark, .mark { background: #FFE58A; color: inherit; padding: 0 .15em; border-radius: .2em; }
+  [data-bs-theme="dark"] mark, [data-bs-theme="dark"] .mark { background: #7A5F00; color: #fff; }
+  ::selection { background: rgba(var(--bs-link-color-rgb), .3); }
+  .table.kv td:first-child { color: var(--bs-secondary-color); width: 32%; }
+  .table.kv td { padding: .5rem .25rem; }
+  .num { font-variant-numeric: tabular-nums; }
+  kbd { font-size: .8em; background: var(--bs-tertiary-bg); color: var(--bs-body-color);
+        border: 1px solid var(--bs-border-color); box-shadow: none; }
+  .meta { color: var(--bs-secondary-color); }
+  .meta .sep { margin: 0 .45rem; opacity: .6; }
+  @media (max-width: 767.98px) { [data-prio="low"] { display: none; } }
 
-:root{
-  --bg:#0e1315; --chrome:#11181a; --panel:#151c1f; --field:#212a2d;
-  --row-hi:#1e272a; --rule:#222c30; --rule-soft:#1a2225;
-  --ink:#e9efec; --mute:#8a9994; --dim:#5d6b67;
-  --accent:#00e3a1; --accent-ink:#04231a; --accent-wash:rgba(0,227,161,.10);
-  --warn:#f0b45e; --bad:#f4715c; --info:#79c0e8;
-  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,"DejaVu Sans Mono",Consolas,monospace;
-  --rail:56px; --bar-h:58px;
-  /* Aliases. The names on the left are the ones the views were written against; the
-     ones on the right are the palette this page has always used. One set of colours,
-     two spellings, so a view can say --ok without knowing it means the accent. */
-  --acc:var(--accent); --ok:var(--accent); --line:var(--rule);
-  color-scheme:dark;
-}
-*,*::before,*::after{box-sizing:border-box}
-[hidden]{display:none!important}
-html,body{height:100%}
-body{
-  margin:0; background:var(--bg); color:var(--ink);
-  font:400 13px/1.55 var(--mono); font-variant-numeric:tabular-nums;
-  -webkit-font-smoothing:antialiased;
-}
-button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
-input{font:inherit;color:inherit}
-a{color:var(--accent)}
-svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
-::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:#263034;border:3px solid var(--bg);border-radius:6px}
-::-webkit-scrollbar-track{background:transparent}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  /* the numbered code block every citation lands in: a manual's text, line for line */
+  .code { font-family: var(--bs-font-monospace); font-size: .875rem; line-height: 1.55;
+          background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color-translucent);
+          border-radius: .5rem; padding: .6rem 0; overflow-x: auto; }
+  .code .ln { display: flex; padding: 0 .75rem; }
+  .code .no { flex: 0 0 4.25em; text-align: right; padding-right: 1em; color: var(--bs-tertiary-color);
+              user-select: none; }
+  /* Extracted text arrives with pdftotext's column indentation — twenty spaces before
+     a heading, a step number stranded on its own line. Runs of spaces collapse so a line
+     reads as a sentence; the line itself stays exactly one source line, numbered. */
+  .code .tx { flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  /* The thing a citation points at — a line in a manual, a block of prose in a note —
+     wherever it is. */
+  .hit, .code .hit { background: rgba(var(--bs-link-color-rgb), .13); box-shadow: inset 4px 0 var(--ob-sea); }
+  .code .h { font-weight: 700; } .code .g { color: var(--bs-secondary-color); }
+  .code .u { color: var(--bs-link-color); } .code .c { color: var(--bs-danger-text-emphasis); }
+  .code .q { font-weight: 600; }
 
-/* ── shell ─────────────────────────────────────────────────────────────────────────── */
-.app{display:grid;grid-template-rows:auto 1fr;height:100dvh;min-height:0}
-
-.bar{display:flex;align-items:center;gap:0;height:58px;background:var(--chrome);
-     border-bottom:1px solid var(--rule);padding-right:18px}
-.hamb{width:var(--rail);height:var(--bar-h);display:grid;place-items:center start;
-      padding-left:17px;color:var(--mute);flex:0 0 auto}
-.hamb:hover{color:var(--ink)}
-.brand{font-size:19px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;flex:0 0 auto}
-.brand .n{color:var(--accent)}
-/* The title gives way before the identity does: on a narrow bar the page name truncates
-   and the boat's name stays whole, because you can see which page you are on and you
-   cannot see which boat you are looking at. */
-.bar h1{margin:0 0 0 10px;font-size:19px;font-weight:700;letter-spacing:-.01em;
-        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
-.bar .vessel{margin-left:auto;padding-left:14px;display:flex;align-items:baseline;gap:14px;
-             color:var(--dim);font-size:12px;white-space:nowrap;overflow:hidden;
-             min-width:0;flex:0 0 auto}
-.bar .vessel b{color:var(--mute);font-weight:400;overflow:hidden;text-overflow:ellipsis;
-               min-width:0;max-width:44vw}
-
-.frame{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);min-height:0}
-#nav{background:var(--chrome);border-right:1px solid var(--rule);
-    display:flex;flex-direction:column;padding-top:2px;overflow:hidden}
-#nav button{display:flex;align-items:center;gap:14px;height:52px;padding:0 17px;
-           color:var(--dim);width:100%;flex:0 0 auto}
-#nav button svg{width:22px;height:22px;flex:0 0 auto}
-#nav button span{font-size:13px;opacity:0;transition:opacity .12s;white-space:nowrap}
-#nav button:hover{color:var(--ink);background:#161e21}
-#nav button:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
-#nav button[aria-current="true"]{background:var(--accent);color:var(--accent-ink)}
-#nav button[aria-current="true"] svg{stroke-width:2.2}
-body.wide{--rail:210px}
-body.wide #nav button span{opacity:1}
-#nav .spacer{flex:1}
-#nav .foot{color:var(--dim);font-size:11px;padding:0 17px 14px;white-space:nowrap;
-          opacity:0;transition:opacity .12s;pointer-events:none}
-body.wide #nav .foot{opacity:1;pointer-events:auto}
-#nav button.foot{height:auto;line-height:1.5}
-
-main{min-width:0;min-height:0;overflow:hidden;display:grid}
-
-/* ── a view: toolbar, list, split detail ───────────────────────────────────────────── */
-.view{display:grid;grid-template-rows:auto minmax(0,auto) minmax(0,1fr);
-      gap:16px;padding:18px 20px;min-height:0;min-width:0}
-.view.plain{grid-template-rows:minmax(0,1fr)}
-.view.solo{grid-template-rows:minmax(0,1fr);padding:0}
-
-.tools{display:flex;align-items:center;gap:12px}
-.search{flex:1;min-width:0;display:flex;align-items:center;gap:13px;height:48px;
-        background:var(--field);border:1px solid transparent;border-radius:3px;padding:0 15px}
-.search:focus-within{border-color:#33413f}
-.search svg{width:19px;height:19px;flex:0 0 auto}
-.search .filt{color:var(--accent)}
-.search input{flex:1;min-width:0;background:none;border:0;outline:0;font-size:14px}
-.search input::placeholder{color:var(--dim)}
-.search .go{color:var(--ink);opacity:.85}
-.tools .act{width:44px;height:44px;display:grid;place-items:center;color:var(--accent);
-            border-radius:3px}
-.tools .act:hover{background:var(--accent-wash)}
-.tools .act svg{width:21px;height:21px}
-.tools .seg{display:flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
-.tools .seg button{padding:0 14px;height:44px;color:var(--mute);font-size:12px;
-                   border-right:1px solid var(--rule)}
-.tools .seg button:last-child{border-right:0}
-.tools .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
-
-.listwrap{overflow:auto;min-height:0;max-height:52vh;border-bottom:1px solid var(--rule)}
-table{width:100%;border-collapse:collapse;table-layout:fixed}
-thead th{position:sticky;top:0;z-index:2;background:var(--bg);text-align:left;
-         font-size:12.5px;font-weight:700;color:var(--ink);padding:9px 13px;
-         border-bottom:1px solid var(--rule);white-space:nowrap}
-tbody td{padding:11px 13px;border-bottom:1px solid var(--rule-soft);color:var(--mute);
-         font-size:12.5px;vertical-align:top}
-tbody tr{cursor:pointer}
-tbody tr:hover td{background:#161e21}
-tbody tr[aria-selected="true"] td{background:var(--row-hi);color:var(--ink)}
-td.k{color:var(--ink);white-space:nowrap}
-td.w{color:var(--ink)}
-td.num{text-align:right;white-space:nowrap;color:var(--ink)}
-td.st{white-space:nowrap}
-.trunc{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:9px;
-     vertical-align:1px;background:var(--dim)}
-.ok .dot{background:var(--accent)} .ok{color:var(--accent)}
-.warn .dot{background:var(--warn)} .warn{color:var(--warn)}
-.bad .dot{background:var(--bad)}   .bad{color:var(--bad)}
-.info .dot{background:var(--info)} .info{color:var(--info)}
-.tag{display:inline-block;padding:1px 7px;border:1px solid var(--rule);border-radius:2px;
-     font-size:11px;color:var(--dim);letter-spacing:.03em}
-
-/* ── the split ─────────────────────────────────────────────────────────────────────── */
-.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;min-height:0}
-@media (max-width:1000px){.split{grid-template-columns:minmax(0,1fr)}}
-.pane{background:var(--panel);border:1px solid var(--rule);display:flex;flex-direction:column;
-      min-height:0;min-width:0}
-.pane .head{display:flex;align-items:center;gap:12px;padding:12px 15px;min-height:47px;
-            flex:0 0 auto}
-.pane .head b{font-size:14px;font-weight:700;color:var(--ink);overflow:hidden;
-              text-overflow:ellipsis;white-space:nowrap}
-.pane .head .side{margin-left:auto;color:var(--dim);font-size:11px;letter-spacing:.14em;
-                  white-space:nowrap}
-.pane .head .meta{color:var(--mute);font-size:12px;white-space:nowrap}
-.tabs{display:flex;gap:22px;padding:0 15px;border-bottom:1px solid var(--rule);
-      overflow-x:auto;scrollbar-width:none;flex:0 0 auto}
-.tabs::-webkit-scrollbar{display:none}
-.tabs button{padding:9px 0 8px;border-bottom:2px solid transparent;color:var(--mute);
-             font-size:12.5px;white-space:nowrap}
-.tabs button:hover{color:var(--ink)}
-.tabs button[aria-selected="true"]{color:var(--accent);border-color:var(--accent)}
-.tabs .right{margin-left:auto;display:flex;align-items:center;gap:11px;color:var(--mute);
-             font-size:12px;padding:9px 0}
-.body{overflow:auto;padding:13px 15px;min-height:0;flex:1 1 auto;
-      font-size:12.5px;line-height:1.7}
-.pane.full{grid-column:1/-1}
-.empty{color:var(--dim);padding:22px 15px;font-size:12.5px;line-height:1.8}
-.empty b{color:var(--mute);font-weight:400}
-
-/* key/value, the shape a header table has */
-table.kv{border-collapse:collapse;table-layout:auto}
-table.kv th{background:none;position:static;padding:7px 0;border-bottom:1px solid var(--rule)}
-table.kv td{border-bottom:1px solid var(--rule-soft);padding:9px 16px 9px 0;
-            vertical-align:top;word-break:break-word}
-table.kv td:first-child{color:var(--mute);width:34%;white-space:nowrap}
-table.kv td:last-child{color:var(--ink);padding-right:0}
-
-/* line-numbered text */
-.code{font-size:12.5px;line-height:1.65}
-.code .ln{display:flex;gap:16px}
-.code .no{color:var(--dim);text-align:right;min-width:3.2ch;user-select:none;flex:0 0 auto}
-.code .tx{white-space:pre-wrap;word-break:break-word;flex:1;min-width:0;color:var(--mute)}
-.code .ln:target .tx,.code .ln.hit .tx{background:var(--accent-wash)}
-.code .h{color:var(--ink);font-weight:700}
-.code .q{color:var(--accent)}
-.code .c{color:var(--warn)}
-.code .u{color:#e08a5a;text-decoration:underline}
-.code .g{color:var(--dim)}
-
-/* ── overview ──────────────────────────────────────────────────────────────────────── */
-.scroll{overflow:auto;min-height:0;padding-right:4px}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:14px}
-.tile{background:var(--panel);border:1px solid var(--rule);padding:15px 16px 14px}
-.tile b{display:block;font-size:33px;line-height:1.1;font-weight:700;color:var(--accent);
-        letter-spacing:-.02em}
-.tile b.q{color:var(--warn)} .tile b.z{color:var(--dim)}
-.tile span{display:block;margin-top:7px;color:var(--mute);font-size:11.5px;letter-spacing:.05em}
-.tile em{display:block;margin-top:4px;color:var(--dim);font-size:11px;font-style:normal}
-.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px;
-      margin-top:16px}
-.card{background:var(--panel);border:1px solid var(--rule)}
-.card h2{margin:0;padding:12px 15px;font-size:13px;font-weight:700;
-         border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:10px}
-.card h2 .side{margin-left:auto;color:var(--dim);font-size:11px;letter-spacing:.14em;
-               font-weight:400}
-.card ul{margin:0;padding:6px 0;list-style:none}
-.card li{padding:10px 15px;border-bottom:1px solid var(--rule-soft)}
-.card li:last-child{border-bottom:0}
-.card li .t{display:block;color:var(--ink)}
-.card li .s{display:block;margin-top:3px;color:var(--dim);font-size:11.5px;line-height:1.65}
-.card p{margin:0;padding:14px 15px;color:var(--dim);line-height:1.75}
-/* a table inside a card: the sticky header has to match the card, not the page */
-.card .listwrap{max-height:46vh;border-bottom:0}
-.card .listwrap thead th{background:var(--panel)}
-.card h2 .minisearch{margin-left:auto}
-.card h2 .minisearch ~ .side{margin-left:12px}
-@media (max-width:719px){.card h2{flex-wrap:wrap;row-gap:8px}
-                         .card h2 .minisearch{width:100%;max-width:none;order:3}
-                         .card h2 .minisearch ~ .side{margin-left:auto}}
-
-/* ── dashboards ────────────────────────────────────────────────────────────────────── */
-.apps{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:16px}
-.app-card{position:relative;background:var(--panel);border:1px solid var(--rule);
-          padding:17px 17px 15px;text-align:left;display:flex;flex-direction:column;gap:9px;
-          min-height:170px}
-.app-card:hover{border-color:#33413f;background:#171f22}
-.app-card .ic{color:var(--accent)}
-.app-card .ic svg{width:24px;height:24px}
-.app-card .top{display:flex;align-items:flex-start;gap:10px}
-/* The face is a real link covering the card, so the whole card is clickable, the middle
-   button works and the status bar shows where it goes. The tab link sits above it. */
-.app-card .face{color:inherit;text-decoration:none}
-.app-card .face::after{content:"";position:absolute;inset:0}
-.app-card .tab{margin-left:auto;position:relative;z-index:1;color:var(--dim);
-               font-size:10.5px;letter-spacing:.1em;text-decoration:none;padding:2px 6px;
-               border:1px solid var(--rule);border-radius:2px}
-.app-card .tab:hover{color:var(--accent);border-color:#33413f}
-.app-card b{font-size:14px;color:var(--ink)}
-.app-card:hover b{color:var(--accent)}
-.app-card p{margin:0;color:var(--dim);font-size:11.5px;line-height:1.7;flex:1}
-.app-card p.one{color:var(--mute);font-size:12.5px;flex:0 0 auto}
-.app-card .go{color:var(--accent);font-size:11.5px;letter-spacing:.1em}
-.stage .head .crumbs{flex:1 1 auto;min-width:0;flex-wrap:nowrap;overflow:hidden}
-.stage .head .back{flex:0 0 auto;margin-right:-6px}
-.stage{display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0}
-.stage .head{display:flex;align-items:center;gap:14px;min-height:46px;padding:6px 16px;
-             background:var(--chrome);border-bottom:1px solid var(--rule);flex-wrap:wrap}
-.stage .head b{font-size:13px}
-.stage .head .path{color:var(--dim);font-size:12px;overflow:hidden;text-overflow:ellipsis;
-                   white-space:nowrap}
-.stage .head > a:last-child{margin-left:auto;font-size:11.5px;letter-spacing:.08em;
-                             white-space:nowrap;flex:0 0 auto}
-.stage iframe{border:0;width:100%;height:100%;background:var(--bg)}
-.back{display:inline-flex;align-items:center;gap:8px;color:var(--accent);font-size:12px}
-
-/* photographs filed with a snag */
-.shots{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
-.shots a{display:block;width:132px;height:99px;border:1px solid var(--rule);overflow:hidden;
-         background:#0b1012}
-.shots img{width:100%;height:100%;object-fit:cover;display:block}
-.shots .miss{display:grid;place-items:center;color:var(--dim);font-size:10.5px;
-             text-align:center;padding:8px;line-height:1.5;height:100%}
-
-/* ── detail pages ──────────────────────────────────────────────────────────────────
-   A thing you click gets a page, not a cramped pane wedged under the table it came
-   from. `.page` is that page: it owns the whole frame and it owns its own scroll.
-   `.page-cols` puts a rail of facts beside the text at a desk and stacks it on a
-   phone, because a 300 px rail on a 390 px screen is not a rail, it is the page. */
-.page{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0;overflow:auto;
-      padding-right:4px}
-.page-cols{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
-.page-body{min-width:0}
-.page-rail{min-width:0}
-@media (min-width:1100px){
-  .page-cols{grid-template-columns:296px minmax(0,1fr)}
-  .page-rail{position:sticky;top:0;align-self:start}
-}
-
-/* Documents › Impeller. The last crumb is where you already are, so it is not a link —
-   a link back to here is a control that does nothing. */
-.crumbs{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;
-        color:var(--dim);font-size:11.5px;letter-spacing:.06em}
-.crumbs a{color:var(--mute);text-decoration:none}
-.crumbs a:hover{color:var(--accent);text-decoration:underline}
-.crumbs .sep{color:var(--dim)}
-.crumbs .here{color:var(--ink);letter-spacing:0;overflow:hidden;text-overflow:ellipsis;
-              white-space:nowrap;max-width:100%}
-
-.page-head{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;min-width:0}
-.page-head .who{min-width:0;flex:1 1 320px}
-.page-head h2{margin:0;font-size:19px;font-weight:700;letter-spacing:-.01em;color:var(--ink);
-              line-height:1.3;word-break:break-word}
-.page-head .acts{margin-left:auto;display:flex;align-items:center;gap:12px;flex:0 0 auto;
-                 padding-top:3px}
-.page-head .acts a,.page-head .acts button{color:var(--accent);font-size:11.5px;
-                                           letter-spacing:.08em;white-space:nowrap;
-                                           text-decoration:none}
-.meta{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-top:6px;
-      color:var(--mute);font-size:12px;min-width:0}
-.meta .sep{color:var(--dim)}
-.meta b{color:var(--ink);font-weight:400}
-
-/* A verdict, small enough to sit in a row. Three colours and no fourth: good, wants
-   attention, wrong. Grey is the fourth and it means "nobody knows", which is a verdict
-   this project is careful to keep distinct from "fine". */
-.pill{display:inline-flex;align-items:center;gap:7px;padding:2px 9px;border-radius:2px;
-      border:1px solid var(--rule);color:var(--mute);font-size:11px;letter-spacing:.04em;
-      white-space:nowrap;vertical-align:1px}
-.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--dim);
-              flex:0 0 auto}
-.pill.ok{color:var(--ok);border-color:rgba(0,227,161,.38)}
-.pill.ok::before{background:var(--ok)}
-.pill.warn{color:var(--warn);border-color:rgba(240,180,94,.38)}
-.pill.warn::before{background:var(--warn)}
-.pill.bad{color:var(--bad);border-color:rgba(244,113,92,.38)}
-.pill.bad::before{background:var(--bad)}
-.pill.info{color:var(--info);border-color:rgba(121,192,232,.38)}
-.pill.info::before{background:var(--info)}
-.pill.flat::before{display:none}
-
-/* ── loading, empty, error ─────────────────────────────────────────────────────────
-   Three states that have to look like the page and not like a browser. A server that
-   is not answering must produce a sentence, not a blank frame — a blank frame reads as
-   "nothing is wrong with this boat", which is the confident silence this project is
-   built to refuse. */
-.note{display:flex;align-items:flex-start;gap:11px;padding:15px;font-size:12.5px;
-      line-height:1.75;color:var(--mute)}
-.note::before{content:"";width:8px;height:8px;border-radius:50%;flex:0 0 auto;
-              margin-top:7px;background:var(--dim)}
-.note b{color:var(--ink);font-weight:400}
-.note.loading{color:var(--dim)}
-.note.loading::before{background:var(--info);animation:blip 1.1s ease-in-out infinite}
-@keyframes blip{0%,100%{opacity:.2}50%{opacity:1}}
-@media (prefers-reduced-motion:reduce){.note.loading::before{animation:none}}
-.note.error{color:var(--bad)}    .note.error::before{background:var(--bad)}
-.note.warn{color:var(--warn)}    .note.warn::before{background:var(--warn)}
-.note.ok{color:var(--ok)}        .note.ok::before{background:var(--ok)}
-.note.info::before{background:var(--info)}
-.card .note,.pane .note{padding:14px 15px}
-
-/* a filter that lives in a panel header rather than in the toolbar */
-.minisearch{background:var(--field);border:1px solid transparent;border-radius:3px;
-            height:31px;padding:0 11px;outline:0;font:inherit;font-size:12.5px;
-            color:var(--ink);min-width:0;width:190px;max-width:46vw}
-.minisearch:focus{border-color:#33413f}
-.minisearch::placeholder{color:var(--dim)}
-
-/* rows that are links: the whole row, not a word in it */
-.card li a.row{display:block;margin:-10px -15px;padding:10px 15px;color:inherit;
-               text-decoration:none}
-.card li a.row:hover{background:#161e21}
-.card li a.row:hover .t{color:var(--accent)}
-a.tile{display:block;color:inherit;text-decoration:none}
-a.tile:hover{border-color:#33413f;background:#171f22}
-a.tile:hover b{text-decoration:underline;text-underline-offset:3px}
-
-/* ── overlays: the shortcut card and the search over everything ────────────────────
-   Namespaced `ob-` because the views bring their own stylesheets and a class called
-   `.sheet` is a class two people will invent. */
-.ob-veil{position:fixed;inset:0;z-index:60;background:rgba(6,10,11,.76);display:flex;
-         justify-content:center;align-items:flex-start;padding:10vh 16px 16px}
-@media (max-width:719px){.ob-veil{padding:5vh 10px 10px}}
-.ob-sheet{width:min(680px,100%);max-height:78vh;background:var(--panel);
-          border:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
-.ob-sheet .head{display:flex;align-items:center;gap:12px;padding:12px 15px;flex:0 0 auto;
-                border-bottom:1px solid var(--rule)}
-.ob-sheet .head b{font-size:13px;color:var(--ink)}
-.ob-sheet .head .side{margin-left:auto;color:var(--dim);font-size:11px;letter-spacing:.14em}
-.ob-sheet .field{display:flex;align-items:center;gap:12px;padding:0 15px;height:52px;
-                 flex:0 0 auto;border-bottom:1px solid var(--rule)}
-.ob-sheet .field svg{width:18px;height:18px;color:var(--accent);flex:0 0 auto}
-.ob-sheet .field input{flex:1;min-width:0;background:none;border:0;outline:0;font-size:15px}
-.ob-sheet .field input::placeholder{color:var(--dim)}
-.ob-sheet .out{overflow:auto;min-height:0;flex:1 1 auto}
-.ob-grp{padding:10px 15px 6px;color:var(--dim);font-size:10.5px;letter-spacing:.14em;
-        border-bottom:1px solid var(--rule-soft)}
-.ob-hit{display:block;width:100%;text-align:left;padding:10px 15px;color:var(--mute);
-        text-decoration:none;border-bottom:1px solid var(--rule-soft)}
-.ob-hit .t{display:block;color:var(--ink);overflow:hidden;text-overflow:ellipsis;
-           white-space:nowrap}
-.ob-hit .s{display:block;margin-top:3px;color:var(--dim);font-size:11.5px;overflow:hidden;
-           text-overflow:ellipsis;white-space:nowrap}
-.ob-hit:hover{background:#161e21}
-.ob-hit[aria-selected="true"]{background:var(--row-hi)}
-.ob-hit[aria-selected="true"] .t{color:var(--accent)}
-.ob-keys{width:100%;border-collapse:collapse;table-layout:auto}
-.ob-keys td{padding:9px 15px;border-bottom:1px solid var(--rule-soft);color:var(--mute);
-            font-size:12.5px}
-.ob-keys td:first-child{width:130px;white-space:nowrap;color:var(--ink)}
-kbd{display:inline-block;min-width:21px;padding:1px 6px;text-align:center;font:inherit;
-    font-size:11.5px;background:var(--field);color:var(--ink);border:1px solid var(--rule);
-    border-bottom-width:2px;border-radius:3px}
-
-/* ── the phone ─────────────────────────────────────────────────────────────────────
-   Under 720 px the rail becomes a bottom bar, the same shape as the helm page's dock,
-   for the same reason: a thumb reaches the bottom of a phone and does not reach the
-   top-left corner of it. Low-priority table columns go; nothing else does. */
-@media (max-width:719px){
-  :root{--bar-h:50px; --dockbar:56px}
-  body.wide{--rail:56px}
-  .bar{height:var(--bar-h);padding-right:12px}
-  .hamb{display:none}
-  .brand{font-size:15px;padding-left:12px}
-  .bar h1{font-size:15px;margin-left:9px}
-  .bar .vessel{font-size:11px;gap:9px;padding-left:10px}
-  .bar .vessel #vver{display:none}
-  .bar .vessel b{max-width:38vw}
-
-  .frame{grid-template-columns:minmax(0,1fr)}
-  #nav{position:fixed;left:0;right:0;bottom:0;z-index:40;flex-direction:row;
-      border-right:0;border-top:1px solid var(--rule);padding-top:0;
-      padding-bottom:env(safe-area-inset-bottom);
-      height:calc(var(--dockbar) + env(safe-area-inset-bottom))}
-  #nav button{flex:1 1 0;min-width:0;height:var(--dockbar);flex-direction:column;
-             justify-content:center;gap:2px;padding:0 2px;
-             border-top:3px solid transparent}
-  #nav button svg{width:20px;height:20px}
-  #nav button span{opacity:1;font-size:10px;letter-spacing:.01em;overflow:hidden;
-                  text-overflow:ellipsis;max-width:100%}
-  #nav button[aria-current="true"]{background:none;color:var(--accent);
-                                  border-top-color:var(--accent)}
-  #nav button[aria-current="true"] svg{stroke-width:2.2}
-  #nav .spacer,#nav .foot{display:none}
-  main{padding-bottom:calc(var(--dockbar) + env(safe-area-inset-bottom))}
-
-  .view{padding:12px 12px;gap:12px}
-  .tiles{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
-  .tile{padding:12px 13px 11px}
-  .tile b{font-size:27px}
-  .cols{grid-template-columns:minmax(0,1fr);gap:12px;margin-top:12px}
-  .apps{grid-template-columns:minmax(0,1fr);gap:12px}
-  .listwrap{max-height:none}
-  /* A phone gets the columns that matter and no sideways scroll. The colgroup widths
-     were measured for a desk; here they are what pushes the last column off-screen. */
-  table{table-layout:auto}
-  colgroup col{width:auto!important}
-  th[data-prio="low"],td[data-prio="low"]{display:none}
-  td.k{white-space:normal}
-  tbody td,thead th{word-break:break-word}
-  thead th{padding:8px 10px;font-size:11.5px}
-  tbody td{padding:9px 10px;font-size:12px}
-  table.kv td:first-child{width:42%;white-space:normal}
-  .page{padding-right:0}
-  .page-head h2{font-size:16px}
-  .search{height:44px}
-  .stage .head{flex-wrap:wrap;height:auto;padding:8px 12px;gap:8px}
-}
-@media (max-width:399px){
-  .bar .vessel b{max-width:30vw}
-  #nav button span{font-size:9.5px}
-}
+  /* the two sheets: search and keys */
+  .ob-find .grp { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
+                  color: var(--bs-secondary-color); background: var(--bs-tertiary-bg); }
+  .ob-find .list-group-item small { display: block; }
 </style>
 </head>
-<body>
+<body class="bg-body-tertiary">
 
-<div class="app">
-
-  <div class="bar">
-    <button class="hamb" id="hamb" title="Wider sidebar" aria-label="Wider sidebar">
-      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+<nav class="navbar bg-body border-bottom sticky-top" style="z-index:1030">
+  <div class="container-fluid px-3">
+    <button class="btn btn-outline-secondary d-lg-none me-2" type="button"
+            data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-label="Menu">
+      <i class="bi bi-list"></i>
     </button>
-    <span class="brand"><span class="n">OpenBoat</span>://</span>
-    <h1 id="title">Overview</h1>
-    <div class="vessel"><b id="vname">…</b><span id="vver"></span></div>
+    <a class="navbar-brand fw-semibold me-3" href="#overview"><i class="bi bi-compass me-1"></i>OpenBoat</a>
+    <span id="title" class="navbar-text d-none d-md-inline text-body-secondary">Overview</span>
+    <div class="ms-auto d-flex align-items-center gap-3">
+      <button class="btn btn-light border d-none d-sm-inline-flex align-items-center" id="findbtn" type="button">
+        <i class="bi bi-search me-2"></i>Search <kbd class="ms-2">⌘K</kbd>
+      </button>
+      <span class="text-body-secondary text-truncate" style="max-width: 40vw">
+        <span id="vname">…</span> <small id="vver" class="d-none d-md-inline opacity-75"></small>
+      </span>
+    </div>
   </div>
+</nav>
 
-  <div class="frame">
-    <nav id="nav"></nav>
-    <main id="main"></main>
+<div class="container-fluid px-0">
+  <div class="d-flex">
+    <aside id="sidebar" class="offcanvas-lg offcanvas-start bg-body border-end flex-shrink-0"
+           style="width: 240px" tabindex="-1" aria-label="Pages">
+      <div class="offcanvas-header d-lg-none">
+        <span class="fw-semibold">OpenBoat</span>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="Close"></button>
+      </div>
+      <div class="offcanvas-body d-flex flex-column p-3">
+        <nav id="nav" class="nav nav-pills flex-column gap-1" aria-label="Pages"></nav>
+        <div class="mt-auto pt-4 small text-body-secondary">
+          <div><i class="bi bi-lock me-1"></i>read-only</div>
+          <button class="btn btn-link btn-sm p-0 text-body-secondary" id="keysbtn" type="button">
+            <kbd>?</kbd> for the keys
+          </button>
+        </div>
+      </div>
+    </aside>
+    <main class="flex-grow-1 p-3 p-md-4" style="min-width:0">
+      <div id="main"></div>
+    </main>
   </div>
-
 </div>
 
+<script src="vendor/bootstrap.bundle.min.js"></script>
 <script>
 "use strict";
 /* ── the shape of the thing ──────────────────────────────────────────────────────────
@@ -562,25 +278,232 @@ const state = { view: "overview", sub: null, params: {}, q: "", docs: null, hits
                 index: null };
 
 /* ── chrome ──────────────────────────────────────────────────────────────────────── */
+const BI = { overview: "bi-speedometer2", docs: "bi-journal-text", tasks: "bi-check2-square",
+             boards: "bi-grid-1x2", boat: "bi-life-preserver" };
+
 function drawNav() {
   const nav = $("#nav");
   nav.textContent = "";
   for (const v of VIEWS) {
-    const b = el("button");
-    b.innerHTML = svg(ICON[v.id]) + `<span>${v.label}</span>`;
-    b.setAttribute("aria-current", state.view === v.id ? "true" : "false");
-    b.title = v.label;
-    b.onclick = () => go(v.id);
-    nav.append(b);
+    const a = el("a", "nav-link" + (state.view === v.id ? " active" : ""));
+    a.href = href(v.id);
+    a.innerHTML = `<i class="bi ${BI[v.id]}"></i>${esc(v.label)}`;
+    if (state.view === v.id) a.setAttribute("aria-current", "page");
+    // On a phone the pages live in an offcanvas; picking one should also close it.
+    a.onclick = () => { const oc = bootstrap.Offcanvas.getInstance($("#sidebar"));
+                        if (oc) oc.hide(); };
+    nav.append(a);
   }
-  nav.append(el("div", "spacer"));
-  const foot = el("div", "foot", "read-only");
-  const keys = el("button", "foot", "? for the keys");
-  keys.style.cssText = "text-align:left;height:auto";
-  keys.onclick = openKeys;
-  nav.append(foot, keys);
 }
 
+/* ── shared furniture ────────────────────────────────────────────────────────────
+   Every helper below returns a stock Bootstrap component. The views call these rather
+   than writing markup, so the page stays one system:
+
+     toolbar(placeholder, onInput, extras)  a search field with a clear button; extras
+                                            are Nodes placed after it (chips, selects)
+     table(cols, rows, onPick, selected)    cols = [{label, get(row,i), w, cls, prio}];
+                                            rows become <tr role=button>. prio:"low"
+                                            columns disappear on a phone
+     statusCell(kind, text)                 a pill badge: ok | warn | bad | info | muted
+     pane(title, side, meta)                a .card with a header; append .card-body,
+                                            a .table or a .list-group to it
+     cardBody(...nodes)                     a .card-body holding the nodes
+     tabs(names, active, onPick, right)     nav-tabs
+     kv(pairs, heads)                       a two-column table; heads null drops the
+                                            header row
+     crumbs([{label, href}])                a breadcrumb; the last item is plain
+     pageHead(title, meta, actions)         h1 + meta line + right-aligned actions
+     note(kind, text)                       a slim alert: loading | empty | error |
+                                            warn | ok | info
+     code(text, hitLine, whole)             a numbered code block, line for line
+     mount(node)                            replace the page with node                */
+
+function toolbar(placeholder, onInput, extras) {
+  const wrap = el("div", "d-flex flex-wrap align-items-center gap-2 mb-3");
+  const group = el("div", "input-group flex-grow-1");
+  group.style.minWidth = "240px";
+  const ic = el("span", "input-group-text");
+  ic.innerHTML = '<i class="bi bi-search"></i>';
+  const input = el("input", "form-control form-control-lg");
+  input.type = "search";
+  input.placeholder = placeholder;
+  input.value = state.q;
+  input.setAttribute("aria-label", placeholder);
+  input.oninput = () => { state.q = input.value; onInput(input.value); };
+  const clear = el("button", "btn btn-outline-secondary");
+  clear.type = "button";
+  clear.title = "Clear";
+  clear.innerHTML = '<i class="bi bi-x-lg"></i>';
+  clear.onclick = () => { state.q = ""; input.value = ""; onInput(""); input.focus(); };
+  group.append(ic, input, clear);
+  wrap.append(group);
+  (extras || []).forEach(n => wrap.append(n));
+  // No auto-focus: it stole the j/k keys on a desk and raised the keyboard on a phone
+  // every time the list drew. `/` focuses it when wanted.
+  return wrap;
+}
+
+function table(cols, rows, onPick, selected) {
+  const wrap = el("div", "table-responsive");
+  const t = el("table", "table table-hover align-middle mb-0");
+  const cg = el("colgroup");
+  cols.forEach(c => { const col = el("col"); if (c.w) col.style.width = c.w; cg.append(col); });
+  t.append(cg);
+  const thead = el("thead"), tr = el("tr");
+  cols.forEach(c => { const th = el("th", c.cls || "", c.label);
+                      th.scope = "col";
+                      if (c.prio) th.dataset.prio = c.prio;
+                      tr.append(th); });
+  thead.append(tr); t.append(thead);
+  const tb = el("tbody");
+  rows.forEach((row, i) => {
+    const r = el("tr", selected === i ? "table-active" : "");
+    if (onPick) r.setAttribute("role", "button");
+    cols.forEach(c => {
+      const td = el("td", c.cls || "");
+      if (c.prio) td.dataset.prio = c.prio;
+      const v = c.get(row, i);
+      if (v instanceof Node) td.append(v); else td.textContent = v;
+      r.append(td);
+    });
+    if (onPick) r.onclick = () => onPick(row, i);
+    tb.append(r);
+  });
+  t.append(tb);
+  wrap.append(t);
+  if (!rows.length) wrap.append(el("div", "text-body-secondary p-3", "Nothing here."));
+  return wrap;
+}
+
+const BADGE = { ok: "text-bg-success", warn: "text-bg-warning", bad: "text-bg-danger",
+                info: "text-bg-info", muted: "text-bg-secondary" };
+function statusCell(kind, text) {
+  return el("span", "badge rounded-pill fw-medium " + (BADGE[kind] || BADGE.muted), text);
+}
+
+function pane(title, sideLabel, meta) {
+  const p = el("div", "card mb-3");
+  const head = el("div", "card-header d-flex flex-wrap align-items-baseline gap-2");
+  head.append(el("span", "", title));
+  if (meta) head.append(el("span", "meta small fw-normal", meta));
+  if (sideLabel) head.append(el("span", "side ms-auto", sideLabel));
+  p.append(head);
+  return p;
+}
+
+function cardBody() {
+  const b = el("div", "card-body");
+  for (const n of arguments) if (n) b.append(n instanceof Node ? n : document.createTextNode(String(n)));
+  return b;
+}
+
+function tabs(names, active, onPick, right) {
+  const ul = el("ul", "nav nav-tabs mb-3 align-items-center");
+  ul.setAttribute("role", "tablist");
+  names.forEach(n => {
+    const li = el("li", "nav-item");
+    const b = el("button", "nav-link" + (n === active ? " active" : ""), n);
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", n === active ? "true" : "false");
+    b.onclick = () => onPick(n);
+    li.append(b); ul.append(li);
+  });
+  if (right) { const r = el("li", "ms-auto"); r.append(right); ul.append(r); }
+  return ul;
+}
+
+function kv(pairs, heads) {
+  const t = el("table", "table table-sm kv mb-0");
+  if (heads !== null) {
+    const thead = el("thead"), tr = el("tr");
+    (heads || ["Key", "Value"]).forEach(h => tr.append(el("th", "", h)));
+    thead.append(tr);
+    t.append(thead);
+  }
+  const tb = el("tbody");
+  pairs.forEach(([k, v]) => {
+    if (v === undefined || v === null || v === "") return;
+    const r = el("tr");
+    r.append(el("td", "", k));
+    const td = el("td");
+    if (v instanceof Node) td.append(v); else td.textContent = String(v);
+    r.append(td);
+    tb.append(r);
+  });
+  t.append(tb);
+  return t;
+}
+
+function crumbs(items) {
+  const n = el("nav");
+  n.setAttribute("aria-label", "breadcrumb");
+  const ol = el("ol", "breadcrumb mb-2 small");
+  (items || []).forEach((it, i) => {
+    const last = i === items.length - 1;
+    const li = el("li", "breadcrumb-item" + (last ? " active" : ""));
+    if (last || !it.href) { li.textContent = it.label; if (last) li.setAttribute("aria-current", "page"); }
+    else { const a = el("a", "", it.label); a.href = it.href; li.append(a); }
+    ol.append(li);
+  });
+  n.append(ol);
+  return n;
+}
+
+function pageHead(title, meta, actions) {
+  const h = el("header", "d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4");
+  const who = el("div", "flex-grow-1");
+  who.style.minWidth = "0";
+  const t = el("h1", "h3 mb-1");
+  if (title instanceof Node) t.append(title); else t.textContent = title;
+  who.append(t);
+  const parts = meta === undefined || meta === null ? []
+              : Array.isArray(meta) ? meta.filter(m => m !== null && m !== undefined && m !== "")
+              : [meta];
+  if (parts.length) {
+    const m = el("div", "meta");
+    parts.forEach((x, i) => {
+      if (i) m.append(el("span", "sep", "·"));
+      if (x instanceof Node) m.append(x); else m.append(document.createTextNode(String(x)));
+    });
+    who.append(m);
+  }
+  h.append(who);
+  if (actions && actions.length) {
+    const a = el("div", "d-flex flex-wrap gap-2");
+    actions.forEach(n => a.append(n));
+    h.append(a);
+  }
+  return h;
+}
+
+const NOTE = { loading: "alert-secondary", empty: "alert-light border", error: "alert-danger",
+               warn: "alert-warning", ok: "alert-success", info: "alert-info" };
+function note(kind, text) {
+  const n = el("div", "alert py-2 px-3 mb-3 " + (NOTE[kind] || NOTE.info));
+  n.setAttribute("role", kind === "error" ? "alert" : "status");
+  if (kind === "loading") {
+    const s = el("span", "spinner-border spinner-border-sm me-2");
+    s.setAttribute("aria-hidden", "true");
+    n.append(s);
+  }
+  n.append(document.createTextNode(text));
+  return n;
+}
+
+/* A card header whose title is the link, when the card has a page behind it. */
+function cardHead(title, side, to) {
+  const h = el("div", "card-header d-flex align-items-baseline gap-2");
+  const t = el("h2", "h6 mb-0 fw-semibold");
+  if (to) { const a = el("a", "link-body-emphasis text-decoration-none", title); a.href = to; t.append(a); }
+  else t.textContent = title;
+  h.append(t);
+  if (side) h.append(el("span", "side ms-auto", side));
+  return h;
+}
+
+/* Kept for the views that still draw their own icon: the old inline paths. */
 /* ── routing ──────────────────────────────────────────────────────────────────────
    One address per thing. The hash is `view`, `view/sub`, or either with `?k=v`:
      #docs                 the shelf          #docs?q=impeller        a search
@@ -639,136 +562,7 @@ function apply() {
 
 function go(view) { nav(view); }
 
-$("#hamb").onclick = () => document.body.classList.toggle("wide");
 window.addEventListener("hashchange", apply);
-
-/* ── shared furniture ────────────────────────────────────────────────────────────── */
-function toolbar(placeholder, onInput, extras) {
-  const wrap = el("div", "tools");
-  const box  = el("div", "search");
-  box.innerHTML =
-    `<svg class="filt" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>`;
-  const input = el("input");
-  input.type = "search";
-  input.placeholder = placeholder;
-  input.value = state.q;
-  input.oninput = () => { state.q = input.value; onInput(input.value); };
-  box.append(input);
-  const go = el("span", "go");
-  go.innerHTML =
-    `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>`;
-  box.append(go);
-  wrap.append(box);
-  (extras || []).forEach(n => wrap.append(n));
-  const clear = el("button", "act");
-  clear.title = "Clear";
-  clear.innerHTML =
-    `<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>`;
-  clear.onclick = () => { state.q = ""; input.value = ""; onInput(""); };
-  wrap.append(clear);
-  setTimeout(() => input.focus(), 30);
-  return wrap;
-}
-
-function table(cols, rows, onPick, selected) {
-  const wrap = el("div", "listwrap");
-  const t = el("table");
-  const cg = el("colgroup");
-  cols.forEach(c => { const col = el("col"); if (c.w) col.style.width = c.w; cg.append(col); });
-  t.append(cg);
-  const thead = el("thead"), tr = el("tr");
-  /* A column marked `prio: "low"` is stamped data-prio and the phone stylesheet drops
-     it. Additive: a column definition without the field behaves exactly as before. */
-  cols.forEach(c => { const th = el("th", c.cls || "", c.label);
-                      if (c.prio) th.dataset.prio = c.prio;
-                      tr.append(th); });
-  thead.append(tr); t.append(thead);
-  const tb = el("tbody");
-  rows.forEach((row, i) => {
-    const r = el("tr");
-    r.setAttribute("aria-selected", selected === i ? "true" : "false");
-    cols.forEach(c => {
-      const td = el("td", c.cls || "");
-      if (c.prio) td.dataset.prio = c.prio;
-      const v = c.get(row, i);
-      if (v instanceof Node) td.append(v); else td.textContent = v;
-      r.append(td);
-    });
-    r.onclick = () => onPick(row, i);
-    tb.append(r);
-  });
-  t.append(tb);
-  wrap.append(t);
-  if (!rows.length) {
-    wrap.append(el("div", "empty", "Nothing here."));
-  }
-  return wrap;
-}
-
-function statusCell(kind, text) {
-  const s = el("span", kind);
-  s.append(el("span", "dot"));
-  s.append(document.createTextNode(text));
-  return s;
-}
-
-function pane(title, sideLabel, meta) {
-  const p = el("div", "pane");
-  const head = el("div", "head");
-  head.append(el("b", "", title));
-  if (meta) head.append(el("span", "meta", meta));
-  head.append(el("span", "side", sideLabel));
-  p.append(head);
-  return p;
-}
-
-function tabs(names, active, onPick, right) {
-  const t = el("div", "tabs");
-  names.forEach(n => {
-    const b = el("button", "", n);
-    b.setAttribute("aria-selected", n === active ? "true" : "false");
-    b.onclick = () => onPick(n);
-    t.append(b);
-  });
-  if (right) { const r = el("div", "right"); r.append(right); t.append(r); }
-  return t;
-}
-
-/* kv(pairs) is unchanged. kv(pairs, ["Reading", "Now"]) renames the header and
-   kv(pairs, null) drops it — a two-column table captioned "Key / Value" tells the
-   reader nothing they could not see, and in a live panel it is a row of noise. */
-function kv(pairs, heads) {
-  const t = el("table", "kv");
-  if (heads !== null) {
-    const thead = el("thead"), tr = el("tr");
-    (heads || ["Key", "Value"]).forEach(h => tr.append(el("th", "", h)));
-    thead.append(tr);
-    t.append(thead);
-  }
-  const tb = el("tbody");
-  pairs.forEach(([k, v]) => {
-    if (v === undefined || v === null || v === "") return;
-    const r = el("tr");
-    r.append(el("td", "", k));
-    const td = el("td");
-    if (v instanceof Node) td.append(v); else td.textContent = String(v);
-    r.append(td);
-    tb.append(r);
-  });
-  t.append(tb);
-  return t;
-}
-
-/* Markdown, coloured just enough to find your place in it. Not a renderer: the text stays
-   exactly as it is on disk, line for line, because the line number is half the citation
-   and reflowing a manual would break the thing that makes an answer checkable.
-
-   Two things here are about a 150-page manual rather than about a note. Most lines carry
-   no markup at all, so they are set with textContent and never go near the HTML parser —
-   parsing seven thousand fragments one at a time is what made an operator's manual take
-   the best part of a minute to open. And a document past MAX_LINES opens as a window
-   around the line being cited, with the rest one click away: a citation points at a line,
-   and everything above it can wait until somebody asks for it. */
 
 const MAX_LINES = 2200;
 const RICH = /https?:\/\/|`|\*\*|^\s{0,3}(?:#{1,6}\s|>)/;
@@ -782,12 +576,12 @@ function code(text, hitLine, whole) {
     const centre = hitLine ? hitLine - 1 : 0;
     to = Math.min(lines.length, Math.max(centre + Math.floor(MAX_LINES / 2), MAX_LINES));
     from = Math.max(0, to - MAX_LINES);
-    const bar = el("div", "empty");
+    const bar = el("div", "d-flex flex-wrap align-items-center gap-2 px-3 pb-2");
     bar.append(statusCell("info",
       `Showing lines ${nf(from + 1)}–${nf(to)} of ${nf(lines.length)}.`));
-    const more = el("button");
+    const more = el("button", "btn btn-link btn-sm p-0");
+    more.type = "button";
     more.textContent = `Show the whole file ▸`;
-    more.style.cssText = "color:var(--accent);margin-left:10px";
     more.onclick = () => box.replaceWith(code(text, hitLine, true));
     bar.append(more);
     box.append(bar);
@@ -821,84 +615,32 @@ function code(text, hitLine, whole) {
 
 function mount(node) { const m = $("#main"); m.textContent = ""; m.append(node); }
 
-/* ── shared: breadcrumbs, page heads, notes, sentences, ages ───────────────────────
-   Every view builds detail pages, so the furniture for one lives here rather than five
-   times over. Signatures, for the views:
-
-     crumbs(items)               items = [{label, href}]. The last is where you are and
-                                 is rendered plain — a link back to here does nothing.
-     pageHead(title, meta, acts) title: string | Node.  meta: string | array of
-                                 strings/Nodes, joined with a middle dot.  acts: array
-                                 of Nodes, right-aligned.  → <header class="page-head">
-     note(kind, text)            kind: "loading" | "empty" | "error" | "warn" | "ok" |
-                                 "info". One line in the page's own furniture.
-     sentence(text, max)         the first sentence of something a person wrote, cut at
-                                 a sentence end or a word boundary — never mid-word.
-     since(iso)                  an age with sub-day precision, for a live feed. `ago()`
-                                 is unchanged and still the right thing for a column of
-                                 dates, where "today" is the useful answer.            */
-
-function crumbs(items) {
-  const c = el("nav", "crumbs");
-  c.setAttribute("aria-label", "Breadcrumb");
-  (items || []).forEach((it, i) => {
-    if (i) c.append(el("span", "sep", "›"));
-    const last = i === items.length - 1;
-    if (last || !it.href) {
-      c.append(el("span", "here", it.label));
-    } else {
-      const a = el("a", "", it.label);
-      a.href = it.href;
-      c.append(a);
-    }
-  });
-  return c;
+/* ── the one write, and it is not to this server ──────────────────────────────────
+   The dashboard behind this page accepts no writes from it, and the test that keeps it so
+   reads this file. What a person can do from the Tasks page is change a snag's status —
+   "review" when somebody has an idea, "fixed" when it was done — and that is a follow-up
+   entry appended to the boat's own file by the snag service on its own port, the same
+   service the phone page files to. Nothing is rewritten: the status is the newest line
+   anybody wrote about the fault. Every write goes through here, so there is exactly one
+   place that knows the service's address, and the console's own `/api/` is never a
+   target. `snags` is the object `/api/snags` returned (it carries the boat key and the
+   service's port); `body` is {follow_up_to, status, note, by}.                        */
+function snagOrigin(snags) {
+  return `${location.protocol}//${location.hostname}:${snags.photo_port}`;
 }
-
-function pageHead(title, meta, actions) {
-  const h = el("header", "page-head");
-  const who = el("div", "who");
-  const t = el("h2");
-  if (title instanceof Node) t.append(title); else t.textContent = title;
-  who.append(t);
-  const parts = meta === undefined || meta === null ? []
-              : Array.isArray(meta) ? meta.filter(m => m !== null && m !== undefined && m !== "")
-              : [meta];
-  if (parts.length) {
-    const m = el("div", "meta");
-    parts.forEach((x, i) => {
-      if (i) m.append(el("span", "sep", "·"));
-      if (x instanceof Node) m.append(x); else m.append(document.createTextNode(String(x)));
-    });
-    who.append(m);
+async function snagPost(snags, body) {
+  const url = snagOrigin(snags) + "/api/snag?who=" + encodeURIComponent(body.by || "");
+  let r;
+  try {
+    r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                           body: JSON.stringify({ boat: snags.boat, ...body }) });
+  } catch (e) {
+    return { error: `the snag service on :${snags.photo_port} is not answering` };
   }
-  h.append(who);
-  if (actions && actions.length) {
-    const a = el("div", "acts");
-    actions.forEach(n => a.append(n));
-    h.append(a);
-  }
-  return h;
-}
-
-function note(kind, text) { return el("div", "note " + (kind || "info"), text); }
-
-/* A card header whose title is the link, when the card has a page behind it. Built as
-   DOM rather than innerHTML because the side label is the only thing that is constant. */
-function cardHead(title, side, to) {
-  const h = el("h2");
-  if (to) {
-    const a = el("a", "", title);
-    a.href = to;
-    a.style.cssText = "color:inherit;text-decoration:none";
-    a.onmouseover = () => { a.style.color = "var(--accent)"; };
-    a.onmouseout  = () => { a.style.color = "inherit"; };
-    h.append(a);
-  } else {
-    h.append(document.createTextNode(title));
-  }
-  h.append(el("span", "side", side));
-  return h;
+  const j = await r.json().catch(() => null);
+  if (!j || typeof j !== "object") return { error: `the snag service answered ${r.status}` };
+  if (!r.ok && !j.error) j.error = `the snag service answered ${r.status}`;
+  return j;
 }
 
 function sentence(text, max) {
@@ -926,69 +668,6 @@ function since(iso) {
   return span(s) + " ago";
 }
 
-/* ── the keyboard ─────────────────────────────────────────────────────────────────
-   This page is read at a desk by somebody who is already annoyed, so the keys are the
-   ones their hands already know: `/` for the box on this page, `?` for the card that
-   says what the keys are, `g` then a letter to move, ⌘K to search everything. Nothing
-   fires while you are typing into something, and Esc always closes what is open.    */
-
-const CHORD = { o: "overview", d: "docs", t: "tasks", s: "boards", b: "boat" };
-let chordAt = 0;
-
-const typingIn = t => !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA"
-                              || t.isContentEditable);
-const overlay = () => $(".ob-veil");
-
-function closeOverlay() {
-  const v = overlay();
-  if (!v) return false;
-  v.remove();
-  return true;
-}
-
-function openOverlay(sheet) {
-  closeOverlay();
-  const veil = el("div", "ob-veil");
-  veil.onmousedown = e => { if (e.target === veil) closeOverlay(); };
-  veil.append(sheet);
-  document.body.append(veil);
-  return veil;
-}
-
-function openKeys() {
-  const sh = el("div", "ob-sheet");
-  const head = el("div", "head");
-  head.append(el("b", "", "Keyboard"));
-  head.append(el("span", "side", "ESC TO CLOSE"));
-  sh.append(head);
-  const out = el("div", "out");
-  const t = el("table", "ob-keys"), tb = el("tbody");
-  [["⌘K Ctrl-K", "search the papers and the tasks"],
-   ["/",         "the search box on this page"],
-   ["g o",       "Overview"],
-   ["g d",       "Documents"],
-   ["g t",       "Tasks"],
-   ["g s",       "Dashboards"],
-   ["g b",       "Boat"],
-   ["?",         "this card"],
-   ["Esc",       "close this, or leave a page you opened"]].forEach(([keys, what]) => {
-    const tr = el("tr"), kcell = el("td");
-    keys.split(" ").forEach((part, i) => {
-      if (i) kcell.append(document.createTextNode(" "));
-      kcell.append(el("kbd", "", part));
-    });
-    tr.append(kcell, el("td", "", what));
-    tb.append(tr);
-  });
-  t.append(tb);
-  out.append(t);
-  sh.append(out);
-  openOverlay(sh);
-}
-
-/* The tasks half of the search is filtered in memory, so it answers while you type and
-   it answers the way the Tasks page would. The papers half is the same BM25 the MCP
-   companion uses — the console does not get a second opinion about retrieval. */
 async function taskIndex() {
   if (state.index) return state.index;
   const [snags, maint] = await Promise.all([api("/api/snags"), api("/api/maintenance")]);
@@ -1000,20 +679,98 @@ async function taskIndex() {
   return state.index;
 }
 
+
+/* ── the keyboard ─────────────────────────────────────────────────────────────────
+   This page is read at a desk by somebody who is already annoyed, so the keys are the
+   ones their hands already know: `/` for the box on this page, `?` for the card that
+   says what the keys are, `g` then a letter to move, ⌘K to search everything. Nothing
+   fires while you are typing into something, and Esc always closes what is open.
+   The sheets are Bootstrap modals, built once and thrown away on close.            */
+
+const CHORD = { o: "overview", d: "docs", t: "tasks", s: "boards", b: "boat" };
+let chordAt = 0;
+
+const typingIn = t => !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA"
+                              || t.isContentEditable);
+const overlay = () => $(".modal.show, .modal.showing");
+
+function closeOverlay() {
+  const m = overlay();
+  if (!m) return false;
+  const inst = bootstrap.Modal.getInstance(m);
+  if (inst) inst.hide(); else m.remove();
+  return true;
+}
+
+/* openOverlay(content, {title, size}) → the modal element. Content goes in the body;
+   a title, when given, gets a header with a close button. Removed from the DOM once
+   hidden, so nothing accumulates. */
+function openOverlay(content, opts) {
+  closeOverlay();
+  const o = opts || {};
+  const m = el("div", "modal fade" + (o.cls ? " " + o.cls : ""));
+  m.tabIndex = -1;
+  const dlg = el("div", "modal-dialog modal-dialog-scrollable " + (o.size || "modal-lg"));
+  const box = el("div", "modal-content");
+  if (o.title) {
+    const h = el("div", "modal-header");
+    h.append(el("h2", "modal-title h5", o.title));
+    const x = el("button", "btn-close"); x.type = "button";
+    x.setAttribute("data-bs-dismiss", "modal"); x.setAttribute("aria-label", "Close");
+    h.append(x);
+    box.append(h);
+  }
+  box.append(content);
+  dlg.append(box);
+  m.append(dlg);
+  document.body.append(m);
+  m.addEventListener("hidden.bs.modal", () => m.remove());
+  const inst = new bootstrap.Modal(m);
+  inst.show();
+  return m;
+}
+
+function openKeys() {
+  const body = el("div", "modal-body p-0");
+  const t = el("table", "table mb-0 align-middle"), tb = el("tbody");
+  [["⌘K Ctrl-K", "search the papers and the tasks"],
+   ["/",         "the search box on this page"],
+   ["g o",       "Overview"],
+   ["g d",       "Documents"],
+   ["g t",       "Tasks"],
+   ["g s",       "Dashboards"],
+   ["g b",       "Boat"],
+   ["?",         "this card"],
+   ["Esc",       "close this, or leave a page you opened"]].forEach(([keys, what]) => {
+    const tr = el("tr"), kcell = el("td", "text-nowrap");
+    kcell.style.width = "9rem";
+    keys.split(" ").forEach((part, i) => {
+      if (i) kcell.append(document.createTextNode(" "));
+      kcell.append(el("kbd", "", part));
+    });
+    tr.append(kcell, el("td", "", what));
+    tb.append(tr);
+  });
+  t.append(tb);
+  body.append(t);
+  openOverlay(body, { title: "Keyboard", size: "modal-md" });
+}
+
 function openFind() {
-  const sh = el("div", "ob-sheet");
-  const field = el("div", "field");
-  field.innerHTML =
-    `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>`;
-  const input = el("input");
+  const wrap = el("div", "ob-find");
+  const field = el("div", "p-3 border-bottom");
+  const group = el("div", "input-group input-group-lg");
+  const ic = el("span", "input-group-text"); ic.innerHTML = '<i class="bi bi-search"></i>';
+  const input = el("input", "form-control");
   input.type = "search";
   input.placeholder = "Search the papers and the tasks…";
   input.setAttribute("aria-label", "Search everything");
-  field.append(input);
-  const out = el("div", "out");
-  sh.append(field, out);
-  openOverlay(sh);
-  input.focus();
+  group.append(ic, input);
+  field.append(group);
+  const out = el("div", "list-group list-group-flush");
+  wrap.append(field, out);
+  const m = openOverlay(wrap, { size: "modal-lg", cls: "ob-find-modal" });
+  m.addEventListener("shown.bs.modal", () => input.focus());
 
   /* A row is {group, title, line, view, addr}: `addr` is the sub-path the address needs,
      so opening one is nav(view, addr) and nothing else. */
@@ -1026,23 +783,28 @@ function openFind() {
     nav(r.view, r.addr);
   };
 
+  const line = (kind, text) => {
+    const d = el("div", "list-group-item text-body-secondary", text);
+    if (kind === "error") d.className = "list-group-item text-danger";
+    return d;
+  };
+
   const paint = () => {
     out.textContent = "";
     if (input.value.trim().length < 2) {
-      out.append(note("info", "Two letters and it starts looking. ↑↓ to choose, "
-                            + "Enter to open, Esc to close."));
+      out.append(line("info", "Two letters and it starts looking. ↑↓ to choose, Enter to open, Esc to close."));
       return;
     }
-    if (failure) { out.append(note("error", failure)); return; }
-    if (!rows.length) { out.append(note("empty", "Nothing matched that.")); return; }
+    if (failure) { out.append(line("error", failure)); return; }
+    if (!rows.length) { out.append(line("info", "Nothing matched that.")); return; }
     let group = null;
     rows.forEach((r, i) => {
-      if (r.group !== group) { group = r.group; out.append(el("div", "ob-grp", group)); }
-      const a = el("a", "ob-hit");
+      if (r.group !== group) { group = r.group; out.append(el("div", "list-group-item grp py-1", group)); }
+      const a = el("a", "list-group-item list-group-item-action" + (i === sel ? " active" : ""));
       a.href = href(r.view, r.addr);
-      a.setAttribute("aria-selected", i === sel ? "true" : "false");
-      a.append(el("span", "t", r.title));
-      a.append(el("span", "s", r.line));
+      if (i === sel) a.setAttribute("aria-current", "true");
+      a.append(el("span", "fw-medium", r.title));
+      a.append(el("small", "text-body-secondary", r.line));
       a.onclick = e => { e.preventDefault(); open(i); };
       out.append(a);
     });
@@ -1062,32 +824,27 @@ function openFind() {
     if (failure) { rows = []; sel = 0; paint(); return; }
     const needle = q.toLowerCase();
     const has = (...bits) => bits.some(b => String(b ?? "").toLowerCase().includes(needle));
-
-    /* The preview strips markdown emphasis; the passage itself is never touched. A row
-       reading "**Status:** open" is the file's punctuation getting in the way of the
-       one line you are scanning, and the document page still quotes it verbatim. */
     const plain = t => String(t ?? "").replace(/[*`_>#|]+/g, " ");
     const papers = (res.passages || []).slice(0, 5).map(p => ({
-      group: "IN THE PAPERS",
+      group: "In the papers",
       title: p.heading || p.doc || "a passage",
       line: `${p.doc || ""} · line ${nf(p.line)} · ${sentence(plain(p.text), 80)}`,
       view: "docs", addr: `${p.doc}/L${p.line}`,
     }));
     const snags = (idx.snags || []).filter(s => has(s.title, s.where, s.body))
       .slice(0, 4).map(s => ({
-        group: "TASKS",
+        group: "Tasks",
         title: s.title || "an untitled snag",
         line: `${s.open ? "open" : "closed"} · ${s.where || "snag"} · ${ago(s.when)}`,
         view: "tasks", addr: "snag:" + s.when,
       }));
     const svc = (idx.service || []).filter(m => has(m.item, m.description, m.why))
       .slice(0, 4).map(m => ({
-        group: "TASKS",
-        title: m.item || "a service item",
+        group: "Tasks",
+        title: m.description || m.item || "a service item",
         line: `${m.verdict || "service"} · ${sentence(m.why, 80)}`,
         view: "tasks", addr: "service:" + m.item,
       }));
-
     rows = papers.concat(snags, svc).slice(0, 8);
     sel = 0;
     paint();
@@ -1106,6 +863,9 @@ function openFind() {
   paint();
 }
 
+$("#findbtn").onclick = openFind;
+$("#keysbtn").onclick = openKeys;
+
 document.addEventListener("keydown", e => {
   const k = e.key;
   if ((e.metaKey || e.ctrlKey) && (k === "k" || k === "K")) {
@@ -1118,7 +878,7 @@ document.addEventListener("keydown", e => {
   if (typingIn(e.target) || overlay()) return;
   if (k === "/") {
     e.preventDefault();
-    const box = $(".search input") || $(".minisearch");
+    const box = $("#main input[type=search]") || $("#main input[type=text]");
     if (box) { box.focus(); if (box.select) box.select(); } else openFind();
     return;
   }

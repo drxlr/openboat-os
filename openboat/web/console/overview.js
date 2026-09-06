@@ -7,11 +7,9 @@
    number is a link to the page that answers it. A count you cannot click is a count
    you have to go and look up, and looking it up is where the page stopped being read. */
 async function viewOverview() {
-  const v = el("div", "view plain");
-  const scroll = el("div", "scroll");
-  v.append(scroll);
-  mount(v);
-  scroll.append(note("loading", "Reading the shelf, the snags and the engine log…"));
+  const page = el("div");
+  mount(page);
+  page.append(note("loading", "Reading the shelf, the snags and the engine log…"));
 
   const [p, docs, snags, maint, live, paths] = await Promise.all([
     state.profile && !state.profile.error ? Promise.resolve(state.profile)
@@ -21,11 +19,11 @@ async function viewOverview() {
   ]);
   if (!p.error) state.profile = p;
   state.docs = docs;
-  scroll.textContent = "";
+  page.textContent = "";
 
   const broken = [docs, snags, maint].filter(x => x.error);
   if (broken.length) {
-    scroll.append(note("error",
+    page.append(note("error",
       "The console could not read the boat: " + broken[0].error + ". "
       + "Nothing below is a statement about the boat — it is a statement about this "
       + "connection."));
@@ -38,59 +36,75 @@ async function viewOverview() {
   const soon  = items.filter(m => m.verdict === "soon").length;
   const unkn  = items.filter(m => m.verdict === "unknown").length;
 
-  const tiles = el("div", "tiles");
-  const tile = (n, label, foot, cls, to) => {
-    const t = el(to ? "a" : "div", "tile");
-    if (to) { t.href = to; }
-    t.append(el("b", cls || (n ? "" : "z"), String(n)));
-    t.append(el("span", "", label));
-    if (foot) t.append(el("em", "", foot));
-    tiles.append(t);
+  const tiles = el("div", "row g-3 mb-4");
+  /* `flag` is the one accent this page spends: a count somebody has to do something
+     about. Everything else is body colour, and a count nobody could read is tertiary —
+     it is not a low number, it is an unanswered question. */
+  const tile = (n, label, foot, flag, to) => {
+    const col = el("div", "col-6 col-lg");
+    const a = el("a", "card h-100 ob-tile text-decoration-none link-body-emphasis");
+    a.href = to;
+    const b = el("div", "card-body");
+    b.append(el("div", "display-6 fw-semibold num lh-1 "
+                     + (flag === "z" ? "text-body-tertiary"
+                      : flag === "q" ? "text-danger-emphasis" : ""), String(n)));
+    b.append(el("div", "fw-medium mt-2", label));
+    if (foot) b.append(el("div", "small text-body-secondary", foot));
+    a.append(b);
+    col.append(a);
+    tiles.append(col);
   };
-  /* A count the API did not give is an em dash, never a zero. "0 OPEN SNAGS" from a
+  /* A count the API did not give is an em dash, never a zero. "0 open snags" from a
      server that never answered is the exact shape of a confident wrong answer: it says
      the boat is fine, and what actually happened is that nobody asked it. */
   if (docs.error) {
-    tile("—", "DOCUMENTS", "the shelf could not be read", "z", href("docs"));
-    tile("—", "PAGES NEEDING OCR", "not known", "z", href("docs"));
+    tile("—", "Documents", "the shelf could not be read", "z", href("docs"));
+    tile("—", "Pages needing OCR", "not known", "z", href("docs"));
   } else {
-    tile(nf(docs.count), "DOCUMENTS",
+    tile(nf(docs.count), "Documents",
          `${nf(docs.passages)} passages` + (docs.missing ? ` · ${docs.missing} missing` : ""),
          "", href("docs"));
-    tile(nf(docs.gaps || 0), "PAGES NEEDING OCR",
+    tile(nf(docs.gaps || 0), "Pages needing OCR",
          docs.gaps ? "nothing can answer from them" : "every page is readable",
          docs.gaps ? "q" : "", href("docs"));
   }
   if (snags.error)
-    tile("—", "OPEN SNAGS", "the snag list could not be read", "z",
+    tile("—", "Open snags", "the snag list could not be read", "z",
          href("tasks", null, { f: "open" }));
   else
-    tile(open, "OPEN SNAGS", `${(snags.snags || []).length} filed in all`,
+    tile(open, "Open snags", `${(snags.snags || []).length} filed in all`,
          open ? "q" : "", href("tasks", null, { f: "open" }));
   if (maint.error) {
-    tile("—", "SERVICE DUE", "the engine log could not be read", "z",
+    tile("—", "Service due", "the engine log could not be read", "z",
          href("tasks", null, { f: "service" }));
-    tile("—", "NEVER RECORDED", "not known", "z", href("tasks", null, { f: "service" }));
+    tile("—", "Never recorded", "not known", "z", href("tasks", null, { f: "service" }));
   } else {
-    tile(due, "SERVICE DUE", soon ? `${soon} coming up` : "counted in running hours",
+    tile(due, "Service due", soon ? `${soon} coming up` : "counted in running hours",
          due ? "q" : "", href("tasks", null, { f: "service" }));
-    tile(unkn, "NEVER RECORDED",
+    tile(unkn, "Never recorded",
          unkn ? "no service has ever been logged" : "all accounted for",
          unkn ? "q" : "", href("tasks", null, { f: "service" }));
   }
-  scroll.append(tiles);
+  page.append(tiles);
 
   /* The boat being ashore is the ordinary case, and it gets a sentence rather than a
      panel of dashes: a panel of dashes reads as instruments that are broken. */
   if (!live.error && live.online === false)
-    scroll.append(note("warn", "The boat is not on the network, so there is nothing live "
-                             + "to show. Everything below was written down."));
+    page.append(note("warn", "The boat is not on the network, so there is nothing live "
+                           + "to show. Everything below was written down."));
 
-  const cols = el("div", "cols");
+  const cols = el("div", "row g-3");
+  const column = (cls, ...cards) => {
+    const c = el("div", cls);
+    const stack = el("div", "vstack gap-3");
+    cards.forEach(x => { if (x) stack.append(x); });
+    c.append(stack);
+    cols.append(c);
+  };
 
   /* ── what is owed ─────────────────────────────────────────────────────────────── */
   const owed = el("div", "card");
-  owed.append(cardHead("What the boat is owed", "TASKS", href("tasks")));
+  owed.append(cardHead("What the boat is owed", "Tasks", href("tasks")));
   const owedRows = [
     ...(snags.snags || []).filter(s => s.open).map(s => {
       /* A snag's title is the first line somebody typed on a phone, and it stops
@@ -100,7 +114,7 @@ async function viewOverview() {
       const body = sentence(s.body, 140);
       /* When the body opens with the same words, the title is a prefix of it that some
          thumb stopped early, and the body is the sentence that was actually finished.
-         Prefer the finished one — "striker plate is be" is not a thing anybody wrote. */
+         Prefer the finished one — a half-typed clause is not a thing anybody wrote. */
       const same = body && titled
                 && body.slice(0, 24).toLowerCase() === titled.slice(0, 24).toLowerCase();
       const head = same && body.length > titled.length ? body
@@ -119,44 +133,40 @@ async function viewOverview() {
     })),
   ];
   if (snags.error || maint.error) {
-    owed.append(note("error", "This list is unknown, not empty. "
-      + (snags.error || maint.error) + "."));
+    owed.append(cardBody(obFlat(note("error", "This list is unknown, not empty. "
+      + (snags.error || maint.error) + "."))));
   } else if (!owedRows.length) {
-    owed.append(Object.assign(el("p"), { textContent:
+    owed.append(cardBody(el("p", "mb-0 text-body-secondary",
       "Nothing open and nothing due. Either the boat is in good order or nobody has "
-      + "written anything down." }));
+      + "written anything down.")));
   } else {
-    const ul = el("ul");
+    const list = el("div", "list-group list-group-flush");
     owedRows.slice(0, 8).forEach(i => {
-      const li = el("li");
-      const a = el("a", "row");
+      const a = el("a", "list-group-item list-group-item-action");
       a.href = i.to;
-      a.append(el("span", "t", i.t));
-      a.append(el("span", "s", i.s));
-      li.append(a);
-      ul.append(li);
+      a.append(el("div", "fw-medium", i.t));
+      a.append(el("div", "small text-body-secondary", i.s));
+      list.append(a);
     });
-    owed.append(ul);
+    owed.append(list);
     if (owedRows.length > 8) {
-      const more = el("p");
-      const a = el("a", "", `and ${owedRows.length - 8} more on the Tasks page ▸`);
+      const foot = el("div", "card-footer bg-transparent small");
+      const a = el("a", "", `and ${owedRows.length - 8} more on the Tasks page`);
       a.href = href("tasks");
-      more.append(a);
-      owed.append(more);
+      foot.append(a);
+      owed.append(foot);
     }
   }
 
   /* ── live ─────────────────────────────────────────────────────────────────────── */
-  const cards = [owed];
+  let lv = null;
   if (!live.error && live.online) {
-    const lv = el("div", "card");
-    lv.append(cardHead("Live", "SIGNAL K", href("boat")));
-    const lb = el("div");
-    lb.style.padding = "4px 15px 4px";
+    lv = el("div", "card");
+    lv.append(cardHead("Live", "Signal K", href("boat")));
     const u = (val, unit, dp) =>
       val === null || val === undefined ? "—"
         : (dp === undefined ? String(val) : Number(val).toFixed(dp)) + (unit ? " " + unit : "");
-    lb.append(kv([
+    lv.append(obKvBody([
       ["Speed over ground", u(live.sog_kn, "kn", 1)],
       ["Course over ground", u(live.cog_deg, "°", 0)],
       ["Heading", u(live.heading_deg, "°", 0)],
@@ -168,20 +178,19 @@ async function viewOverview() {
       ["Engine", u(live.rpm, "rpm", 0)],
       ["Coolant", u(live.coolant_c, "°C", 1)],
       ["Battery", u(live.volts, "V", 1)],
-    ], null));
-    lv.append(lb);
+    ]));
     /* The age is the honest part. A reading with no age is a reading you cannot tell
        from a reading taken an hour ago with the engine since switched off. */
     const stamps = (paths.paths || []).map(x => x.timestamp).filter(Boolean).sort();
     if (stamps.length)
-      lv.append(note("info", `from Signal K, ${since(stamps[stamps.length - 1])}`));
-    cards.push(lv);
+      lv.append(el("div", "card-footer bg-transparent small text-body-secondary",
+                   `from Signal K, ${since(stamps[stamps.length - 1])}`));
   }
 
   /* ── provenance ───────────────────────────────────────────────────────────────── */
   const prov = el("div", "card");
-  prov.append(cardHead("Where the numbers come from", "PROVENANCE", href("boat")));
-  const pl = el("ul");
+  prov.append(cardHead("Where the numbers come from", "Provenance", href("boat")));
+  const pl = el("div", "list-group list-group-flush");
   const n = snags.snags ? snags.snags.length : 0;
   [["Engine hours", maint.error ? "the engine log could not be read"
                                 : (maint.engine_hours_source || "not counted")],
@@ -194,25 +203,28 @@ async function viewOverview() {
       ? `${p.unsourced.length} value(s) carry no source: ${p.unsourced.join(", ")}`
       : "every measurement carries a source"]]
     .forEach(([k, sline]) => {
-      const li = el("li");
-      li.append(el("span", "t", k));
-      li.append(el("span", "s", sline));
+      const li = el("div", "list-group-item");
+      li.append(el("div", "fw-medium", k));
+      li.append(el("div", "small text-body-secondary", sline));
       pl.append(li);
     });
   prov.append(pl);
 
   const rule = el("div", "card");
-  rule.append(cardHead("The rule this console follows", "READ-ONLY"));
-  rule.append(Object.assign(el("p"), { innerHTML:
-    "A silent wrong answer is worse than a crash.<br><br>" +
-    "Nothing on this page is generated prose. Every passage is quoted out of a file " +
-    "somebody wrote, with the line it came from, and a gap is shown as a gap rather than " +
-    "filled in from the page next to it.<br><br>" +
-    "Nothing here writes to the boat either. Snags are filed from the phone page on its " +
-    "own service and its own port; a service record is written at a keyboard by somebody " +
-    "who knows the work happened." }));
+  rule.append(cardHead("The rule this console follows", "Read-only"));
+  const rb = el("div", "card-body");
+  rb.append(el("p", "fw-medium", "A silent wrong answer is worse than a crash."));
+  rb.append(el("p", "",
+    "Nothing on this page is generated prose. Every passage is quoted out of a file "
+    + "somebody wrote, with the line it came from, and a gap is shown as a gap rather "
+    + "than filled in from the page next to it."));
+  rb.append(el("p", "mb-0",
+    "Nothing here writes to the boat either. Snags are filed from the phone page on its "
+    + "own service and its own port; a service record is written at a keyboard by "
+    + "somebody who knows the work happened."));
+  rule.append(rb);
 
-  cards.push(prov, rule);
-  cards.forEach(c => cols.append(c));
-  scroll.append(cols);
+  column("col-12 col-xl-7", owed, prov);
+  column("col-12 col-xl-5", lv, rule);
+  page.append(cols);
 }

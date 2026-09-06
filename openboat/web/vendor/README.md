@@ -16,6 +16,10 @@ it; the rest of the app, including the base chart, works offline.
 
 | File | Version | Source | Licence | SHA-256 |
 |---|---|---|---|---|
+| `bootstrap.min.css` | 5.3.3 | https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css | MIT | `3c8f27e6009ccfd710a905e6dcf12d0ee3c6f2ac7da05b0572d3e0d12e736fc8` |
+| `bootstrap.bundle.min.js` | 5.3.3 | https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js | MIT | `0833b2e9c3a26c258476c46266e6877fc75218625162e0460be9a3a098a61c6c` |
+| `bootstrap-icons.css` | 1.11.3 | https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css | MIT | `f643d6fe7e679f9de3e16311600c5ef5cd6b098f7a3a8828fcc29255d2b33e62` |
+| `fonts/bootstrap-icons.woff2` | 1.11.3 | https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/fonts/bootstrap-icons.woff2 | MIT | `476adf42b40325098fcfa8b36ab3e769186bb4f6ce6a249753e2e1a9c22bf99e` |
 | `alpine.min.js` | 3.17.1 | https://unpkg.com/alpinejs@3.17.1/dist/cdn.min.js | MIT | `b30997fc126d808b1a9b20ab3f504ded88df957818c02d6249bba3ec114eb0ec` |
 | `sortable.min.js` | 1.15.7 | https://unpkg.com/sortablejs@1.15.7/Sortable.min.js | MIT | `bf4241bc73fef7f11c59a283a69fe8051cdd31c6d8ff5a2b9ba219e7831fcf76` |
 | `leaflet.js` | 1.9.4 | https://unpkg.com/leaflet@1.9.4/dist/leaflet.js | BSD-2-Clause | `db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a` |
@@ -33,6 +37,11 @@ never tested against. `leaflet.css`'s `images/` references (`layers.png`, `layer
 `marker-icon.png`) are the only image assets it needs — the dashboard draws its own markers
 with `L.circleMarker` rather than Leaflet's default pin, so no other marker image ships.
 
+`console.html` is built on Bootstrap 5.3 — the CSS, the bundle (Popper included, for the
+offcanvas sidebar and the modals) and the icon font. Only the `.woff2` face is vendored; the
+icon stylesheet's other `src` entries point at files that are not shipped, and every
+browser this runs in takes the woff2.
+
 `jobs.html` loads both, with `defer`, in that order (Alpine before Sortable): Sortable
 handles drag-to-reorder on the page's own lane sections via `handle: '.grip'`, persisting
 the order to `localStorage` — it never touches boat state. Alpine drives everything else on
@@ -42,6 +51,10 @@ the page. This is the core Alpine build (`cdn.min.js`), which has no Collapse pl
 ## Updating a file
 
 ```bash
+curl -sL -o bootstrap.min.css        https://cdn.jsdelivr.net/npm/bootstrap@<version>/dist/css/bootstrap.min.css
+curl -sL -o bootstrap.bundle.min.js  https://cdn.jsdelivr.net/npm/bootstrap@<version>/dist/js/bootstrap.bundle.min.js
+curl -sL -o bootstrap-icons.css      https://cdn.jsdelivr.net/npm/bootstrap-icons@<version>/font/bootstrap-icons.min.css
+curl -sL -o fonts/bootstrap-icons.woff2 https://cdn.jsdelivr.net/npm/bootstrap-icons@<version>/font/fonts/bootstrap-icons.woff2
 curl -sL -o alpine.min.js       https://unpkg.com/alpinejs@<version>/dist/cdn.min.js
 curl -sL -o sortable.min.js     https://unpkg.com/sortablejs@<version>/Sortable.min.js
 curl -sL -o leaflet.js          https://unpkg.com/leaflet@<version>/dist/leaflet.js

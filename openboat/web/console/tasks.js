@@ -1,5 +1,6 @@
 /* OpenBoat console — the tasks view. Loaded by console.html after the shared furniture;
-   it relies on the globals defined there (state, el, api, esc, ago, href, nav, mount…).
+   it relies on the globals defined there (state, el, api, esc, ago, href, nav, mount,
+   toolbar, statusCell, pane, cardBody, kv, crumbs, pageHead, note…).
    No boat facts live here: everything on screen arrives from the API at run time.
 
    ── what this view is ───────────────────────────────────────────────────────────────
@@ -19,6 +20,11 @@
    the list rather than squeezing in underneath it: a snag's note runs to a couple of
    hundred words, carries photographs, and usually has something to say in the boat's own
    papers — none of which fits in half a pane.
+
+   Everything on screen is a stock Bootstrap component — a table, cards, badges, a modal —
+   because the person reading it is in a bad mood in February and has used those a thousand
+   times before. Selection and hover are the shell's tint: this file paints no highlight of
+   its own, and the one that reads as a slab of colour is the one nobody can read.
 
    Nothing here writes, and nothing here pretends to. A snag is closed by a person editing
    a file and a service is recorded by a command typed at a keyboard; both pages say so,
@@ -43,8 +49,8 @@ async function viewTasks() {
 
 /* ── small helpers ────────────────────────────────────────────────────────────────── */
 
-/* A title is a whole sentence typed on a phone; the column is not that wide. Show the
-   first sentence, and if that sentence is itself long, cut it at a word — never mid-word,
+/* A title is a whole sentence typed on a phone; the row is not that tall. Show the first
+   sentence, and if that sentence is itself long, cut it at a word — never mid-word,
    which is how "replaced the striker pl…" got read as a different fault twice. */
 function tasksFirst(text, max) {
   const s = String(text ?? "").trim().replace(/\s+/g, " ");
@@ -60,9 +66,9 @@ function tasksFirst(text, max) {
 
 /* The recorder cuts a snag's title to a fixed width as it files it, which is how a fault
    ends up listed as "Locker will not latch and the striker plate is be". The note's own
-   first line is that same sentence, whole,
-   so when the stored title is a prefix of it the longer one is the honest one to show.
-   This is not a guess: it is the same characters, un-cut. */
+   first line is that same sentence, whole, so when the stored title is a prefix of it the
+   longer one is the honest one to show. This is not a guess: it is the same characters,
+   un-cut. */
 function tasksTitle(s) {
   const stored = String((s && s.title) || "").trim();
   const first = String((s && s.body) || "").replace(/\r\n?/g, "\n")
@@ -70,89 +76,65 @@ function tasksTitle(s) {
   return first.startsWith(stored) && first.length > stored.length ? first : (stored || "—");
 }
 
-/* The three status colours, and not a fourth. `verdict` comes from the API — due, soon,
-   ok, unknown — and is mapped here rather than restated: an item with no interval set has
-   no verdict, and this page says that instead of inventing one. */
-function tasksStatus(r) {
-  if (r.kind === "snag")
-    return r.open ? { cls: "warn", label: r.status || "open" }
-                  : { cls: "ok", label: r.status || "fixed" };
-  return { due:     { cls: "bad",  label: "due" },
-           soon:    { cls: "warn", label: "soon" },
-           ok:      { cls: "ok",   label: "in date" },
-           unknown: { cls: "info", label: "no verdict" } }[r.verdict]
-         || { cls: "info", label: r.verdict || "—" };
+/* A status line is written by people as well as by the service, so it arrives as anything
+   from `review` to `fixed — replaced the striker plate, 2026-09-12`. The first word is the
+   status; the rest is what somebody wanted to say about it, and it belongs on the page
+   rather than squeezed into a badge. */
+function tasksWord(status) {
+  return String(status || "").trim().toLowerCase().split(/[^a-z]+/).filter(Boolean)[0] || "";
 }
 
-function tasksPill(r) {
-  const s = tasksStatus(r);
-  const p = el("span", "t-pill " + s.cls);
-  p.append(el("span", "dot"));
-  p.append(document.createTextNode(s.label));
-  return p;
+const TASKS_CLOSED = ["fixed", "done", "closed"];
+
+/* The status badges, and not a fourth colour. `open` is the phone's default, `review` says
+   somebody has an idea worth looking at before a tool comes out, and the closed words end
+   it. `open` is left undecided when the caller does not know it — a follow-up's own status
+   is the word it carries, not its parent's. */
+function tasksSnagBadge(status, open) {
+  const w = tasksWord(status);
+  if (w === "review") return statusCell("info", "review");
+  if (open === false || TASKS_CLOSED.includes(w)) return statusCell("ok", w || "fixed");
+  return statusCell("warn", w || "open");
 }
 
-/* A meta strip: the pieces that are known, separated, and the pieces that are not simply
-   left out rather than shown as an empty field. The separator lives inside the item it
-   precedes rather than beside it, so a strip wrapping onto a phone never leaves a lone
-   dot stranded at the end of a line. */
-function tasksMeta(parts) {
-  const row = el("div", "t-meta");
-  parts.filter(Boolean).forEach((p, i) => {
-    const item = el("span", "i");
-    if (i) item.append(el("span", "sep", "· "));
-    item.append(document.createTextNode(String(p)));
-    row.append(item);
-  });
-  return row;
+/* `verdict` comes from the API — due, soon, ok, unknown — and is mapped here rather than
+   restated: an item with no interval set has no verdict, and this page says that instead
+   of inventing one. */
+function tasksBadge(r) {
+  if (r.kind === "snag") return tasksSnagBadge(r.status, r.open);
+  const s = { due:     { cls: "bad",  label: "due" },
+              soon:    { cls: "warn", label: "soon" },
+              ok:      { cls: "ok",   label: "in date" },
+              unknown: { cls: "info", label: "no verdict" } }[r.verdict]
+          || { cls: "info", label: r.verdict || "—" };
+  return statusCell(s.cls, s.label);
 }
 
-function tasksSection(title, side) {
-  const s = el("div", "t-sec");
-  const h = el("h2", "", title);
-  if (side) h.append(el("span", "side", side));
-  s.append(h);
-  return s;
-}
+/* A dimmed value, for the counters a boat has never had set. Passed as a node so `kv()`
+   keeps the row instead of dropping it: "no interval set" is the answer. */
+const tasksDim = t => el("span", "text-body-secondary", t);
+const tasksNum = t => el("span", "num", t);
 
-function tasksCrumbs(here) {
-  const c = el("div", "t-crumbs");
-  const a = el("a", "", "Tasks");
-  a.href = href("tasks");
-  c.append(a);
-  c.append(el("span", "sep", "›"));
-  c.append(el("span", "here", here));
-  return c;
-}
-
-function tasksPage(crumb) {
-  const v = el("div", "view plain");
-  const scroll = el("div", "scroll t-page");
-  const inner = el("div", "t-inner");
-  inner.append(tasksCrumbs(crumb));
-  scroll.append(inner);
-  v.append(scroll);
-  return { view: v, body: inner, scroll };
+function tasksPage(here) {
+  const v = el("div", "t-page");
+  v.append(crumbs([{ label: "Tasks", href: href("tasks") }, { label: here }]));
+  return v;
 }
 
 function tasksLoading(what) {
-  const { view, body } = tasksPage(what);
-  const n = el("div", "t-note");
-  n.append(statusCell("info", "Reading…"));
-  body.append(n);
-  mount(view);
+  const v = tasksPage(what);
+  v.append(note("loading", "Reading…"));
+  mount(v);
 }
 
 function tasksMiss(crumb, line) {
-  const { view, body } = tasksPage(crumb);
-  const n = el("div", "t-note");
-  n.append(statusCell("bad", line));
-  body.append(n);
-  const back = el("a", "", "◂ back to the list");
+  const v = tasksPage(crumb);
+  v.append(note("error", line));
+  const back = el("a", "btn btn-outline-secondary btn-sm");
   back.href = href("tasks");
-  back.style.cssText = "display:inline-block;margin-top:14px;font-size:12px";
-  body.append(back);
-  mount(view);
+  back.innerHTML = '<i class="bi bi-arrow-left me-1"></i>Back to the list';
+  v.append(back);
+  mount(v);
 }
 
 /* ── the body of a note, as prose ─────────────────────────────────────────────────── */
@@ -182,7 +164,8 @@ function tasksProse(text, index) {
   const wrap = el("div", "t-prose");
   const body = String(text ?? "").replace(/\r\n?/g, "\n").trim();
   if (!body) {
-    wrap.append(el("p", "", "No note was written — see the photograph."));
+    wrap.append(el("p", "mb-0 text-body-secondary",
+                   "No note was written — see the photograph."));
     return wrap;
   }
   body.split(/\n{2,}/).forEach(chunk => {
@@ -195,6 +178,7 @@ function tasksProse(text, index) {
     });
     wrap.append(p);
   });
+  wrap.lastChild.classList.add("mb-0");
   return wrap;
 }
 
@@ -211,61 +195,95 @@ function tasksPhotoUrl(snags, name) {
 }
 
 function tasksGallery(snags, names) {
-  const grid = el("div", "t-shots");
+  const row = el("div", "row g-3");
   const shots = names.map(n => ({ name: n, url: tasksPhotoUrl(snags, n) }));
   shots.forEach((shot, i) => {
-    const a = el("a", "t-shot");
+    const col = el("div", "col-6 col-md-4");
+    const a = el("a", "card h-100 text-decoration-none link-body-emphasis overflow-hidden");
     a.href = shot.url;
     a.target = "_blank";
     a.rel = "noopener";
     a.title = shot.name;
-    const img = el("img");
+    const frame = el("div", "ratio ratio-4x3 bg-body-tertiary");
+    const img = el("img", "card-img-top object-fit-cover");
     img.src = shot.url;
     img.alt = shot.name;
     img.loading = "lazy";
     img.onerror = () => {
-      img.remove();
-      a.append(el("span", "t-miss",
-        `${shot.name}\nneeds the snag service on :${snags.photo_port}`));
+      /* Never a broken image icon. The tile says which service is not answering, because
+         "the photograph exists and this page cannot reach it" is a different fact from
+         "nobody took one". */
+      frame.textContent = "";
+      const miss = el("div",
+        "d-flex flex-column justify-content-center text-center p-3 small text-body-secondary");
+      miss.append(el("div", "text-break", shot.name));
+      miss.append(el("div", "mt-1", `needs the snag service on :${snags.photo_port}`));
+      frame.append(miss);
     };
-    a.append(img);
-    a.append(el("span", "t-n", `${i + 1}/${shots.length}`));
+    frame.append(img);
+    a.append(frame);
+    a.append(el("div", "card-body p-2 small text-body-secondary",
+                `${i + 1} / ${shots.length}`));
     a.onclick = ev => {
       if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return;
       ev.preventDefault();
       tasksLightbox(shots, i, snags.photo_port);
     };
-    grid.append(a);
+    col.append(a);
+    row.append(col);
   });
-  return grid;
+  return row;
 }
 
 /* ── the lightbox ─────────────────────────────────────────────────────────────────── */
+
+/* A Bootstrap modal, built when it is opened and removed from the DOM when it closes, so
+   nothing accumulates behind a page somebody walks away from. Escape is Bootstrap's own;
+   the arrows are ours, captured so the page's own keys never see them. */
 let tasksLb = null;
 
 function tasksLightbox(shots, start, port) {
-  tasksCloseLb();
   let i = start;
-  const box = el("div", "t-lb");
-  const bar = el("div", "bar");
-  const name = el("b");
-  const of = el("span", "of");
-  const mk = (label, path, fn) => {
-    const b = el("button");
+
+  const m = el("div", "modal fade");
+  m.tabIndex = -1;
+  m.setAttribute("aria-label", "Photograph");
+  const dlg = el("div",
+    "modal-dialog modal-xl modal-fullscreen-sm-down modal-dialog-centered");
+  const box = el("div", "modal-content");
+
+  const head = el("div", "modal-header");
+  const name = el("h2", "modal-title h6 mb-0 text-break me-2");
+  const of = el("span", "small text-body-secondary text-nowrap ms-auto me-2 num");
+  const shut = el("button", "btn-close");
+  shut.type = "button";
+  shut.setAttribute("data-bs-dismiss", "modal");
+  shut.setAttribute("aria-label", "Close");
+  head.append(name, of, shut);
+
+  const body = el("div",
+    "modal-body bg-body-tertiary d-flex align-items-center justify-content-center p-2");
+
+  const foot = el("div", "modal-footer justify-content-between");
+  const hint = el("span", "small text-body-secondary", "Esc closes · ← → steps");
+  const btns = el("div", "d-flex gap-2");
+  const arrow = (label, icon, d) => {
+    const b = el("button", "btn btn-outline-secondary");
+    b.type = "button";
     b.title = label;
     b.setAttribute("aria-label", label);
-    b.innerHTML = svg(path);
-    b.onclick = fn;
+    b.innerHTML = `<i class="bi ${icon}"></i>`;
+    b.onclick = () => step(d);
     return b;
   };
-  const prev = mk("Previous", "M15 5l-7 7 7 7", () => step(-1));
-  const next = mk("Next", "M9 5l7 7-7 7", () => step(1));
-  const shut = mk("Close", "M6 6l12 12M18 6L6 18", tasksCloseLb);
-  bar.append(name, of, prev, next, shut);
+  const prev = arrow("Previous", "bi-chevron-left", -1);
+  const next = arrow("Next", "bi-chevron-right", 1);
+  btns.append(prev, next);
+  foot.append(hint, btns);
 
-  const stagebox = el("div", "stagebox");
-  const foot = el("div", "foot", "Esc closes · ← → steps");
-  box.append(bar, stagebox, foot);
+  box.append(head, body, foot);
+  dlg.append(box);
+  m.append(dlg);
 
   function step(d) {
     i = (i + d + shots.length) % shots.length;
@@ -277,42 +295,39 @@ function tasksLightbox(shots, start, port) {
     name.textContent = s.name;
     of.textContent = `${i + 1} / ${shots.length}`;
     prev.disabled = next.disabled = shots.length < 2;
-    stagebox.textContent = "";
-    const img = el("img");
+    body.textContent = "";
+    const img = el("img", "t-lb-img mw-100 d-block");
     img.src = s.url;
     img.alt = s.name;
     img.onerror = () => {
-      stagebox.textContent = "";
-      stagebox.append(el("div", "miss",
+      body.textContent = "";
+      body.append(el("div", "text-body-secondary text-center p-4",
         `${s.name} is filed with this entry, and the service that holds it is not ` +
         `answering on :${port}. The photograph exists; this page cannot reach it.`));
     };
-    stagebox.append(img);
+    body.append(img);
   }
 
-  box.onclick = ev => { if (ev.target === box || ev.target === stagebox) tasksCloseLb(); };
-  /* Captured, and stopped here. Escape closes the lightbox and nothing else: without the
-     stop it would close the picture and then be read a second time by the page's own
-     Escape, which would send you back to the list you had not asked to leave. */
+  /* Captured, and stopped here. The arrows step the picture and nothing else: without the
+     stop they would also be read by the page's own keys, which walk the list underneath
+     the picture somebody is looking at. */
   const keys = ev => {
-    if (!["Escape", "ArrowLeft", "ArrowRight"].includes(ev.key)) return;
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
     ev.preventDefault();
     ev.stopPropagation();
-    if (ev.key === "Escape") tasksCloseLb();
-    else step(ev.key === "ArrowLeft" ? -1 : 1);
+    step(ev.key === "ArrowLeft" ? -1 : 1);
   };
-  document.addEventListener("keydown", keys, true);
-  tasksLb = { box, keys };
-  paint();
-  document.body.append(box);
-  shut.focus();
-}
 
-function tasksCloseLb() {
-  if (!tasksLb) return;
-  document.removeEventListener("keydown", tasksLb.keys, true);
-  tasksLb.box.remove();
-  tasksLb = null;
+  paint();
+  document.body.append(m);
+  document.addEventListener("keydown", keys, true);
+  m.addEventListener("hidden.bs.modal", () => {
+    document.removeEventListener("keydown", keys, true);
+    tasksLb = null;
+    m.remove();
+  });
+  tasksLb = m;
+  new bootstrap.Modal(m).show();
 }
 
 /* ── asking the boat's papers about a fault ───────────────────────────────────────── */
@@ -348,17 +363,15 @@ function tasksSnippet(text) {
    so asking the library about a fault reliably returns the fault — the entry quoting
    itself back, at the top, ahead of the manual that might actually answer it. A passage
    carrying this entry's own stamp is this entry, so it is dropped. */
-async function tasksPapers(section, title, where, docs, skip) {
+async function tasksPapers(holder, title, where, docs, skip) {
   const q = tasksQuery(title, where);
-  const holder = el("div");
-  section.append(holder);
-  const waiting = el("div", "t-dim", "Asking the papers…");
-  holder.append(waiting);
+  holder.textContent = "";
+  holder.append(cardBody(note("loading", "Asking the papers…")));
 
   if (!q) {
     holder.textContent = "";
-    holder.append(el("div", "t-dim",
-      "There is nothing in this entry to ask the papers with."));
+    holder.append(cardBody(el("p", "mb-0 text-body-secondary",
+      "There is nothing in this entry to ask the papers with.")));
     return;
   }
 
@@ -366,42 +379,40 @@ async function tasksPapers(section, title, where, docs, skip) {
   holder.textContent = "";
 
   if (r && r.error) {
-    const e = el("div", "t-note");
-    e.append(statusCell("bad", `The library did not answer: ${r.error}`));
-    holder.append(e);
+    holder.append(cardBody(note("error", `The library did not answer: ${r.error}`)));
     return;
   }
 
   const hits = ((r && r.passages) || [])
     .filter(h => !(skip && `${h.heading || ""} ${h.text || ""}`.includes(skip)));
   if (!hits.length) {
-    holder.append(el("div", "t-dim",
+    holder.append(cardBody(el("p", "mb-0 text-body-secondary",
       `Nothing in the papers mentions this. Asked ${nf(r && r.documents)} document(s) ` +
       `for “${q}”, and that is an answer rather than a failure — this boat's library ` +
-      `does not cover it.`));
+      `does not cover it.`)));
     return;
   }
 
   const titleOf = new Map(
     ((docs && docs.documents) || []).map(d => [d.name, d.title || d.name]));
-  const list = el("div", "t-hits");
+  const list = el("div", "list-group list-group-flush");
   hits.slice(0, 3).forEach(h => {
-    const a = el("a", "t-hit");
+    const a = el("a", "list-group-item list-group-item-action py-3");
     a.href = href("docs", `${h.doc}/L${h.line}`);
-    const d = el("div", "d");
-    d.append(el("b", "", titleOf.get(h.doc) || h.doc));
-    d.append(el("span", "ln", `line ${nf(h.line)}`));
-    a.append(d);
-    a.append(el("div", "hd", h.heading || "(no heading)"));
-    a.append(el("p", "sn", tasksSnippet(h.text)));
+    const top = el("div", "d-flex flex-wrap align-items-baseline gap-2");
+    top.append(el("span", "fw-semibold text-break", titleOf.get(h.doc) || h.doc));
+    top.append(el("small", "text-body-secondary text-nowrap ms-auto num",
+                  `line ${nf(h.line)}`));
+    a.append(top);
+    a.append(el("div", "small text-body-secondary text-break",
+                h.heading || "(no heading)"));
+    a.append(el("p", "small mb-0 mt-2", tasksSnippet(h.text)));
     list.append(a);
   });
   holder.append(list);
-  const asked = el("div", "t-dim",
+  holder.append(cardBody(el("p", "mb-0 small text-body-secondary",
     `Asked for “${q}”. Every answer carries the file and the line it came out of, so it ` +
-    `can be walked back to the paper and checked.`);
-  asked.style.marginTop = "14px";
-  holder.append(asked);
+    `can be walked back to the paper and checked.`)));
 }
 
 /* ── the list ─────────────────────────────────────────────────────────────────────── */
@@ -445,6 +456,19 @@ function tasksKeep(r, f) {
   return true;
 }
 
+/* A sentence built out of counted things, as nodes: the numbers are bold, the rest is
+   prose, and nothing is assembled out of a string that could carry markup. */
+function tasksSentence(parts) {
+  const p = el("p", "small text-body-secondary mt-3 mb-0");
+  parts.forEach(x => p.append(x instanceof Node ? x : document.createTextNode(String(x))));
+  return p;
+}
+const tasksB = t => el("b", "text-body", String(t));
+
+const TASKS_FOOT =
+  "Snags come from whoever stood in front of the fault with a phone; service items come " +
+  "from the engine's own running hours. Pick one to read it whole.";
+
 async function tasksList() {
   const run = ++tasksRun;
   tasksLoading("everything the boat is owed");
@@ -465,22 +489,38 @@ async function tasksList() {
   const counts = tasksCounts(all);
   const filter = TASKS_CHIPS.some(([id]) => id === state.params.f) ? state.params.f : "all";
 
-  const v = el("div", "view plain");
-  const shell = el("div", "t-shell");
-  const seg = el("div", "t-seg");
+  const v = el("div");
+
+  /* The chips are anchors, not buttons, because a filtered list is a place you can send
+     somebody: the filter is in the address and a copied link arrives narrowed.
+
+     Their counts obey the same rule as the sentence at the foot: one of the two sources
+     failing makes every one of them short by an unknown number, and "Snags 0" beside an
+     error line reads as the boat having none. An em dash, and the error says why. */
+  const counted = !broken.length;
+  const chips = el("div", "btn-group t-chips");
+  chips.setAttribute("role", "group");
+  chips.setAttribute("aria-label", "Filter");
   TASKS_CHIPS.forEach(([id, label]) => {
-    const a = el("a", "", label);
+    const a = el("a", "btn btn-outline-secondary" + (filter === id ? " active" : ""));
     a.href = href("tasks", null, id === "all" ? null : { f: id });
-    a.setAttribute("aria-current", filter === id ? "true" : "false");
-    a.append(el("span", "n", String(counts[id])));
-    seg.append(a);
+    if (filter === id) a.setAttribute("aria-current", "true");
+    a.append(document.createTextNode(label));
+    const b = el("span", "badge rounded-pill text-bg-light border ms-2 num",
+                 counted ? String(counts[id]) : "—");
+    if (!counted) b.title = "not counted — one of the two sources could not be read";
+    a.append(b);
+    chips.append(a);
   });
 
-  const wrap = el("div", "t-listwrap");
-  shell.append(toolbar("Filter what this boat owes…",
-                       () => { state.sel = null; draw(); }, [seg]));
-  shell.append(wrap);
-  v.append(shell);
+  const card = el("div", "card overflow-hidden");
+  const wrap = el("div");
+  card.append(wrap);
+  const tail = el("div");
+
+  v.append(toolbar("Filter what this boat owes…",
+                   () => { state.sel = null; draw(); }, [chips]));
+  v.append(card, tail);
   mount(v);
 
   /* What the filter box searches. Stringifying the whole record searched the JSON's own
@@ -499,72 +539,73 @@ async function tasksList() {
     return all.filter(r => tasksKeep(r, filter) && (!q || r.hay.includes(q)));
   }
 
+  /* Two columns, so the leading bar the shell paints on the first cell of a selected row
+     is there at every width — a third column narrow enough to hide on a phone would take
+     the bar with it. The source is a word in front of the title instead.
+
+     The title is an anchor inside a row that is also clickable: the whole row opens the
+     entry, and the anchor is what makes the address copyable and the middle button work. */
+  const TASKS_COLS = [
+    { label: "What", get: (r, i) => {
+        const c = el("div");
+        const line = el("div");
+        line.append(el("span", "small text-body-secondary text-uppercase me-2", r.kind));
+        const a = el("a", "fw-medium text-break link-body-emphasis text-decoration-none",
+                     tasksFirst(r.title, 110));
+        a.href = href("tasks", r.id);
+        a.onclick = ev => { ev.stopPropagation(); state.sel = i; };
+        line.append(a);
+        c.append(line);
+        const sub = r.kind === "snag"
+          ? [r.where, r.by, ago(r.when)].filter(Boolean).join("  ·  ")
+          : (r.why || "");
+        if (sub) c.append(el("div", "small text-body-secondary mt-1", sub));
+        return c;
+      } },
+    { label: "Status", w: "9rem", cls: "text-end", get: r => {
+        const c = el("div");
+        c.append(tasksBadge(r));
+        c.append(el("div", "small text-body-secondary mt-1",
+          r.kind === "service" && !r.when ? "never recorded" : ago(r.when)));
+        return c;
+      } },
+  ];
+
   function draw() {
     shown = visible();
     wrap.textContent = "";
+    tail.textContent = "";
 
-    if (broken.length) {
-      const b = el("div", "t-note");
-      b.append(statusCell("bad",
+    if (broken.length)
+      tail.append(note("error",
         `${snags && snags.error ? "The snag list" : "The engine log"} could not be read: ` +
         `${broken[0].error}. This list is short by an unknown number of items.`));
-      wrap.append(b);
-    }
 
-    const head = el("div", "t-head");
-    head.append(el("span", "", "SOURCE"));
-    head.append(el("span", "", "WHAT"));
-    head.append(el("span", "", "STATUS"));
-    wrap.append(head);
-
-    shown.forEach((r, i) => {
-      const a = el("a", "t-row");
-      a.href = href("tasks", r.id);
-      a.setAttribute("aria-current", state.sel === i ? "true" : "false");
-      a.append(el("span", "t-kind", r.kind));
-
-      const mid = el("span");
-      mid.append(el("span", "t-t", tasksFirst(r.title, 110)));
-      const sub = r.kind === "snag"
-        ? [r.where, r.by, ago(r.when)].filter(Boolean).join("  ·  ")
-        : (r.why || "");
-      if (sub) mid.append(el("span", "t-sub", sub));
-      a.append(mid);
-
-      const col3 = el("span", "t-col3");
-      col3.append(tasksPill(r));
-      col3.append(el("span", "t-when",
-        r.kind === "service" && !r.when ? "never recorded" : ago(r.when)));
-      a.append(col3);
-
-      a.onclick = () => { state.sel = i; };
-      wrap.append(a);
-    });
-
-    if (!shown.length && !broken.length) {
-      const e = el("div", "t-note");
-      e.innerHTML = state.q.trim()
-        ? `Nothing in ${counts.all} item(s) matches <b>${esc(state.q)}</b>.`
-        : `Nothing is filed under this filter.`;
+    if (shown.length) {
+      wrap.append(table(TASKS_COLS, shown,
+                        (r, i) => { state.sel = i; nav("tasks", r.id); }, state.sel));
+    } else if (!broken.length) {
+      const e = el("div", "p-3 text-body-secondary");
+      if (state.q.trim()) {
+        e.append(document.createTextNode(`Nothing in ${counts.all} item(s) matches `));
+        e.append(el("b", "", state.q));
+        e.append(document.createTextNode("."));
+      } else {
+        e.textContent = "Nothing is filed under this filter.";
+      }
       wrap.append(e);
     }
 
     if (broken.length) return;                   // the counts below would be half-truths
-    const foot = el("div", "t-note");
     const narrowed = filter !== "all" || state.q.trim();
-    foot.innerHTML =
-      (narrowed ? `Showing <b>${shown.length}</b> of <b>${counts.all}</b> item(s), `
-                : `<b>${counts.all}</b> item(s), `) +
-      `<b>${counts.open}</b> still open in all. Snags come from whoever stood in front ` +
-      `of the fault with a phone; service items come from the engine's own running ` +
-      `hours. Pick one to read it whole.`;
-    wrap.append(foot);
+    tail.append(tasksSentence(narrowed
+      ? ["Showing ", tasksB(shown.length), " of ", tasksB(counts.all), " item(s), ",
+         tasksB(counts.open), " still open in all. ", TASKS_FOOT]
+      : [tasksB(counts.all), " item(s), ", tasksB(counts.open),
+         " still open in all. ", TASKS_FOOT]));
 
-    if (maint && maint.engine_hours_source) {
-      const src = el("div", "t-note");
-      src.append(statusCell("info", maint.engine_hours_source));
-      wrap.append(src);
-    }
+    if (maint && maint.engine_hours_source)
+      tail.append(el("p", "small text-body-secondary mt-2 mb-0", maint.engine_hours_source));
   }
 
   /* j and k walk the list and Enter opens the selected row, which is only reachable once
@@ -574,7 +615,7 @@ async function tasksList() {
     state.sel = state.sel === null ? 0
               : Math.max(0, Math.min(shown.length - 1, state.sel + d));
     draw();
-    const row = wrap.children[state.sel + 1];
+    const row = wrap.querySelectorAll("tbody tr")[state.sel];
     if (row) row.scrollIntoView({ block: "nearest" });
   };
   tasksKeys.open = () => {
@@ -619,180 +660,357 @@ async function tasksDetail(kind, id) {
   return tasksServicePage(m, maint, docs);
 }
 
+/* ── changing a fault's status ────────────────────────────────────────────────────── */
+
+/* The one thing on this page that writes, and it does not write here: it appends a
+   follow-up through the snag service on its own port, the way the phone page files. See
+   docs/SNAGS.md "Append-only, on purpose". Nothing is rewritten and nothing is reopened
+   from a browser — the fault's status is the newest thing anybody wrote about it.
+
+   Who is typing is remembered between visits. A name is a courtesy on a shared boat, not
+   a credential, and re-typing it every time is how it stops being written at all. */
+const TASKS_BY_KEY = "openboat.console.by";
+
+function tasksWho() {
+  try { return localStorage.getItem(TASKS_BY_KEY) || ""; } catch (e) { return ""; }
+}
+function tasksRemember(who) {
+  try { localStorage.setItem(TASKS_BY_KEY, who); } catch (e) { /* private window */ }
+}
+
+/* What the entry is told after a write lands. It survives one re-render, because the page
+   is rebuilt from a fresh /api/snags rather than patched in place. */
+let tasksFlash = null;
+
+const TASKS_MOVES = {
+  review: { label: "Needs review", title: "Mark as review",
+            placeholder: "the idea, or what to look at",
+            asks: "Say what to look at — the service files a follow-up, and a follow-up " +
+                  "with nothing written on it is refused." },
+  fixed:  { label: "Fixed", title: "Mark as fixed",
+            placeholder: "what was done",
+            asks: "Say what was done — closing a fault without that is refused." },
+};
+
+/* From open you can send it to review or close it; from review you can close it. Nothing
+   here reopens anything: that is a hand edit, and the card at the foot of the page says
+   where. */
+function tasksMovesFrom(word) {
+  if (TASKS_CLOSED.includes(word)) return [];
+  if (word === "review") return ["fixed"];
+  return ["review", "fixed"];
+}
+
+function tasksStatusControl(s, snags) {
+  const word = tasksWord(s.status) || (s.open ? "open" : "fixed");
+  const moves = tasksMovesFrom(word);
+  if (!moves.length)
+    return el("span", "small text-body-secondary align-self-center",
+              "closed — reopen by editing the file");
+
+  const group = el("div", "btn-group");
+  const b = el("button", "btn btn-outline-primary btn-sm dropdown-toggle", "Change status");
+  b.type = "button";
+  b.setAttribute("data-bs-toggle", "dropdown");
+  b.setAttribute("aria-expanded", "false");
+  const menu = el("ul", "dropdown-menu dropdown-menu-end");
+  moves.forEach(to => {
+    const li = el("li");
+    const item = el("button", "dropdown-item", TASKS_MOVES[to].label);
+    item.type = "button";
+    item.onclick = () => tasksStatusModal(s, snags, to);
+    li.append(item);
+    menu.append(li);
+  });
+  group.append(b, menu);
+  return group;
+}
+
+function tasksStatusModal(s, snags, to) {
+  const move = TASKS_MOVES[to];
+
+  const m = el("div", "modal fade");
+  m.tabIndex = -1;
+  const dlg = el("div", "modal-dialog modal-dialog-centered modal-fullscreen-sm-down");
+  const box = el("div", "modal-content");
+
+  const head = el("div", "modal-header");
+  head.append(el("h2", "modal-title h5 mb-0", move.title));
+  const x = el("button", "btn-close");
+  x.type = "button";
+  x.setAttribute("data-bs-dismiss", "modal");
+  x.setAttribute("aria-label", "Close");
+  head.append(x);
+
+  const body = el("div", "modal-body");
+  const said = el("p", "small text-body-secondary",
+    "This is appended to the boat's file as a follow-up, with your name on it. Nothing " +
+    "already written is changed.");
+  body.append(said);
+
+  const errBox = el("div", "alert alert-danger d-none");
+  errBox.setAttribute("role", "alert");
+  body.append(errBox);
+
+  const noteWrap = el("div", "mb-3");
+  const noteLabel = el("label", "form-label", "Note");
+  const note_ = el("textarea", "form-control");
+  note_.rows = 4;
+  note_.placeholder = move.placeholder;
+  note_.id = "t-note-" + to;
+  noteLabel.htmlFor = note_.id;
+  const bad = el("div", "invalid-feedback", move.asks);
+  noteWrap.append(noteLabel, note_, bad);
+  body.append(noteWrap);
+
+  const whoWrap = el("div");
+  const whoLabel = el("label", "form-label", "Your name");
+  const who = el("input", "form-control");
+  who.type = "text";
+  who.id = "t-by-" + to;
+  who.value = tasksWho();
+  who.autocomplete = "name";
+  whoLabel.htmlFor = who.id;
+  whoWrap.append(whoLabel, who);
+  body.append(whoWrap);
+
+  const foot = el("div", "modal-footer");
+  const cancel = el("button", "btn btn-outline-secondary", "Cancel");
+  cancel.type = "button";
+  cancel.setAttribute("data-bs-dismiss", "modal");
+  const send = el("button", "btn btn-primary", move.title);
+  send.type = "button";
+  foot.append(cancel, send);
+
+  box.append(head, body, foot);
+  dlg.append(box);
+  m.append(dlg);
+
+  const fail = line => {
+    errBox.textContent = line;
+    errBox.classList.remove("d-none");
+  };
+
+  send.onclick = async () => {
+    /* The service refuses an entry with neither a note nor a photograph, and refuses a
+       close with nothing said about what was done. Both are worth catching here, where the
+       words are still in the box, rather than after a round trip. */
+    const text = note_.value.trim();
+    note_.classList.toggle("is-invalid", !text);
+    if (!text) { note_.focus(); return; }
+    errBox.classList.add("d-none");
+
+    send.disabled = cancel.disabled = true;
+    const spin = el("span", "spinner-border spinner-border-sm me-2");
+    spin.setAttribute("aria-hidden", "true");
+    send.textContent = "";
+    send.append(spin, document.createTextNode("Filing…"));
+
+    const by = who.value.trim();
+    const r = await snagPost(snags, { follow_up_to: s.when, status: to, note: text, by });
+
+    if (r && r.ok) {
+      tasksRemember(by);
+      /* ⌘K holds its own copy of the snag list, and a stale one would offer the fault at
+         the status it used to have. Drop it and let the next question ask the boat. */
+      state.index = null;
+      tasksFlash = `Filed as ${to}. It is a follow-up in the boat's file, appended just now.`;
+      const inst = bootstrap.Modal.getInstance(m);
+      if (inst) inst.hide(); else m.remove();
+      tasksDetail("snag", s.when);
+      return;
+    }
+
+    send.disabled = cancel.disabled = false;
+    send.textContent = move.title;
+    fail((r && r.error) || "the snag service did not say what went wrong");
+  };
+
+  document.body.append(m);
+  m.addEventListener("hidden.bs.modal", () => m.remove());
+  m.addEventListener("shown.bs.modal", () => note_.focus());
+  new bootstrap.Modal(m).show();
+}
+
 function tasksSnagPage(s, snags, docs) {
   const index = tasksLinkIndex(docs);
   const title = tasksTitle(s);
-  const { view, body } = tasksPage(tasksFirst(title, 90));
-  const r = { kind: "snag", open: s.open, status: s.status };
+  const v = tasksPage(tasksFirst(title, 90));
 
-  const hrow = el("div", "t-hrow");
-  hrow.append(el("h1", "t-h1", title));
-  hrow.append(tasksPill(r));
-  body.append(hrow);
-  body.append(tasksMeta([
+  if (tasksFlash) { v.append(note("ok", tasksFlash)); tasksFlash = null; }
+
+  /* The whole status line, not just the word the badge carries: somebody wrote "fixed —
+     replaced the striker plate" and the half after the dash is the part worth reading. */
+  const full = String(s.status || "").trim();
+  const h1 = el("span", "text-break", title);
+  v.append(pageHead(h1, [
     s.when ? `filed ${s.when}` : null,
     s.when ? ago(s.when) : null,
     s.by ? `by ${s.by}` : null,
     s.where || null,
-  ]));
+    full.split(/\s+/).length > 1 ? full : null,
+  ], [tasksSnagBadge(s.status, s.open), tasksStatusControl(s, snags)]));
 
-  const note = tasksSection("What was written", "NOTE");
-  note.append(tasksProse(s.body, index));
-  body.append(note);
+  const written = pane("What was written", "NOTE");
+  written.append(cardBody(tasksProse(s.body, index)));
+  v.append(written);
 
   const photos = s.photos || [];
-  const shots = tasksSection("Photographs",
-                             photos.length ? `${photos.length} FILED` : "NONE");
-  if (photos.length) shots.append(tasksGallery(snags, photos));
-  else shots.append(el("div", "t-dim",
-    "No photograph was filed with this entry — it was written, not photographed."));
-  body.append(shots);
+  const shots = pane("Photographs", photos.length ? `${photos.length} FILED` : "NONE");
+  shots.append(cardBody(photos.length
+    ? tasksGallery(snags, photos)
+    : el("p", "mb-0 text-body-secondary",
+         "No photograph was filed with this entry — it was written, not photographed.")));
+  v.append(shots);
 
   const ups = (s.updates || []).slice()
                 .sort((a, b) => String(a.when).localeCompare(String(b.when)));
-  const tl = tasksSection("Follow-ups", ups.length ? `${ups.length}` : "NONE");
+  const tl = pane("Follow-ups", ups.length ? String(ups.length) : "NONE");
   if (ups.length) {
-    const ul = el("ul", "t-tl");
+    const list = el("div", "list-group list-group-flush");
     ups.forEach(u => {
-      const li = el("li");
-      const w = el("div", "t-w");
-      w.append(document.createTextNode(u.when || "—"));
-      if (u.by) { w.append(el("span", "sep", "·")); w.append(document.createTextNode(u.by)); }
+      const li = el("div", "list-group-item py-3");
+      const w = el("div", "small text-body-secondary mb-2 d-flex flex-wrap align-items-center gap-2");
+      const when = el("span");
+      when.append(document.createTextNode(u.when || "—"));
+      if (u.by) when.append(document.createTextNode(" · " + u.by));
+      w.append(when);
+      /* A follow-up that says nothing about status carries no badge, because it changed
+         nothing: silence is "no change", not "still open". */
+      if (tasksWord(u.status)) w.append(tasksSnagBadge(u.status));
       li.append(w);
       li.append(tasksProse(u.body, index));
-      if ((u.photos || []).length) li.append(tasksGallery(snags, u.photos));
-      ul.append(li);
+      if ((u.photos || []).length) {
+        const g = tasksGallery(snags, u.photos);
+        g.classList.add("mt-3");
+        li.append(g);
+      }
+      list.append(li);
     });
-    tl.append(ul);
+    tl.append(list);
   } else {
-    tl.append(el("div", "t-dim",
+    tl.append(cardBody(el("p", "mb-0 text-body-secondary",
       "Nothing has been added since this was filed. It stands as it was written, " +
-      "unverified, by whoever noticed it."));
+      "unverified, by whoever noticed it.")));
   }
-  body.append(tl);
+  v.append(tl);
 
-  const papers = tasksSection("In the papers", "ASKED");
-  body.append(papers);
+  const papers = pane("In the papers", "ASKED");
+  const holder = el("div");
+  papers.append(holder);
+  v.append(papers);
 
-  /* docs/SNAGS.md is the authority for this paragraph: `record()` in openboat/snag.py has
-     no code path that edits an existing entry, so closing one is a deliberate act by a
-     person at a desk rather than a tap on a phone in a wet pocket. */
-  const foot = el("div", "t-foot");
-  foot.innerHTML =
-    `<b>How to close it.</b> Nothing on this page changes anything: the console reads, ` +
-    `and the snag service only ever appends. Closing a snag is one line changed by hand ` +
-    `in this boat's <code>SNAGS.md</code>, beside the <code>boat.toml</code> the profile ` +
-    `points at — <code>**Status:** open</code> becomes ` +
-    `<code>**Status:** fixed — replaced the striker plate, 2026-09-12</code>. Every entry ` +
-    `also carries a standing mark that it is unverified: recorded from a phone at the ` +
-    `moment of noticing, confirmed by nobody since.`;
-  body.append(foot);
+  /* docs/SNAGS.md "Append-only, on purpose" is the authority for this card: `record()` in
+     openboat/snag.py has no code path that edits an existing entry, so a status change is
+     a new line at the end of the file and reopening is somebody at a desk with an editor. */
+  const close = pane("Changing this, and undoing it", "APPENDED");
+  const p = el("p", "mb-0 small text-body-secondary");
+  const bit = t => el("code", "", t);
+  p.append(document.createTextNode(
+    "Nothing on this page rewrites anything. Marking this fault review or fixed appends a " +
+    "follow-up through the snag service on its own port, with a name and a note on it, and " +
+    "the fault's status is the newest thing anybody wrote about it. Closing one without " +
+    "saying what was done is refused. Reopening is done the way faults used to be closed: " +
+    "by hand in this boat's "));
+  p.append(bit("SNAGS.md"));
+  p.append(document.createTextNode(", beside the "));
+  p.append(bit("boat.toml"));
+  p.append(document.createTextNode(" the profile points at, where "));
+  p.append(bit("**Status:** fixed"));
+  p.append(document.createTextNode(" becomes "));
+  p.append(bit("**Status:** open"));
+  p.append(document.createTextNode(
+    " again. Every entry also carries a standing mark that it is unverified: recorded from " +
+    "a phone at the moment of noticing, confirmed by nobody since."));
+  close.append(cardBody(p));
+  v.append(close);
 
-  mount(view);
-  tasksPapers(papers, title, s.where, docs, s.when);
-}
-
-function tasksKvRow(tb, key, value, missing) {
-  const tr = el("tr");
-  tr.append(el("td", "", key));
-  const td = el("td", value === null || value === undefined || value === "" ? "none" : "");
-  td.textContent = (value === null || value === undefined || value === "")
-                   ? (missing || "—") : String(value);
-  tr.append(td);
-  tb.append(tr);
+  mount(v);
+  tasksPapers(holder, title, s.where, docs, s.when);
 }
 
 function tasksServicePage(m, maint, docs) {
   const index = tasksLinkIndex(docs);
-  const { view, body } = tasksPage(tasksFirst(m.description || m.item, 90));
+  const v = tasksPage(tasksFirst(m.description || m.item, 90));
   const r = { kind: "service", verdict: m.verdict };
 
-  const hrow = el("div", "t-hrow");
-  hrow.append(el("h1", "t-h1", m.description || m.item));
-  hrow.append(tasksPill(r));
-  body.append(hrow);
-  body.append(tasksMeta([
+  v.append(pageHead(el("span", "text-break", m.description || m.item), [
     m.item,
     m.last ? `last done ${m.last}` : "never recorded",
     m.last ? ago(m.last) : null,
     m.per_outing ? "counted per salt-water outing" : null,
-  ]));
+  ], [tasksBadge(r)]));
 
-  const why = tasksSection("Why it is owed", "REASON");
-  why.append(tasksProse(m.why, index));
-  body.append(why);
+  const why = pane("Why it is owed", "REASON");
+  why.append(cardBody(tasksProse(m.why, index)));
+  v.append(why);
 
-  const counters = tasksSection("The counters behind it", "SOURCED");
-  const t = el("table", "t-kv");
-  const tb = el("tbody");
-  tasksKvRow(tb, "Item", m.item);
-  tasksKvRow(tb, "Last done", m.last, "never recorded");
-  tasksKvRow(tb, "Hours since",
-             m.hours_since === null || m.hours_since === undefined
-               ? null : `${Number(m.hours_since).toFixed(1)} h`);
-  tasksKvRow(tb, "Days since", m.days_since === null || m.days_since === undefined
-                               ? null : `${nf(m.days_since)} d`);
-  tasksKvRow(tb, "Outings since", m.outings_since === null || m.outings_since === undefined
-                                  ? null : nf(m.outings_since));
-  tasksKvRow(tb, "Interval, hours", m.interval_hours ? `${nf(m.interval_hours)} h` : null,
-             "no interval set");
-  tasksKvRow(tb, "Interval, months", m.interval_months ? `${nf(m.interval_months)} months`
-                                                       : null, "no interval set");
-  tasksKvRow(tb, "Interval, days", m.interval_days ? `${nf(m.interval_days)} days`
-                                                   : null, "no interval set");
-  tasksKvRow(tb, "Every outing", m.per_outing === null || m.per_outing === undefined
-                                 ? null : (m.per_outing ? "yes" : "no"));
-  tasksKvRow(tb, "Verdict", m.verdict);
-  t.append(tb);
-  counters.append(t);
-  body.append(counters);
+  /* Sourced or absent: a counter the API did not give shows as the sentence that says so,
+     never as a zero. */
+  const has = x => x !== null && x !== undefined;
+  const counters = pane("The counters behind it", "SOURCED");
+  counters.append(cardBody(kv([
+    ["Item", m.item || tasksDim("—")],
+    ["Last done", m.last || tasksDim("never recorded")],
+    ["Hours since", has(m.hours_since) ? tasksNum(`${Number(m.hours_since).toFixed(1)} h`)
+                                       : tasksDim("—")],
+    ["Days since", has(m.days_since) ? tasksNum(`${nf(m.days_since)} d`) : tasksDim("—")],
+    ["Outings since", has(m.outings_since) ? tasksNum(nf(m.outings_since)) : tasksDim("—")],
+    ["Interval, hours", m.interval_hours ? tasksNum(`${nf(m.interval_hours)} h`)
+                                         : tasksDim("no interval set")],
+    ["Interval, months", m.interval_months ? tasksNum(`${nf(m.interval_months)} months`)
+                                           : tasksDim("no interval set")],
+    ["Interval, days", m.interval_days ? tasksNum(`${nf(m.interval_days)} days`)
+                                       : tasksDim("no interval set")],
+    ["Every outing", has(m.per_outing) ? (m.per_outing ? "yes" : "no") : tasksDim("—")],
+    ["Verdict", m.verdict || tasksDim("—")],
+  ], null)));
 
   /* The running-hours line is quoted exactly as maintenance.py wrote it. It is the one
      sentence that says how much of this engine's life the log actually covers, and
      paraphrasing it would be paraphrasing the boat's own uncertainty. */
-  if (maint && maint.engine_hours_source) {
-    const src = el("div", "t-dim");
-    src.style.marginTop = "14px";
-    src.textContent = maint.engine_hours_source;
-    counters.append(src);
-  }
+  if (maint && maint.engine_hours_source)
+    counters.append(cardBody(el("p", "mb-0 small text-body-secondary",
+                                maint.engine_hours_source)));
+  v.append(counters);
 
-  const papers = tasksSection("In the papers", "ASKED");
-  body.append(papers);
+  const papers = pane("In the papers", "ASKED");
+  const holder = el("div");
+  papers.append(holder);
+  v.append(papers);
 
   /* docs/JOBS.md is the authority here: recording a service resets the clock on an
      interval and everything downstream is computed from it, which is not the correct
      weight for a tap on a wet tablet. */
-  const rec = tasksSection("Record it", "BY HAND");
-  rec.append(el("div", "t-dim",
-    "This page has no button, on purpose. Recording a service resets the clock on an " +
-    "interval, and the next due date, the cooling trend and the season report are all " +
-    "computed from it. It is typed at a keyboard by somebody who knows the work " +
-    "actually happened:"));
-  const cmd = el("pre", "t-cmd");
+  const rec = pane("Record it", "BY HAND");
+  const cmd = el("pre", "bg-body-tertiary p-3 rounded border mb-0 small");
   cmd.textContent = `python3 -m openboat.maintenance --did ${m.item}` +
                     `\npython3 -m openboat.maintenance --did ${m.item} ` +
                     `--note "what was used, who did it"`;
-  cmd.style.marginTop = "12px";
-  rec.append(cmd);
-  const tail = el("div", "t-dim",
-    "Add --on YYYY-MM-DD if it happened on a day other than today, and " +
-    "--history to see what has been done.");
-  tail.style.marginTop = "12px";
-  rec.append(tail);
-  body.append(rec);
+  rec.append(cardBody(
+    el("p", "text-body-secondary",
+       "This page has no button, on purpose. Recording a service resets the clock on an " +
+       "interval, and the next due date, the cooling trend and the season report are all " +
+       "computed from it. It is typed at a keyboard by somebody who knows the work " +
+       "actually happened:"),
+    cmd,
+    el("p", "small text-body-secondary mt-3 mb-0",
+       "Add --on YYYY-MM-DD if it happened on a day other than today, and " +
+       "--history to see what has been done.")));
+  v.append(rec);
 
-  mount(view);
-  tasksPapers(papers, m.description || m.item, m.item, docs);
+  mount(v);
+  tasksPapers(holder, m.description || m.item, m.item, docs);
 }
 
 /* ── the keyboard ─────────────────────────────────────────────────────────────────── */
 
 /* Registered once, at load, and it minds its own view. Escape on a detail page is the
    back button when there is somewhere to go back to, and the list when this tab was
-   opened cold on a deep link. */
+   opened cold on a deep link. Nothing fires while a modal is up: the picture and the
+   search sheet have their own keys. */
 function tasksKeys(ev) {
-  if (state.view !== "tasks" || tasksLb) return;
+  if (state.view !== "tasks" || tasksLb || overlay()) return;
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((ev.target.tagName || ""));
   const detail = !!state.sub;

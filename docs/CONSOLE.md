@@ -14,11 +14,16 @@ guess.* Those are asked sitting down, at a keyboard, usually in a bad mood in Fe
 they want density rather than legibility at two metres — a table you can scan, a citation
 you can click, and the file open beside it.
 
-So it is a different page rather than a mode of the same one, and it is deliberately not
-pretty in the way the helm is. It is monospace throughout, which is a decision and not a
-style: nearly everything on it is a quantity, a file name, a line number or a timestamp, and
-a proportional font makes a column of those harder to compare. Tabular figures mean 9.8 and
-10.1 take the same width, so a column of hours is scanned instead of read.
+So it is a different page rather than a mode of the same one. It is built on Bootstrap,
+vendored beside Leaflet so it works with no network, and it uses Bootstrap's components as
+they come — a light page, a proportional face at a reading size, cards, tables, badges,
+breadcrumbs, a modal for the search. That is a decision and not a shortcut: the first
+version was a dark monospace terminal, and its owner found it hard to read. A console is
+read by somebody who is already tired, and a stock component is one their eyes have met a
+thousand times before. Monospace survives only where it earns its place — a manual's
+extracted text, quoted line for line, and file names and line numbers — and every number in
+a column is set with tabular figures, so 9.8 and 10.1 take the same width and a column of
+hours is scanned instead of read.
 
 It is built as a shell and five views rather than one file: `console.html` holds the chrome,
 the router and the keyboard, and each page is its own script under `console/`. A view is
@@ -144,18 +149,26 @@ ago" — alongside the alarm bands the helm turns a reading amber or red with, a
 own papers as a table with days left column, so a lapsed registration reads the same as a
 lapsed insurance renewal.
 
-## Nothing on this page writes
+## One thing on this page writes, and not to this server
 
 The dashboard server accepts exactly one POST, on one exact path, and the console does not
-use it. Every route the console reads is a GET, and `tests/test_console.py` checks that the
-page and every one of its views together contain no POST at all.
+use it. Every route the console reads is a GET. What the console can do is change a snag's
+status — *review* when somebody has an idea worth looking at before anybody picks up a
+tool, *fixed* when the work was done — and that goes to the snag service on its own port,
+the same service the phone page files to, as a follow-up entry **appended** to the boat's
+file. Nothing is rewritten. The fault's status is the newest thing anybody wrote about it,
+and the file still reads as the history of what people learned, in the order they learned
+it. `tests/test_console.py` checks that this is the only POST in the page and its views,
+that it lives in the one function that knows the service's address, and that nothing ever
+posts to the dashboard's own `/api/`.
 
-That is not fastidiousness. A page listing faults and services is precisely the page that
-wants to grow a *Mark done* button, and precisely the page where the read-only boundary
-would be lost one convenient addition at a time. Work leaves it the way it leaves the jobs
-page: a snag is closed by editing the file, a service is recorded by somebody at a keyboard
-who knows the work actually happened, and a fault is filed from the phone page — which is a
-separate service, on a separate port, and the only thing in the project that writes.
+That boundary is not fastidiousness. A page listing faults and services is precisely the
+page that wants to grow one convenient button after another, and precisely the page where
+a read-only dashboard would be lost that way. So the status change is the whole of it, and
+it is a deliberate act with a name and a note attached — closing a fault without saying
+what was done is refused. Reopening a fault that somebody closed is done the way it was
+closed: by hand, in the file. A service is still recorded by somebody at a keyboard who
+knows the work actually happened, and a fault is still filed from the phone page.
 
 ## Reading the disk
 

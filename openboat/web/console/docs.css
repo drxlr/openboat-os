@@ -1,243 +1,80 @@
-/* OpenBoat console — styles owned by the docs view (console/docs.js). Tokens come from
-   console.html; nothing here redefines them.
+/* OpenBoat console — styles owned by the docs view (console/docs.js).
 
-   Three pages share this sheet: the shelf, a search, and the reader. They are the same
-   furniture at three depths — the same rules, the same monospace, the same three status
-   colours — because a document you can open is the only thing this console is really for
-   and it should not feel like a different application once you are inside one.
+   Almost everything on these three pages is a stock Bootstrap component; what is left
+   here is the handful of things Bootstrap has no opinion about: a line-number gutter
+   beside every block of a typed document, the sticky page heading inside a long manual,
+   the reader's two-column rail, and the split that puts the original PDF beside its
+   reading.
 
-   The reader is laid out for a manual rather than for a note: a sticky rail carrying the
-   outline and a find box, a body that renders one page at a time, and room on the right
-   for the paper itself. Below 1100px the rail folds up above the body; below 1280px the
-   PDF opens in its own tab instead of a pane, because a 380px column of PDF is not a
-   reading experience, it is an apology. */
+   No highlight colour is chosen in this file. The console has one highlight palette and
+   it lives in console.html: `<mark>` for a matched term, `.code .hit` for the line a
+   citation points at, `.active` on a list-group row for the heading or page you are on,
+   and `.btn-primary` for the current page in the page grid. The two rules below that draw
+   a leading bar borrow `--ob-sea` and `--bs-border-color` from that sheet rather than
+   naming a colour of their own — see the note above `.mdb.hit`.                        */
 
-/* ── the shelf and the search share a scrolling frame ─────────────────────────────── */
-.view.docs-list{grid-template-rows:auto minmax(0,1fr)}
-.view.docs-page-view{grid-template-rows:minmax(0,1fr);padding:0}
-.docs-scroll{overflow:auto;min-height:0;min-width:0;overflow-anchor:auto}
+/* ── the shelf ──────────────────────────────────────────────────────────────────
+   The number columns fold away on a phone, but their colgroup widths do not, so the
+   title is left wrapping a word to a line beside a wide empty column. */
+@media (max-width: 767.98px) { .docs-shelf col { width: auto !important; } }
 
-/* ── the shelf ────────────────────────────────────────────────────────────────────
-   Rows are anchors rather than table rows so a middle click opens a document in a new
-   tab, which is what anybody comparing two manuals does first. The grid keeps the column
-   rhythm of the tables everywhere else on the page. */
-.shelf{display:block;padding-bottom:26px}
-.docs-scroll>.hits,.docs-scroll>.shelf{padding-bottom:70px}
-.shelf .row{display:grid;align-items:start;
-            grid-template-columns:minmax(0,1fr) 7.5em 6em 8em 17em;
-            border-bottom:1px solid var(--rule-soft);color:var(--mute);text-decoration:none}
-.shelf a.row:hover{background:#161e21}
-.shelf a.row:hover .t{color:var(--accent)}
-.shelf .hd{position:sticky;top:0;z-index:3;background:var(--bg);color:var(--ink);
-           font-weight:700;border-bottom:1px solid var(--rule)}
-.shelf .c{padding:11px 13px;font-size:12.5px;min-width:0}
-.shelf .hd .c{padding:9px 13px;white-space:nowrap}
-.shelf .num{text-align:right;white-space:nowrap;color:var(--ink)}
-.shelf .st{white-space:nowrap}
-.shelf .t{display:block;color:var(--ink);overflow:hidden;text-overflow:ellipsis;
-          white-space:nowrap}
-.shelf .s{display:block;margin-top:3px;color:var(--dim);font-size:11.5px;overflow:hidden;
-          text-overflow:ellipsis;white-space:nowrap}
-.shelf .grp{padding:19px 13px 8px;color:var(--dim);font-size:11px;letter-spacing:.14em;
-            border-bottom:1px solid var(--rule);background:var(--bg)}
-.shelf .grp:first-child{padding-top:2px}
+/* ── the reader's two columns ────────────────────────────────────────────────────── */
+.docs-rail > .card:last-child { margin-bottom: 0; }
+@media (min-width: 992px) {
+  .docs-rail { position: sticky; top: calc(var(--docs-nav, 57px) + 1rem);
+               align-self: flex-start; overflow-y: auto;
+               max-height: calc(100dvh - var(--docs-nav, 57px) - 2rem); }
+  /* above lg the fold is off: the rail is a rail, and its sections are always open */
+  .docs-rail .collapse { display: block; }
+}
+.docs-pgrid { max-height: 34vh; overflow-y: auto; }
+.docs-pgrid .btn { min-width: 2.6rem; padding-left: .25rem; padding-right: .25rem; }
+.docs-outline { max-height: 46vh; overflow-y: auto; }
+.docs-fmatches { max-height: 30vh; overflow-y: auto; }
 
-/* ── search results ───────────────────────────────────────────────────────────────
-   A hit is worth nothing without the words around it, which is what the old score-and-
-   line table left out. The passage text is the row; the citation is the caption. */
-.hits{padding:4px 0 30px}
-.hitgrp{margin-bottom:20px}
-.hitgrp .gh{display:flex;align-items:baseline;gap:12px;padding:9px 2px;
-            border-bottom:1px solid var(--rule);position:sticky;top:0;z-index:2;
-            background:var(--bg)}
-.hitgrp .gh a{color:var(--ink);font-size:13.5px;font-weight:700;text-decoration:none;
-              overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hitgrp .gh a:hover{color:var(--accent)}
-.hitgrp .gh .s{color:var(--dim);font-size:11.5px;white-space:nowrap;margin-left:auto}
-.hit{display:block;padding:11px 13px 12px 12px;border-bottom:1px solid var(--rule-soft);
-     border-left:2px solid transparent;text-decoration:none}
-.hit:hover{background:#161e21;border-left-color:var(--accent)}
-.hit .top{display:flex;gap:14px;align-items:baseline;color:var(--dim);font-size:11.5px;
-          margin-bottom:6px}
-.hit .top .h{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hit .top .r{margin-left:auto;white-space:nowrap;letter-spacing:.06em}
-.hit .tx{color:var(--mute);font-size:12.5px;line-height:1.7;word-break:break-word;
-         display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-mark.qmark{background:var(--accent-wash);color:var(--accent)}
-mark.fmark{background:var(--warn);color:#20180a;border-radius:1px}
+/* ── the original PDF, beside its reading ───────────────────────────────────────── */
+.docs-pdf { display: none; }
+@media (min-width: 1280px) {
+  .docs-main.pdf { display: flex; align-items: flex-start; gap: 1.25rem; }
+  .docs-main.pdf > .docs-body { flex: 1 1 62%; min-width: 0; }
+  .docs-main.pdf > .docs-pdf { display: block; flex: 1 1 38%; min-width: 300px;
+                               position: sticky; top: calc(var(--docs-nav, 57px) + 1rem);
+                               height: calc(100dvh - var(--docs-nav, 57px) - 2rem); }
+}
+.docs-pdf iframe { width: 100%; height: 100%; display: block; border: 0;
+                   border-radius: var(--bs-border-radius); background: var(--bs-tertiary-bg); }
 
-/* ── the reader ───────────────────────────────────────────────────────────────────── */
-.docs-reader{padding:18px 20px 44px}
-.docs-crumb{display:flex;align-items:center;gap:9px;color:var(--dim);font-size:12px;
-            margin-bottom:9px;flex-wrap:wrap}
-.docs-crumb a{color:var(--accent);text-decoration:none}
-.docs-crumb a:hover{text-decoration:underline}
-.docs-crumb .now{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.docs-h{display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap}
-.docs-title{font-size:19px;font-weight:700;color:var(--ink);margin:0 0 11px;
-            letter-spacing:-.01em;line-height:1.35;min-width:0;flex:1}
-.docs-acts{display:flex;gap:9px;flex-wrap:wrap;padding-bottom:11px}
-.docs-btn{border:1px solid var(--rule);border-radius:3px;padding:6px 12px;color:var(--accent);
-          font-size:12px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;
-          white-space:nowrap;background:none}
-.docs-btn:hover{background:var(--accent-wash);border-color:#33413f}
-.docs-btn[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);
-                               border-color:var(--accent)}
-.docs-meta{display:flex;flex-wrap:wrap;gap:4px 22px;border-top:1px solid var(--rule);
-           border-bottom:1px solid var(--rule);padding:9px 0;margin-bottom:16px;
-           font-size:12px;color:var(--ink)}
-.docs-meta span{white-space:nowrap}
-.docs-meta i{font-style:normal;color:var(--dim);margin-right:8px}
-.docs-meta .warn{color:var(--warn)}
-.docs-meta .kind{color:var(--mute);white-space:normal}
-
-.docs-cols{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start}
-
-/* ── the rail ─────────────────────────────────────────────────────────────────────── */
-.docs-rail{min-width:0;border:1px solid var(--rule);background:var(--panel)}
-.docs-rail-toggle{display:flex;align-items:center;gap:10px;width:100%;padding:11px 13px;
-                  color:var(--ink);font-size:12.5px;text-align:left}
-.docs-rail-toggle .sp{margin-left:auto;color:var(--dim);font-size:11px;letter-spacing:.14em}
-.docs-rail-in{display:none;padding:0 13px 13px}
-.docs-rail.open .docs-rail-in{display:block}
-.docs-rs{padding-top:12px;border-top:1px solid var(--rule-soft)}
-.docs-rs:first-child{border-top:0;padding-top:2px}
-.docs-rs h3{margin:0 0 8px;font-size:11px;font-weight:400;letter-spacing:.14em;
-            color:var(--dim)}
-
-.pgrid{max-height:38vh;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(36px,1fr));gap:4px}
-.pgrid a{display:grid;place-items:center;height:26px;font-size:11.5px;color:var(--mute);
-         border:1px solid var(--rule);text-decoration:none;font-variant-numeric:tabular-nums}
-.pgrid a:hover{border-color:#33413f;color:var(--ink)}
-.pgrid a.gap{color:var(--warn);border-color:#4a3a22}
-.pgrid a[aria-current="true"]{background:var(--accent);color:var(--accent-ink);
-                              border-color:var(--accent)}
-
-.outl{max-height:44vh;overflow:auto}
-.outl a{display:block;padding:5px 0;color:var(--mute);text-decoration:none;font-size:12px;
-        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.45}
-.outl a.l1{color:var(--ink)}
-.outl a.l3{padding-left:13px}
-.outl a.l4{padding-left:26px}
-.outl a.l5,.outl a.l6{padding-left:39px}
-.outl a:hover{color:var(--accent)}
-.outl a[aria-current="true"]{color:var(--accent)}
-
-.docs-find input{width:100%;background:var(--field);border:1px solid transparent;
-                 border-radius:3px;padding:8px 11px;font-size:12.5px;outline:0}
-.docs-find input:focus{border-color:#33413f}
-.docs-find .cnt{color:var(--dim);font-size:11.5px;padding:8px 0 2px}
-.fmatches{max-height:34vh;overflow:auto}
-.fmatches a{display:block;padding:6px 0;border-bottom:1px solid var(--rule-soft);
-            color:var(--mute);font-size:11.5px;text-decoration:none;line-height:1.5;
-            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fmatches a .n{color:var(--dim);margin-right:10px}
-.fmatches a:hover{color:var(--ink)}
-.fmatches a[aria-current="true"]{color:var(--accent)}
-
-/* ── the body: a document a person typed ──────────────────────────────────────────
-   Rendered as markdown rather than dumped as text, but the line number stays in a gutter
-   beside every block: half of a citation is the line, and a document you cannot cite is
-   a document you have to take on trust. */
-.docs-body{min-width:0}
-.md{font-size:13px;line-height:1.75;padding-bottom:20px}
-.mdb{display:grid;grid-template-columns:3.5ch minmax(0,1fr);gap:16px;
-     border-left:2px solid transparent;padding:1px 0 1px 9px;scroll-margin-top:20px}
-.mdb .gut{color:var(--dim);text-align:right;font-size:11.5px;line-height:2;user-select:none;
-          font-variant-numeric:tabular-nums}
-.mdb.inpassage{border-left-color:var(--rule)}
-.mdb.hit{border-left-color:var(--accent);background:var(--accent-wash)}
-.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{margin:0;color:var(--ink);letter-spacing:-.01em;
-                                          line-height:1.4}
-.md h1{font-size:17.5px;padding:14px 0 5px}
-.md h2{font-size:15px;padding:16px 0 5px;border-bottom:1px solid var(--rule)}
-.md h3{font-size:13.5px;padding:13px 0 4px}
-.md h4,.md h5,.md h6{font-size:13px;padding:11px 0 3px;color:var(--mute)}
-.md p{margin:0;padding:5px 0;color:var(--mute);word-break:break-word}
-.md ul,.md ol{margin:0;padding:3px 0 3px 21px;color:var(--mute)}
-.md li{padding:2px 0}
-.md li>ul,.md li>ol{padding-top:2px;padding-bottom:0}
-.md blockquote{margin:0;padding:6px 0 6px 13px;border-left:2px solid var(--rule);
-               color:var(--dim)}
-.md pre.md-code{margin:4px 0;padding:11px 13px;background:var(--bg);border:1px solid var(--rule);
-                overflow-x:auto;color:var(--mute);font-size:12.5px;line-height:1.6;
-                white-space:pre;font-family:var(--mono)}
-.md code.md-c{color:var(--warn)}
-.md b{color:var(--ink);font-weight:700}
-.md i{font-style:italic;color:var(--ink)}
-.md .md-hr{height:1px;background:var(--rule);margin:13px 0}
-.md .md-tw{overflow-x:auto;padding:5px 0}
-.md table.md-t{width:100%;border-collapse:collapse;table-layout:auto;min-width:0}
-.md table.md-t th{position:static;background:none;text-align:left;font-size:12px;
-                  color:var(--ink);padding:7px 16px 7px 0;border-bottom:1px solid var(--rule);
-                  white-space:nowrap}
-.md table.md-t tr{cursor:auto}
-.md table.md-t tr:hover td{background:none}
-.md table.md-t td{padding:7px 16px 7px 0;border-bottom:1px solid var(--rule-soft);
-                  color:var(--mute);font-size:12.5px;vertical-align:top}
-
-/* ── the body: a document a machine pulled out of a PDF ───────────────────────────
-   One section per page, rendered as the pages come into view. A 150-page manual has
-   seven thousand lines in it; building them all up front is what made one take the best
-   part of a minute to open. */
-.docs-page{border-top:1px solid var(--rule);min-width:0;scroll-margin-top:12px}
-.docs-page-h{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:14px;
-             background:var(--bg);border-bottom:1px solid var(--rule-soft);padding:8px 2px;
-             font-size:12px;color:var(--dim)}
-.docs-page-h b{color:var(--ink);font-weight:700}
-.docs-page-h .sp{margin-left:auto}
-.docs-page-h a{font-size:11.5px;letter-spacing:.06em;text-decoration:none;white-space:nowrap}
-.docs-page-b{padding:9px 0 20px}
-.docs-page.here .docs-page-h b{color:var(--accent)}
-.docs-page.hit{border-left:2px solid var(--accent);margin-left:-13px;padding-left:11px}
-.docs-page.hit>.docs-page-h{background:var(--bg)}
-.docs-page.inpassage{border-left:2px solid var(--rule);margin-left:-13px;padding-left:11px}
-.docs-gap{border:1px solid #4a3a22;background:#1a1610;padding:14px 15px;margin:2px 0 14px;
-          font-size:12.5px;line-height:1.75;color:var(--warn)}
-.docs-gap span{display:block;color:var(--dim);margin-top:6px}
-.docs-body .code .ln{scroll-margin-top:52px}
-.docs-body .code .ln.hit{border-left:2px solid var(--accent);margin-left:-11px;
-                         padding-left:9px}
-
-/* ── the paper itself ─────────────────────────────────────────────────────────────── */
-.docs-pdf{display:none;min-width:0}
-.docs-pdf iframe{width:100%;height:100%;border:1px solid var(--rule);background:var(--panel);
-                 display:block}
-
-/* ── wider than a phone: the rail is a rail ───────────────────────────────────────── */
-@media (min-width:1100px){
-  .docs-cols{grid-template-columns:280px minmax(0,1fr)}
-  .docs-rail{position:sticky;top:0;align-self:start;max-height:calc(100dvh - 96px);
-             overflow:auto;border:0;background:none;border-right:1px solid var(--rule);
-             padding-right:14px}
-  .docs-rail-toggle{display:none}
-  .docs-rail-in{display:block;padding:0}
-  .outl{max-height:46vh}
-  .fmatches{max-height:26vh}
+/* ── a document a person typed ───────────────────────────────────────────────────
+   Rendered as ordinary prose, but the source line stays in a gutter beside every block:
+   half of a citation is the line, and a document you cannot cite is a document you have
+   to take on trust. */
+.mdb { display: grid; grid-template-columns: 3.25rem minmax(0, 1fr); align-items: start;
+       padding: .1rem .35rem; border-radius: .375rem;
+       scroll-margin-top: calc(var(--docs-nav, 57px) + 2rem); }
+.mdb > .gut { font-size: .75rem; line-height: 2.1; text-align: right; padding-right: .9rem;
+              color: var(--bs-tertiary-color); user-select: none; }
+.mdb > :last-child { min-width: 0; }
+/* A block of prose is neither a table row nor a list item, so the shell's `.code .hit`
+   cannot reach it. It is given the same treatment by reference — the shell's tint and its
+   4px sea bar — and nothing is chosen here. Hoisting `.hit` out of `.code` in console.html
+   would let these two rules go away entirely. */
+.mdb.hit { background: rgba(var(--bs-link-color-rgb), .13);
+           box-shadow: inset 4px 0 var(--ob-sea); }
+.mdb.inpassage { box-shadow: inset 2px 0 var(--bs-border-color); }
+@media (max-width: 575.98px) {
+  .mdb { grid-template-columns: 2.25rem minmax(0, 1fr); padding-left: 0; }
+  .mdb > .gut { padding-right: .5rem; font-size: .7rem; }
 }
 
-/* ── wide enough to read the paper beside its reading ─────────────────────────────── */
-@media (min-width:1280px){
-  .docs-cols.pdf{grid-template-columns:258px minmax(0,1fr) minmax(320px,36%)}
-  .docs-cols.pdf .docs-pdf{display:block;position:sticky;top:0;align-self:start;
-                           height:calc(100dvh - 104px)}
-}
-
-/* ── a phone ──────────────────────────────────────────────────────────────────────
-   The shelf becomes two lines: what it is, and whether anything can be answered from
-   it. The columns of numbers are for a desk. */
-@media (max-width:820px){
-  .shelf .hd{display:none}
-  .shelf .row{grid-template-columns:minmax(0,1fr);padding:3px 0 5px}
-  .shelf .c{padding:5px 13px}
-  .shelf .s,.shelf .c.pass,.shelf .c.size,.shelf .c.mod{display:none}
-  .shelf .grp{padding:15px 13px 7px}
-  .docs-reader{padding:14px 14px 78px}
-  .docs-title{font-size:16.5px}
-  .docs-meta{gap:3px 16px;font-size:11.5px}
-  .hitgrp .gh{flex-wrap:wrap;gap:2px 12px}
-  .hitgrp .gh .s{margin-left:0}
-  .mdb{grid-template-columns:2.6ch minmax(0,1fr);gap:11px;padding-left:7px}
-  .mdb .gut{font-size:10.5px}
-  .md{font-size:12.5px}
-}
+/* ── a document a machine pulled out of a PDF ────────────────────────────────────
+   One section per page, built as the pages come into view. The heading stays under the
+   navbar while you read the page, because "which page is this" is the question you ask
+   most often in a 150-page manual. A whole page is too much surface to tint, so the page
+   a citation landed on is marked by the bar alone; the line inside it carries the tint,
+   from `.code .hit` in the shell. */
+.docs-page { scroll-margin-top: calc(var(--docs-nav, 57px) + .25rem); border-radius: .375rem; }
+.docs-page-h { position: sticky; top: var(--docs-nav, 57px); z-index: 2;
+               background: var(--bs-card-bg, var(--bs-body-bg)); }
+.docs-page.hit { box-shadow: inset 4px 0 var(--ob-sea); }
+.docs-page.inpassage { box-shadow: inset 2px 0 var(--bs-border-color); }
+.docs-body .code .ln { scroll-margin-top: calc(var(--docs-nav, 57px) + 3.5rem); }
