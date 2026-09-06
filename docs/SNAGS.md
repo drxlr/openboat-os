@@ -17,8 +17,10 @@ say what is wrong, send. It appends one entry to that boat's `SNAGS.md`, next to
 ## Append-only, on purpose
 
 `record()` in `openboat/snag.py` only ever adds a new heading to the end of the file. It
-does not edit an existing entry, mark one fixed, or reorder anything — there is no code
-path that would let it. Closing a snag is a line changed by hand:
+does not edit an existing entry or reorder anything — there is no code path that would let
+it. A fault's status still changes, in one of two ways, and both leave the history intact.
+
+By hand, at a desk, the line
 
 ```
 **Status:** open
@@ -28,8 +30,16 @@ becomes
 **Status:** fixed — replaced the striker plate, 2026-09-12
 ```
 
-That is a deliberate act by a person at a desk, not a tap on a phone in a wet pocket, and
-it is why `read_snags()` — the function that turns the markdown back into a list for the
+Or from the console's task page, as a **follow-up** that carries a status. A fault moves
+through three words: `open` is what the phone files; `review` says somebody has an idea and
+it wants looking at before anybody picks up a tool; `fixed` closes it. The follow-up is
+appended like any other entry, with the person's name and a note — closing one without
+saying what was done is refused — and the fault's status is the newest thing anybody wrote
+about it. A follow-up that says nothing about status carries no `Status` line and changes
+nothing. Reopening a fault is done the way it used to be closed: by hand, in the file.
+
+Either way it is a deliberate act with a name on it, not a tap on a phone in a wet pocket,
+and it is why `read_snags()` — the function that turns the markdown back into a list for the
 page — is a *parser over the file* and not a database sitting beside it. If it kept its
 own copy, a snag you had just fixed and written down would still show as open, which is
 the one failure mode a fault list cannot have: a maintenance record that lies is worse

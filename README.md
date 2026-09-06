@@ -55,7 +55,11 @@ is the only requirement.
 claude mcp add openboat -- python3 -m openboat.mcp
 ```
 
-`marine_forecast`, `passage_window`, `plan_route`, `boat_state`, `ais_targets`. All read-only.
+`marine_forecast`, `passage_window`, `plan_route`, `boat_state`, `ais_targets`,
+`boat_docs`, `boat_specs`, `boat_papers`, `boat_costs`, `boat_files`, `checks`,
+`boat_tasks` (the snags with their status, and the service due) and `engine_data`
+(hours, coverage and the health findings). All read-only; three append-only tools
+(`log_check`, `add_note`, `add_document`) write to their own files and nothing else.
 The assistant can plan, explain and remember; it cannot steer, switch or send. That boundary
 is the design — see [DISCLAIMER.md](DISCLAIMER.md).
 

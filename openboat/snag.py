@@ -67,6 +67,12 @@ MAX_BODY = 24 * 1024 * 1024
 
 SAFE = re.compile(r"[^a-z0-9]+")
 
+#: The states a fault moves through. `open` is what a phone files; `review` says somebody
+#: has an idea and it wants looking at before it is worked on; `fixed` closes it. A follow-up
+#: may carry one of these, and the newest one anybody wrote is the fault's status — set from
+#: the console at a desk, and still appended to the file rather than edited into it.
+STATUSES = ("open", "review", "fixed")
+
 
 def people() -> dict[str, str]:
     """Who may file, from `$OPENBOAT_SNAG_PEOPLE` — `"skipper:tokenA,crew:tokenB"`.
@@ -127,7 +133,7 @@ def _slug(text: str, limit: int = 40) -> str:
 
 
 def record(boat_key: str, note: str, where: str, images: list[bytes],
-           by: str = "", follow_up_to: str = "") -> dict:
+           by: str = "", follow_up_to: str = "", status: str = "") -> dict:
     """Append one snag, with its photographs, to the boat's list. Returns what was written.
 
     `by` is who noticed it. On a boat shared between two people that is not bookkeeping: six
@@ -141,6 +147,13 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
     note = note.strip()
     if not note and not images:
         raise ValueError("a snag needs a note or a photograph")
+    status = status.strip().lower()
+    if status and status not in STATUSES:
+        raise ValueError(f"status must be one of {', '.join(STATUSES)}")
+    if status and not follow_up_to.strip():
+        raise ValueError("a status is set on a follow-up to an existing snag, not on a new one")
+    if status == "fixed" and not note:
+        raise ValueError("closing a snag needs a note saying what was done")
 
     base = known[boat_key]["profile"].parent
     now = datetime.now().astimezone()
@@ -165,8 +178,14 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
         # is a bug: a follow-up would attach to whichever of them was parsed first.
         f"## {now:%Y-%m-%d %H:%M:%S} — {title}",
         "",
-        f"**Status:** open",
     ]
+    # A new fault is open. A follow-up carries a Status line only when it is changing
+    # one — a follow-up that merely adds what somebody learned says nothing about status,
+    # and the parser treats its silence as "no change".
+    if not parent:
+        lines.append("**Status:** open")
+    elif status:
+        lines.append(f"**Status:** {status}")
     if parent:
         # Appending, never rewriting, stays the rule — the fault's history is the sequence
         # of things people wrote about it, in the order they learned them, and rewriting the
@@ -256,7 +275,7 @@ def read_snags(boat_key: str) -> list[dict]:
             if current:
                 out.append(current)
             current = {"when": head["when"].strip(), "title": head["title"].strip(),
-                       "status": "open", "where": "", "by": "", "follow-up to": "",
+                       "status": "", "where": "", "by": "", "follow-up to": "",
                        "photos": [], "body": [], "updates": []}
             in_header = True
             continue
@@ -281,8 +300,12 @@ def read_snags(boat_key: str) -> list[dict]:
 
     for entry in out:
         entry["body"] = "\n".join(entry["body"]).strip()
-        entry["open"] = not entry["status"].lower().startswith(("fixed", "done", "closed"))
         entry["follow_up_to"] = entry.pop("follow-up to", "")
+        # A heading with no Status line is open — an entry somebody wrote and never
+        # marked is not a closed one. For a follow-up the same silence means "no change",
+        # and that distinction is what lets a follow-up carry a status at all.
+        if not entry["status"] and not entry["follow_up_to"]:
+            entry["status"] = "open"
 
     # One fault, one item. A follow-up is attached to the entry it names and does not appear
     # in the list in its own right — otherwise the same fault is counted twice and read
@@ -294,19 +317,35 @@ def read_snags(boat_key: str) -> list[dict]:
     # inside the same second without inventing a more precise time than actually happened,
     # and without an entry ever adopting itself.
     top = []
+    root: dict[int, dict] = {}         # id(follow-up) → the fault it belongs to
     for index, entry in enumerate(out):
         parent = None
         if entry["follow_up_to"]:
             for candidate in reversed(out[:index]):
                 if candidate["when"] == entry["follow_up_to"]:
-                    parent = candidate
+                    # A follow-up filed in the same second as its fault shares the
+                    # fault's timestamp, and the nearest match is then the follow-up
+                    # itself. Whatever is matched, the entry joins the fault at the root.
+                    parent = root.get(id(candidate), candidate)
                     break
         if parent is not None:
             parent["updates"].append(entry)
+            root[id(entry)] = parent
         else:
             top.append(entry)
     for entry in top:
         entry["updates"].sort(key=lambda e: e["when"])
+        # The fault's status is the newest thing anybody wrote about it: its own line, then
+        # each follow-up's in order. A follow-up saying `open` is the recorder's old default
+        # and says nothing; reopening a fault that was closed by hand is done by hand, in
+        # the file, the way it was closed.
+        for update in entry["updates"]:
+            said = update["status"].strip().lower()
+            if said and said != "open":
+                entry["status"] = update["status"]
+        entry["open"] = not entry["status"].lower().startswith(("fixed", "done", "closed"))
+        for update in entry["updates"]:
+            update["open"] = entry["open"]
     top.reverse()
     return top
 
@@ -318,13 +357,51 @@ class Snag(SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):        # quieter: this runs unattended
         sys.stderr.write("  %s\n" % (fmt % args))
 
+    def _cors(self) -> str | None:
+        """The origin this response may be read by, or None.
+
+        The console is served by the dashboard on another port of the same machine, and a
+        browser will not let it read this service's answers without permission. Permission
+        is given to exactly that: a page whose origin is this host on any port. Any other
+        origin — some site on the internet with a script that guesses LAN addresses — gets
+        no header and therefore no answer it can read, and no preflight it can pass.
+        """
+        origin = self.headers.get("Origin", "")
+        if not origin:
+            return None
+        try:
+            asked = urllib.parse.urlsplit(origin).hostname or ""
+            mine = (self.headers.get("Host", "").rsplit(":", 1)[0] or "").strip("[]")
+        except ValueError:
+            return None
+        return origin if asked and asked.lower() == mine.lower() else None
+
     def _json(self, payload, status=200):
         body = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        allowed = self._cors()
+        if allowed:
+            self.send_header("Access-Control-Allow-Origin", allowed)
+            self.send_header("Vary", "Origin")
         self.end_headers()
         self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        """The browser's question before a cross-port POST: only the console's origin is
+        told yes, and only for the one write route."""
+        allowed = self._cors()
+        route = self.path.partition("?")[0]
+        if not allowed or route != "/api/snag":
+            return self._json({"error": "not found"}, status=404)
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", allowed)
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Vary", "Origin")
+        self.end_headers()
 
     def _caller(self, params: dict) -> str | None:
         """The name behind this request, or None when it may not proceed.
@@ -441,7 +518,8 @@ class Snag(SimpleHTTPRequestHandler):
             written = record(str(body.get("boat", "")), str(body.get("note", "")),
                              str(body.get("where", "")), images,
                              by=who or str(body.get("by", "")),
-                             follow_up_to=str(body.get("follow_up_to", "")))
+                             follow_up_to=str(body.get("follow_up_to", "")),
+                             status=str(body.get("status", "")))
         except ValueError as exc:
             return self._json({"error": str(exc)}, status=400)
         except Exception as exc:                              # noqa: BLE001

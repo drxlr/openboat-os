@@ -6,7 +6,7 @@ session, on any machine, can ask about the boat, the weather and the passage:
 
     claude mcp add openboat -- python3 -m openboat.mcp
 
-Nine tools. Eight are read-only; the ninth, `log_check`, appends a line to the owner's
+Eleven tools. Ten are read-only; the ninth, `log_check`, appends a line to the owner's
 maintenance log and can do nothing else. Nothing here sends, pays, books or steers, and
 that is a property of the design rather than a feature not yet written — there is no route
 from this module into `openboat/control/`, and `tests/test_control_gate.py` fails the build
@@ -31,9 +31,12 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from datetime import datetime
 
 from . import boat, documents, knowledge, ledger, logbook, notes, papers, windows
+from . import engine_health, engine_hours, maintenance, snag
+from .engine import DEFAULT_DB, connect as connect_engine_data
 from .marine import forecast
 from .profile import load
 from .route import Waypoint, plan
@@ -76,6 +79,8 @@ ANNOTATIONS = {
     "add_note": APPEND_ONLY,
     "add_document": APPEND_ONLY,
     "boat_files": READ_ONLY,
+    "boat_tasks": READ_ONLY,
+    "engine_data": READ_ONLY,
 }
 
 
@@ -284,6 +289,46 @@ TOOLS = [
         },
     },
     {
+        "name": "boat_tasks",
+        "description": "What the boat is owed right now: the open faults somebody "
+                       "photographed at the pontoon (snags, each with a status of open, "
+                       "review or fixed, who filed it, where on the boat, and every "
+                       "follow-up written since) and the service items due, counted in "
+                       "the engine's own running hours and calendar days against the "
+                       "intervals in the owner's profile. Use it for any question about "
+                       "the status of a task, a fault, a snag, what is outstanding, what "
+                       "is in review, what was fixed, or when a service is due. A "
+                       "service item with no verdict is one that has never been "
+                       "recorded — say so rather than guessing a date. Read-only: to "
+                       "change a status the owner uses the console.",
+        "inputSchema": {"type": "object", "properties": {
+            "boat": {"type": "string",
+                     "description": "boat key when this machine serves several boats; "
+                                    "omit for the boat this server was started on"},
+            "status": {"type": "string",
+                       "description": "filter snags: open | review | fixed | all "
+                                      "(default open, which includes review)"},
+            "what": {"type": "string",
+                     "description": "a word to filter both lists by"},
+        }},
+    },
+    {
+        "name": "engine_data",
+        "description": "The engine as the log has measured it: running hours and how "
+                       "much of the time the log was actually watching, outings, the "
+                       "most recent runs, and the health findings — cooling trend per "
+                       "rpm band against sea temperature, oil pressure, resting battery "
+                       "voltage — each marked good, watch, bad or unknown with the "
+                       "evidence behind it. Use it for anything about engine data, "
+                       "engine hours, overheating, oil pressure, the battery, or how the "
+                       "engine has been behaving. Says when the log is too short to "
+                       "judge instead of judging anyway.",
+        "inputSchema": {"type": "object", "properties": {
+            "days": {"type": "integer",
+                     "description": "only the last N days of the log; default all"},
+        }},
+    },
+    {
         "name": "boat_state",
         "description": "Live position, speed, heading and depth from the boat's Signal K server. "
                        "Reports plainly when the boat is offline, which is most of the time.",
@@ -478,6 +523,110 @@ def tool_plan_route(waypoints, speed_kn=None, depart=None, litres_per_hour=None)
     return "\n".join(lines)
 
 
+def tool_boat_tasks(boat="", status="open", what=""):
+    """Snags and service due, as text a model can quote. Two sources, both read-only."""
+    profile = load()
+    known = snag.boats()
+    keys = [b["key"] for b in known]
+    here = profile.path.resolve() if profile.path else None
+    mine = next((b["key"] for b in known
+                 if here and Path(b["profile"]).resolve() == here), keys[0] if keys else "")
+    key = (boat or mine).strip()
+    if key not in keys:
+        return (f"No boat {key!r} here. Boats this machine knows: {', '.join(keys) or 'none'}."
+                if key else "No boat is configured for snags on this machine.")
+    want = (status or "open").strip().lower()
+    needle = (what or "").strip().lower()
+    hit = lambda *bits: not needle or any(needle in str(b or "").lower() for b in bits)
+
+    out = [f"Boat: {next(b['name'] for b in known if b['key'] == key)} ({key})", ""]
+    entries = snag.read_snags(key)
+    if want == "all":
+        shown = entries
+    elif want == "open":
+        shown = [e for e in entries if e["open"]]
+    else:
+        shown = [e for e in entries if e["status"].lower().startswith(want)]
+    shown = [e for e in shown if hit(e["title"], e["where"], e["body"])]
+    out.append(f"SNAGS — {len(shown)} shown of {len(entries)} filed, "
+               f"{sum(1 for e in entries if e['open'])} open in all")
+    if not shown:
+        out.append("  none")
+        # A machine serving several boats: say where the snags are, so a question about
+        # "the tasks" is not answered with silence about the wrong hull.
+        others = [(b["key"], sum(1 for e in snag.read_snags(b["key"]) if e["open"]))
+                  for b in known if b["key"] != key]
+        others = [f"{k} ({n} open)" for k, n in others if n]
+        if others:
+            out.append("  other boats on this machine with open snags: " + ", ".join(others)
+                       + " — pass boat=<key> to read them")
+    for e in shown:
+        out.append(f"  [{e['status'] or 'open'}] {e['when']}  {e['title']}"
+                   f"{'  — ' + e['where'] if e['where'] else ''}"
+                   f"{'  (by ' + e['by'] + ')' if e['by'] else ''}")
+        if e["body"]:
+            first = e["body"].splitlines()[0]
+            if first != e["title"]:
+                out.append(f"      {first[:200]}")
+        for u in e.get("updates", []):
+            # A follow-up's status is only worth printing when it changed something; the
+            # recorder's old default `open` on a plain follow-up is not news.
+            said = (u["status"] or "").strip().lower()
+            out.append(f"      ↳ {u['when']}{' [' + u['status'] + ']' if said and said != 'open' else ''}"
+                       f"{' ' + u['by'] if u['by'] else ''}: "
+                       f"{(u['body'] or u['title']).splitlines()[0][:200]}")
+    out.append("")
+
+    if boat and key != mine:
+        out.append("SERVICE — the service schedule is per profile, and this server was "
+                   f"started on {mine or 'another boat'}; run it on {key}'s profile for "
+                   "its service items.")
+        return "\n".join(out)
+    if not DEFAULT_DB.exists():
+        out.append(f"SERVICE — no engine log at {DEFAULT_DB}; nothing has been counted.")
+        return "\n".join(out)
+    db = connect_engine_data(DEFAULT_DB)
+    try:
+        items = maintenance.due(db, profile)
+        meter = engine_hours.summary(db)
+    finally:
+        db.close()
+    items = [d for d in items if hit(d.item, d.description, d.why)]
+    out.append(f"SERVICE — {len(items)} item(s); "
+               + (f"{meter['running_h']:.1f} h counted by the log over "
+                  f"{meter['coverage'] * 100:.0f} % coverage" if meter["samples"]
+                  else "the engine log holds no samples yet"))
+    if meter.get("synthetic"):
+        out.append("  ⚠ SYNTHETIC DATA — no engine ran.")
+    for d in items:
+        every = " / ".join(x for x in (
+            f"{d.interval_hours:.0f} h" if d.interval_hours else "",
+            f"{d.interval_months} months" if d.interval_months else "",
+            f"{d.interval_days} days" if d.interval_days else "",
+            "each salt-water outing" if d.per_outing else "") if x) or "no interval set"
+        last = f"{d.last:%Y-%m-%d}" if d.last else "never recorded"
+        out.append(f"  [{d.verdict}] {d.item}: {d.description}")
+        out.append(f"      due every {every}; last {last}; {d.why}")
+    return "\n".join(out)
+
+
+def tool_engine_data(days=None):
+    if not DEFAULT_DB.exists():
+        return (f"No engine log at {DEFAULT_DB}. Nothing has been measured; start one with "
+                "python3 -m openboat.engine on the boat's network.")
+    since = None
+    if days:
+        since = int(datetime.now().timestamp()) - int(days) * 86400
+    db = connect_engine_data(DEFAULT_DB)
+    try:
+        hours = engine_hours.summary(db, since)
+        health = engine_health.analyse(db)
+    finally:
+        db.close()
+    parts = [engine_hours.render(hours), "", "HEALTH", engine_health.render(health)]
+    return "\n".join(parts)
+
+
 def tool_boat_state():
     try:
         state = boat.state()
@@ -516,6 +665,8 @@ HANDLERS = {
     "add_note": lambda **kw: tool_add_note(**kw),
     "add_document": lambda **kw: tool_add_document(**kw),
     "boat_files": lambda **kw: tool_boat_files(**kw),
+    "boat_tasks": lambda **kw: tool_boat_tasks(**kw),
+    "engine_data": lambda **kw: tool_engine_data(**kw),
     "marine_forecast": tool_marine_forecast,
     "passage_window": tool_passage_window,
     "plan_route": tool_plan_route,

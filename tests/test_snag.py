@@ -182,11 +182,12 @@ def test_a_follow_up_folds_into_the_fault_it_continues() -> None:
             check(sum(1 for r in rows if r["open"]) == 2,
                   "the open count counts faults, not entries")
 
-            # A follow-up must not close its parent — only a hand edit does that.
+            # A plain follow-up says nothing about status, so it carries no Status line —
+            # only the two faults do. Silence is "no change"; a status is a deliberate word.
             target = Path(raw) / "second-boat" / "SNAGS.md"
             text = target.read_text()
-            check(text.count("**Status:** open") == 3,
-                  "every appended entry still carries its own status line")
+            check(text.count("**Status:** open") == 2,
+                  "the faults carry a status line and the plain follow-up carries none")
             check(ladder["open"], "a fault with an update on it is still open")
 
             # Entries filed inside the same second share a timestamp, and that must not
@@ -220,3 +221,63 @@ if __name__ == "__main__":
     print(f"{len(results) - len(failed)}/{len(results)} checks pass"
           + (f" — FAILED: {failed}" if failed else ""))
     sys.exit(1 if failed else 0)
+
+
+def test_a_follow_up_can_change_the_status_and_silence_changes_nothing() -> None:
+    """`review` and `fixed` arrive as follow-ups from the console; a plain follow-up leaves
+    the status alone; a closed fault is not reopened by an old follow-up's default line."""
+    from openboat import snag
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        os.environ["OPENBOAT_BOATS"] = str(_boats_dir(tmp))
+        if True:
+            snag.record("second-boat", "Hatch seal weeps", "foredeck", [], by="the owner")
+            when = snag.read_snags("second-boat")[0]["when"]
+
+            snag.record("second-boat", "Looked again, still weeping", "", [], by="the owner",
+                        follow_up_to=when)
+            item = snag.read_snags("second-boat")[0]
+            check(item["status"] == "open" and item["open"],
+                  f"a follow-up without a status changes nothing (got {item['status']!r})")
+
+            snag.record("second-boat", "Idea: re-bed the frame with butyl", "", [],
+                        by="the owner", follow_up_to=when, status="review")
+            item = snag.read_snags("second-boat")[0]
+            check(item["status"] == "review" and item["open"],
+                  f"a follow-up marked review moves the fault to review, still open (got {item['status']!r})")
+            check(len(item["updates"]) == 2 and item["updates"][1]["status"] == "review",
+                  "and the follow-up itself remembers what it said")
+
+            try:
+                snag.record("second-boat", "", "", [b"\xff\xd8\xffx"], by="x",
+                            follow_up_to=when, status="fixed")
+                check(False, "closing without a note is refused")
+            except ValueError:
+                check(True, "closing without a note is refused")
+            try:
+                snag.record("second-boat", "x", "", [], by="x", follow_up_to=when, status="parked")
+                check(False, "an unknown status is refused")
+            except ValueError:
+                check(True, "an unknown status is refused")
+            try:
+                snag.record("second-boat", "x", "", [], by="x", status="review")
+                check(False, "a status on a new snag is refused")
+            except ValueError:
+                check(True, "a status on a new snag is refused")
+
+            snag.record("second-boat", "Re-bedded the frame, dry since", "", [],
+                        by="the owner", follow_up_to=when, status="fixed")
+            item = snag.read_snags("second-boat")[0]
+            check(item["status"] == "fixed" and not item["open"],
+                  f"a follow-up marked fixed closes it (got {item['status']!r})")
+
+            # The legacy shape: an old follow-up that the recorder stamped `open` under a
+            # fault somebody has since closed by hand must not reopen it.
+            target = tmp / "second-boat" / "SNAGS.md"
+            text = target.read_text()
+            target.write_text(text + "\n## 2030-01-01 00:00:00 — Old note\n\n**Status:** open\n"
+                              f"**Follow-up to:** {when}\n\n> filed long ago\n")
+            item = snag.read_snags("second-boat")[0]
+            check(item["status"] == "fixed" and not item["open"],
+                  "an old follow-up's default `open` does not reopen a closed fault")

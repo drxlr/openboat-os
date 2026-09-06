@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -349,3 +350,43 @@ if __name__ == "__main__":
     print(f"{len(results) - len(failed)}/{len(results)} checks pass"
           + (f" — FAILED: {failed}" if failed else ""))
     sys.exit(1 if failed else 0)
+
+
+# --------------------------------------------------------------------------------------
+# 9. Tasks and the engine log are askable. Both answer in a sentence on a fresh boat with
+#    no snag file and no engine log, rather than raising — the state every new install is in.
+# --------------------------------------------------------------------------------------
+def test_tasks_and_engine_data_answer_on_a_bare_boat() -> None:
+    import tempfile
+    from pathlib import Path
+    from openboat import mcp
+
+    names = [t["name"] for t in mcp.TOOLS]
+    check("boat_tasks" in names and "engine_data" in names,
+          "the tasks and engine log tools are offered")
+    for name in ("boat_tasks", "engine_data"):
+        tool = next(t for t in mcp.TOOLS if t["name"] == name)
+        check(tool["annotations"]["readOnlyHint"] is True, f"{name} is marked read-only")
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        (tmp / "boat.toml").write_text('[vessel]\nname = "Test Boat"\n')
+        old_profile, old_boats = os.environ.get("OPENBOAT_PROFILE"), os.environ.pop("OPENBOAT_BOATS", None)
+        old_db = mcp.DEFAULT_DB
+        os.environ["OPENBOAT_PROFILE"] = str(tmp / "boat.toml")
+        mcp.DEFAULT_DB = tmp / "engine-log.db"
+        try:
+            text = mcp.tool_boat_tasks()
+            check("SNAGS" in text and "none" in text and "no engine log" in text,
+                  f"a bare boat answers with an empty snag list and no engine log (got {text[:80]!r})")
+            check("No engine log" in mcp.tool_engine_data(), "the engine log says it does not exist yet")
+            check("No boat 'nope'" in mcp.tool_boat_tasks(boat="nope"),
+                  "an unknown boat key names the boats that exist")
+        finally:
+            mcp.DEFAULT_DB = old_db
+            if old_profile is None:
+                os.environ.pop("OPENBOAT_PROFILE", None)
+            else:
+                os.environ["OPENBOAT_PROFILE"] = old_profile
+            if old_boats is not None:
+                os.environ["OPENBOAT_BOATS"] = old_boats
