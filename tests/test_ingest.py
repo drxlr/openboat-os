@@ -176,6 +176,39 @@ def test_ingest_refuses_to_destroy_a_hand_written_file() -> None:
         check(BANNER in note.read_text(), "re-ingesting its own output needs no --force")
 
 
+# --------------------------------------------------------------------------------------
+# A blank-page marker is written for a reader, not for the search.
+#
+# Found the first time the snag list was queried in earnest: "what needs fixing on the bow
+# thruster" returned two blank-page markers ahead of every real passage. They are short,
+# BM25 rewards short passages, and the marker contained the word "needs". A machine-written
+# note that a page is blank is not knowledge about the boat — but it must stay in the file,
+# because that is how somebody reading it sees which pages still want OCR.
+# --------------------------------------------------------------------------------------
+def test_blank_page_markers_stay_in_the_file_but_out_of_the_search() -> None:
+    import tempfile
+
+    from openboat.ingest import NO_TEXT, Extraction, to_markdown
+    from openboat.knowledge import _split
+
+    md = to_markdown(Extraction(source=Path("m.pdf"),
+                                pages=["Real content about impellers.", "", "  "],
+                                backend="test"))
+    check(md.count("No text layer") == 2, "both empty pages are marked in the file")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        f = Path(tmp) / "m.md"
+        f.write_text(md)
+        passages = _split(f)
+        bodies = [p.text for p in passages]
+        check(not any("No text layer" in b for b in bodies),
+              "no blank-page marker becomes a searchable passage")
+        check(any("impellers" in b for b in bodies),
+              "the real page is still indexed")
+        check("No text layer" in f.read_text(),
+              "the marker is still in the file for a person reading it")
+
+
 if __name__ == "__main__":
     print(__doc__.splitlines()[0])
     print("-" * 78)
@@ -183,7 +216,8 @@ if __name__ == "__main__":
                  test_a_page_without_text_is_marked_rather_than_dropped,
                  test_extraction_reports_missing_backends_rather_than_crashing,
                  test_every_backend_agrees_on_the_page_count,
-                 test_ingest_refuses_to_destroy_a_hand_written_file):
+                 test_ingest_refuses_to_destroy_a_hand_written_file,
+                 test_blank_page_markers_stay_in_the_file_but_out_of_the_search):
         case()
     print("-" * 78)
     failed = [what for ok, what in results if not ok]

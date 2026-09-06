@@ -230,6 +230,15 @@ class Library:
 #: editor; anything else has to be turned into text first — see `openboat.ingest`.
 TEXT_TYPES = {".md", ".markdown", ".txt", ".text", ".rst", ".csv", ""}
 
+#: A page of a scanned manual that yielded no text is written out as a marked gap by
+#: `openboat.ingest`, so that somebody reading the file sees which pages still need OCR.
+#: It must not be *searchable*, though, and that distinction cost a real answer: the marker
+#: is short and boilerplate, BM25 rewards short passages, and the phrase inside it beat every
+#: real passage for the question "what needs fixing on the bow thruster". A machine-written
+#: note that a page is blank is not knowledge about the boat; the document's own header still
+#: records how many pages lack text, and that header *is* indexed.
+GAP_MARKER = re.compile(r"no text layer on this page", re.I)
+
 
 def _unreadable(path: Path, why: str) -> list[Passage]:
     """One passage saying the file could not be read, instead of indexing its bytes.
@@ -262,6 +271,8 @@ def _split(path: Path) -> list[Passage]:
         text = "\n".join(body).strip()
         if not text:
             return
+        if GAP_MARKER.search(text) and len(text) < 400:
+            return                      # a machine-written blank-page marker, not knowledge
         if len(text) <= 1800:
             out.append(Passage(path, at_heading, at_line, text))
             return
