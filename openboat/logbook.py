@@ -38,6 +38,20 @@ VERDICTS = ("ok", "watch", "act", "noted")
 #: out. Position is recorded too, just not first.
 FIRST = ("rpm", "coolant_c", "oil_bar", "volts", "fuel_pct", "water_c", "depth_m")
 
+#: Never written into a check, whatever the boat is publishing.
+#:
+#: `FIRST` above is machinery, and that is the whole content of a check: "the impeller
+#: looked fine" is made useful next season by rpm, coolant, oil and volts. Position adds
+#: nothing to it. It is also the one field here that is *private* — a berth says where a
+#: valuable object sits unattended, and unlike a name it cannot be retracted once it is in
+#: somebody's clone.
+#:
+#: The catch-all below used to sweep it in anyway. That put a real position into every
+#: check ever logged, on every boat, and in this repository it reached a tracked file.
+#: Dropping it here ends the class rather than containing it: no logbook anywhere records
+#: a position, so no later mistake about *where* a log is stored can publish one.
+NEVER = ("lat", "lon", "latitude", "longitude")
+
 
 @dataclass
 class Entry:
@@ -91,7 +105,8 @@ def record(what: str, found: str = "", verdict: str = "noted", by: str = "",
             # a summary that leads with latitude buries the number that mattered. Everything
             # is still recorded; only the order changes.
             readings = {k: numbers[k] for k in FIRST if k in numbers}
-            readings.update({k: v for k, v in numbers.items() if k not in readings})
+            readings.update({k: v for k, v in numbers.items()
+                             if k not in readings and k not in NEVER})
         except Exception:
             readings = {}
 
