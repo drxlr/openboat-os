@@ -63,7 +63,10 @@ DEFAULT_MARKERS = """\
 
 # --- a box of coordinates that must never be committed ---
 # BOX lat_min lat_max lon_min lon_max
-# BOX 34.5 35.2 33.3 34.0
+# The numbers below are invented, and deliberately mid-ocean. Put your own here —
+# and note that this file is public while `.private-markers` is not, so an example
+# copied from your real box would publish the very rectangle it exists to hide.
+# BOX 12.0 13.0 -66.0 -65.0
 """
 
 #: Files where a coordinate is expected and legitimate: the demo profile and its docs.
@@ -73,7 +76,37 @@ SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv"}
 SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".sqlite", ".sqlite-shm",
                  ".sqlite-wal", ".ico", ".woff", ".woff2", ".zip", ".gz"}
 
-COORD = re.compile(r"(-?\d{1,3}\.\d{3,})\s*[,;\s]\s*(-?\d{1,3}\.\d{3,})")
+#: A position written as a bare pair — prose, a URL, a CSV row: "12.3456, -65.4321".
+COORD_PAIR = re.compile(r"(-?\d{1,3}\.\d{3,})\s*[,;\s]\s*(-?\d{1,3}\.\d{3,})")
+
+#: The same position carried as *named fields*, which is how everything this project
+#: actually writes one down: logbook.jsonl, ledger.jsonl, tracks, AIS targets, Signal K
+#: deltas. `{"lat": 12.3456, "lon": -65.4321}` does not match COORD_PAIR — the separator
+#: between the two numbers is `, "lon": `, not a comma — so for a long time the guard was
+#: blind to every file the software generates, which is the only kind of file a berth
+#: position ever reaches by accident. The window spans newlines so pretty-printed JSON is
+#: caught as well as one-line JSONL.
+_LAT = r"\b(?:lat|latitude)\b\D{0,16}?(-?\d{1,3}\.\d{3,})"
+_LON = r"\b(?:lon|lng|long|longitude)\b\D{0,16}?(-?\d{1,3}\.\d{3,})"
+COORD_LAT_FIRST = re.compile(_LAT + r".{0,200}?" + _LON, re.IGNORECASE | re.DOTALL)
+COORD_LON_FIRST = re.compile(_LON + r".{0,200}?" + _LAT, re.IGNORECASE | re.DOTALL)
+
+
+def positions(text: str):
+    """Every (line number, lat, lon) this text can be read as stating.
+
+    Both spellings are searched, and a pair is reported once per place it appears. The
+    guard errs towards reporting: a false positive costs somebody ten seconds, and a false
+    negative costs them a published berth.
+    """
+    for number, line in enumerate(text.splitlines(), 1):
+        for lat_text, lon_text in COORD_PAIR.findall(line):
+            yield number, lat_text, lon_text
+    for pattern, swap in ((COORD_LAT_FIRST, False), (COORD_LON_FIRST, True)):
+        for match in pattern.finditer(text):
+            first, second = match.group(1), match.group(2)
+            lat_text, lon_text = (second, first) if swap else (first, second)
+            yield text[:match.start()].count("\n") + 1, lat_text, lon_text
 
 
 def load_markers() -> tuple[list[re.Pattern], list[tuple[float, float, float, float]]]:
@@ -150,16 +183,18 @@ def main(argv: list[str]) -> int:
                 match = pattern.search(line)
                 if match:
                     hits.append(f"{rel}:{number}: private marker {match.group(0)!r}")
-            if boxes and rel not in COORD_ALLOWED:
-                for lat_text, lon_text in COORD.findall(line):
-                    try:
-                        lat, lon = float(lat_text), float(lon_text)
-                    except ValueError:
-                        continue
-                    for lat_min, lat_max, lon_min, lon_max in boxes:
-                        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-                            hits.append(f"{rel}:{number}: coordinate {lat},{lon} "
-                                        f"is inside a private box")
+
+        if boxes and rel not in COORD_ALLOWED:
+            for number, lat_text, lon_text in positions(text):
+                try:
+                    lat, lon = float(lat_text), float(lon_text)
+                except ValueError:
+                    continue
+                for lat_min, lat_max, lon_min, lon_max in boxes:
+                    if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+                        hits.append(f"{rel}:{number}: coordinate {lat},{lon} "
+                                    f"is inside a private box")
+
 
     if hits:
         print("\nPrivate content found. This commit is refused.\n", file=sys.stderr)
