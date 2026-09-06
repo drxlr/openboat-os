@@ -390,3 +390,56 @@ def test_tasks_and_engine_data_answer_on_a_bare_boat() -> None:
                 os.environ["OPENBOAT_PROFILE"] = old_profile
             if old_boats is not None:
                 os.environ["OPENBOAT_BOATS"] = old_boats
+
+
+# --------------------------------------------------------------------------------------
+# 10. A snag's photograph comes back as image content, never as a path the model cannot
+#     open — and a name from the network never reaches the disk as given.
+# --------------------------------------------------------------------------------------
+def test_snag_photo_is_image_content_and_refuses_paths() -> None:
+    import base64
+    import tempfile
+    from pathlib import Path
+    from openboat import mcp, snag
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        (tmp / "boat.toml").write_text('[vessel]\nname = "Test Boat"\n')
+        old_profile, old_boats = os.environ.get("OPENBOAT_PROFILE"), os.environ.pop("OPENBOAT_BOATS", None)
+        os.environ["OPENBOAT_PROFILE"] = str(tmp / "boat.toml")
+        try:
+            key = snag.boats()[0]["key"]
+            jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"\xff\xd9"
+            snag.record(key, "Cracked lens on the stern light", "transom", [jpeg], by="the owner")
+            item = snag.read_snags(key)[0]
+            listed = mcp.tool_boat_tasks()
+            check("photos:" in listed and item["photos"][0].split("/")[-1] in listed,
+                  "boat_tasks names the photograph so the model can ask for it")
+
+            got = mcp.tool_snag_photo(when=item["when"])
+            parts = got["content"] if isinstance(got, dict) else []
+            images = [c for c in parts if c.get("type") == "image"]
+            check(len(images) == 1 and images[0]["mimeType"] == "image/jpeg",
+                  "one image part comes back for the one photograph")
+            check(bool(images) and base64.b64decode(images[0]["data"])[:2] == b"\xff\xd8",
+                  "and it is the JPEG, base64-encoded")
+            shaped = mcp.as_result(got)
+            check(shaped is got, "a content dict passes through the result shaper untouched")
+            check(mcp.as_result("plain")["content"][0]["text"] == "plain",
+                  "a string still becomes a text part")
+
+            bad = mcp.tool_snag_photo(name="../../boat.toml")
+            text = bad["content"][-1]["text"] if isinstance(bad, dict) else bad
+            check("not a snag photograph name" in text or "not on disk" in text,
+                  "a path in the name is refused rather than read")
+            check(not [c for c in (bad.get("content", []) if isinstance(bad, dict) else []) if c.get("type") == "image"],
+                  "and nothing is returned for it")
+            check("No snag filed" in mcp.tool_snag_photo(when="1999-01-01 00:00:00"),
+                  "an unknown timestamp says so")
+        finally:
+            if old_profile is None:
+                os.environ.pop("OPENBOAT_PROFILE", None)
+            else:
+                os.environ["OPENBOAT_PROFILE"] = old_profile
+            if old_boats is not None:
+                os.environ["OPENBOAT_BOATS"] = old_boats

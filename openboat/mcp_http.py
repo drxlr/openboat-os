@@ -138,7 +138,7 @@ def handle(request: dict) -> dict | None:
             return mcp.reply(request_id, {
                 "content": [{"type": "text", "text": f"{type(exc).__name__}: {exc}"}],
                 "isError": True})
-        return mcp.reply(request_id, {"content": [{"type": "text", "text": text}]})
+        return mcp.reply(request_id, mcp.as_result(text))
 
     return mcp.handle(request)
 

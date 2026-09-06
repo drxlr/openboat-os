@@ -6,7 +6,7 @@ session, on any machine, can ask about the boat, the weather and the passage:
 
     claude mcp add openboat -- python3 -m openboat.mcp
 
-Eleven tools. Ten are read-only; the ninth, `log_check`, appends a line to the owner's
+Twelve tools. Eleven are read-only; the ninth, `log_check`, appends a line to the owner's
 maintenance log and can do nothing else. Nothing here sends, pays, books or steers, and
 that is a property of the design rather than a feature not yet written — there is no route
 from this module into `openboat/control/`, and `tests/test_control_gate.py` fails the build
@@ -29,8 +29,13 @@ reach it is an ordinary answer given in a sentence, not an error.
 
 from __future__ import annotations
 
+import base64
 import json
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from datetime import datetime
 
@@ -81,6 +86,7 @@ ANNOTATIONS = {
     "boat_files": READ_ONLY,
     "boat_tasks": READ_ONLY,
     "engine_data": READ_ONLY,
+    "snag_photo": READ_ONLY,
 }
 
 
@@ -310,6 +316,22 @@ TOOLS = [
                                       "(default open, which includes review)"},
             "what": {"type": "string",
                      "description": "a word to filter both lists by"},
+        }},
+    },
+    {
+        "name": "snag_photo",
+        "description": "Show the photograph(s) somebody took of a snag. `boat_tasks` lists "
+                       "each snag's photo file names; pass one as `name`, or pass the "
+                       "snag's timestamp as `when` to get every photo of that snag (up to "
+                       "four). Returns the pictures themselves, downscaled, so you can look "
+                       "at the fault, the part, the label, the damage. Use it whenever the "
+                       "owner asks what a snag looks like, what the photo shows, or to read "
+                       "a model number off a plate they photographed.",
+        "inputSchema": {"type": "object", "properties": {
+            "boat": {"type": "string", "description": "boat key, as for boat_tasks"},
+            "name": {"type": "string", "description": "one photo file name from boat_tasks"},
+            "when": {"type": "string",
+                     "description": "a snag's timestamp from boat_tasks, for all its photos"},
         }},
     },
     {
@@ -568,6 +590,9 @@ def tool_boat_tasks(boat="", status="open", what=""):
             first = e["body"].splitlines()[0]
             if first != e["title"]:
                 out.append(f"      {first[:200]}")
+        if e.get("photos"):
+            out.append(f"      photos: {', '.join(Path(x).name for x in e['photos'])}"
+                       "  (snag_photo shows them)")
         for u in e.get("updates", []):
             # A follow-up's status is only worth printing when it changed something; the
             # recorder's old default `open` on a plain follow-up is not news.
@@ -608,6 +633,77 @@ def tool_boat_tasks(boat="", status="open", what=""):
         out.append(f"  [{d.verdict}] {d.item}: {d.description}")
         out.append(f"      due every {every}; last {last}; {d.why}")
     return "\n".join(out)
+
+
+PHOTO_NAME = re.compile(r"[A-Za-z0-9._-]{1,120}\.jpe?g", re.I)
+PHOTO_MAX_PX = 1024
+
+
+def _small_jpeg(path: Path) -> tuple[bytes, str]:
+    """The photograph, downscaled for a model to look at — or as it is, if it cannot be.
+
+    A phone photograph is a megabyte; sixteen of them in one answer is a conversation that
+    stops working. The package is stdlib-only and the standard library cannot resize a
+    JPEG, so this leans on the platform's own tool where there is one (`sips` on macOS)
+    and otherwise sends the original and says so. Never a silent failure: the caller is
+    told which it got.
+    """
+    tool = shutil.which("sips")
+    if tool:
+        with tempfile.TemporaryDirectory() as raw:
+            out = Path(raw) / "small.jpg"
+            done = subprocess.run([tool, "-Z", str(PHOTO_MAX_PX), "-s", "format", "jpeg",
+                                   "-s", "formatOptions", "60", str(path), "--out", str(out)],
+                                  capture_output=True, timeout=30)
+            if done.returncode == 0 and out.exists():
+                return out.read_bytes(), f"downscaled to {PHOTO_MAX_PX} px"
+    return path.read_bytes(), "original size — nothing here could resize it"
+
+
+def tool_snag_photo(boat="", name="", when=""):
+    """The pictures of a snag, as image content the model can see."""
+    profile = load()
+    known = snag.boats()
+    keys = [b["key"] for b in known]
+    here = profile.path.resolve() if profile.path else None
+    mine = next((b["key"] for b in known
+                 if here and Path(b["profile"]).resolve() == here), keys[0] if keys else "")
+    key = (boat or mine).strip()
+    if key not in keys:
+        return f"No boat {key!r} here. Boats this machine knows: {', '.join(keys) or 'none'}."
+    folder = next(b["profile"] for b in known if b["key"] == key).parent / "photos" / "snags"
+
+    wanted: list[str] = []
+    if name:
+        wanted = [Path(name).name]
+    elif when:
+        entry = next((e for e in snag.read_snags(key) if e["when"] == when.strip()), None)
+        if entry is None:
+            return f"No snag filed at {when!r} on {key}. boat_tasks lists the timestamps."
+        wanted = [Path(x).name for x in entry.get("photos", [])][:4]
+        if not wanted:
+            return f"The snag filed at {when} has no photograph."
+    else:
+        return "Say which: `name` (one photo file from boat_tasks) or `when` (a snag's timestamp)."
+
+    content: list[dict] = []
+    notes: list[str] = []
+    for leaf in wanted:
+        # Never join a name from the network to a directory as given: the leaf must look
+        # like a file the snag service wrote, and must exist under that one folder.
+        if not PHOTO_NAME.fullmatch(leaf):
+            notes.append(f"{leaf}: not a snag photograph name")
+            continue
+        path = folder / leaf
+        if not path.is_file():
+            notes.append(f"{leaf}: not on disk")
+            continue
+        blob, how = _small_jpeg(path)
+        content.append({"type": "image", "data": base64.b64encode(blob).decode("ascii"),
+                        "mimeType": "image/jpeg"})
+        notes.append(f"{leaf}: {len(blob) // 1024} kB, {how}")
+    content.append({"type": "text", "text": "\n".join(notes)})
+    return {"content": content}
 
 
 def tool_engine_data(days=None):
@@ -667,6 +763,7 @@ HANDLERS = {
     "boat_files": lambda **kw: tool_boat_files(**kw),
     "boat_tasks": lambda **kw: tool_boat_tasks(**kw),
     "engine_data": lambda **kw: tool_engine_data(**kw),
+    "snag_photo": lambda **kw: tool_snag_photo(**kw),
     "marine_forecast": tool_marine_forecast,
     "passage_window": tool_passage_window,
     "plan_route": tool_plan_route,
@@ -704,12 +801,20 @@ def handle(request: dict) -> dict | None:
                 "content": [{"type": "text", "text": f"{type(exc).__name__}: {exc}"}],
                 "isError": True,
             })
-        return reply(request_id, {"content": [{"type": "text", "text": text}]})
+        return reply(request_id, as_result(text))
 
     if request_id is None:
         return None  # a notification; nothing to answer
 
     return error(request_id, -32601, f"unknown method {method!r}")
+
+
+def as_result(value) -> dict:
+    """A tool answers with a string, or — when it has a picture to show — with a ready
+    `{"content": [...]}` holding image parts. Both become the same shape here."""
+    if isinstance(value, dict) and "content" in value:
+        return value
+    return {"content": [{"type": "text", "text": str(value)}]}
 
 
 def reply(request_id, result: dict) -> dict:
