@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>OpenBoat console</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230E1315'/%3E%3Cpath d='M14 44h36M20 44V20l24 12-24 12' stroke='%2300E3A1' stroke-width='4' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="console/docs.css">
+<link rel="stylesheet" href="console/tasks.css">
 <style>
 /* ── OpenBoat console ────────────────────────────────────────────────────────────────
    The workshop end of the boat, as opposed to the helm. `index.html` is built to be read
@@ -314,8 +316,8 @@ const VIEWS = [
   { id: "boat",      label: "Boat",       title: "The boat" },
 ];
 
-const state = { view: "overview", q: "", docs: null, hits: null, sel: null,
-                tasks: null, filter: "all", profile: null, stage: null, tab: {} };
+const state = { view: "overview", sub: null, params: {}, q: "", docs: null, hits: null,
+                sel: null, tasks: null, filter: "all", profile: null, stage: null, tab: {} };
 
 /* ── chrome ──────────────────────────────────────────────────────────────────────── */
 function drawNav() {
@@ -334,25 +336,62 @@ function drawNav() {
   nav.append(foot);
 }
 
-function go(view) {
-  state.view = view;
+/* ── routing ──────────────────────────────────────────────────────────────────────
+   One address per thing. The hash is `view`, `view/sub`, or either with `?k=v`:
+     #docs                 the shelf          #docs?q=impeller        a search
+     #docs/pump-7j.md      one document       #docs/pump-7j.md/L212   a line in it
+     #tasks/<id>           one snag or service item
+   `route()` parses that into state.view / state.sub / state.params, and `nav()` is the only
+   way a view moves: it writes the hash, and the hashchange handler does the rest, so the
+   browser's back button is the console's back button and every page has a URL. */
+function route() {
+  const raw = location.hash.slice(1);
+  const [pathPart, query = ""] = raw.split("?");
+  const [view, ...rest] = pathPart.split("/");
+  const params = {};
+  for (const [k, v] of new URLSearchParams(query)) params[k] = v;
+  return { view: VIEWS.some(v => v.id === view) ? view : "overview",
+           sub: rest.length ? decodeURIComponent(rest.join("/")) : null,
+           params };
+}
+
+function href(view, sub, params) {
+  let h = "#" + view;
+  if (sub) h += "/" + encodeURIComponent(sub).replace(/%2F/g, "/");
+  const qs = new URLSearchParams(params || {}).toString();
+  return qs ? h + "?" + qs : h;
+}
+
+function nav(view, sub, params) {
+  const target = href(view, sub, params);
+  if (location.hash === target) return apply();
+  location.hash = target;
+}
+
+function apply() {
+  const r = route();
+  const changed = r.view !== state.view;
+  state.view = r.view;
+  state.sub = r.sub;
+  state.params = r.params;
   state.stage = null;
-  // The search box is per view. Carrying a query across meant arriving at Tasks with a
-  // manual's vocabulary typed into it and being told, correctly and uselessly, that
-  // nothing matched.
-  state.q = "";
-  state.sel = null;
-  location.hash = view;
+  if (changed) {
+    // The search box is per view. Carrying a query across meant arriving at Tasks with a
+    // manual's vocabulary typed into it and being told, correctly and uselessly, that
+    // nothing matched.
+    state.q = "";
+    state.sel = null;
+  }
+  if (r.params.q !== undefined) state.q = r.params.q;
   drawNav();
-  $("#title").textContent = (VIEWS.find(v => v.id === view) || {}).title || view;
+  $("#title").textContent = (VIEWS.find(v => v.id === state.view) || {}).title || state.view;
   render();
 }
 
+function go(view) { nav(view); }
+
 $("#hamb").onclick = () => document.body.classList.toggle("wide");
-window.addEventListener("hashchange", () => {
-  const want = location.hash.slice(1);
-  if (want && want !== state.view && VIEWS.some(v => v.id === want)) go(want);
-});
+window.addEventListener("hashchange", apply);
 
 /* ── shared furniture ────────────────────────────────────────────────────────────── */
 function toolbar(placeholder, onInput, extras) {
@@ -522,686 +561,13 @@ function code(text, hitLine, whole) {
 
 function mount(node) { const m = $("#main"); m.textContent = ""; m.append(node); }
 
-/* ── view: documents ─────────────────────────────────────────────────────────────── */
-async function viewDocs() {
-  const v = el("div", "view");
-  const list = el("div"); list.style.minHeight = "0"; list.style.overflow = "hidden";
-  list.style.display = "grid";
-  const detail = el("div", "split");
-
-  let timer = null;
-  v.append(toolbar("Search this boat's papers — a symptom, a part, a word off a label…",
-                   () => { clearTimeout(timer); timer = setTimeout(runDocs, 260); }));
-  v.append(list);
-  v.append(detail);
-  mount(v);
-
-  async function runDocs() {
-    if (state.q.trim()) {
-      const r = await api("/api/ask?q=" + encodeURIComponent(state.q) + "&limit=25");
-      state.hits = r.passages || [];
-      state.askedOf = r.documents;
-      drawHits(r);
-    } else {
-      state.hits = null;
-      if (!state.docs) state.docs = await api("/api/docs");
-      drawLibrary();
-    }
-  }
-
-  function drawLibrary() {
-    const d = state.docs || {};
-    const rows = d.documents || [];
-    list.textContent = "";
-    list.append(table([
-      { label: "KIND", cls: "k", w: "8.5em", get: r =>
-          !r.exists ? "missing" : r.derived_from ? "extracted" : "written" },
-      { label: "DOCUMENT", cls: "w", get: r => {
-          const s = el("span", "trunc", r.title || r.name); s.title = r.name; return s; } },
-      { label: "SOURCE", w: "26%", get: r => {
-          const s = el("span", "trunc",
-            r.derived_from ? "from " + r.derived_from : "typed by hand");
-          return s; } },
-      { label: "PASSAGES", cls: "num", w: "7em", get: r => r.exists ? nf(r.passages) : "—" },
-      { label: "SIZE", cls: "num", w: "6em", get: r => r.exists ? kb(r.bytes) : "—" },
-      { label: "STATUS", cls: "st", w: "17em", get: r => {
-          if (!r.exists) return statusCell("bad", "named but not on disk");
-          if (r.gaps)    return statusCell("warn", `${r.gaps} of ${r.pages} pages need OCR`);
-          if (r.pages)   return statusCell("ok", `${r.pages_with_text}/${r.pages} pages read`);
-          return statusCell("ok", "readable");
-        } },
-    ], rows, (row, i) => { state.sel = i; drawLibrary(); showDoc(row.name, null); },
-       state.sel));
-    if (d.missing) {
-      const w = el("div", "empty");
-      w.append(statusCell("bad",
-        `${d.missing} document${d.missing > 1 ? "s are" : " is"} named in the profile and ` +
-        `not on disk. Nothing can be answered from ${d.missing > 1 ? "them" : "it"}.`));
-      list.append(w);
-    }
-    if (state.sel === null) idleDocs(d);
-  }
-
-  function drawHits(r) {
-    const rows = state.hits || [];
-    list.textContent = "";
-    list.append(table([
-      { label: "SCORE", cls: "num", w: "6em", get: h => h.score.toFixed(2) },
-      { label: "DOCUMENT", cls: "k", w: "26%", get: h => {
-          const s = el("span", "trunc", h.doc); s.title = h.path; return s; } },
-      { label: "SECTION", cls: "w", get: h => {
-          const s = el("span", "trunc", h.heading || "(no heading)"); return s; } },
-      { label: "LINE", cls: "num", w: "5em", get: h => h.line },
-      { label: "RANK", cls: "st", w: "5.5em", get: (h, i) =>
-          statusCell(i === 0 ? "ok" : h.score > 20 ? "info" : "", `#${i + 1}`) },
-    ], rows, (h, i) => { state.sel = i; drawHits(r); showPassage(h); }, state.sel));
-
-    if (!rows.length) {
-      list.textContent = "";
-      const e = el("div", "empty");
-      e.innerHTML =
-        `Nothing in ${nf(r.documents || 0)} document(s) matches <b>${esc(state.q)}</b>.` +
-        `<br><br>That is an answer, not a failure — this boat's library does not contain ` +
-        `it. Ask in either language; the query is widened both ways.`;
-      list.append(e);
-      detail.textContent = "";
-    }
-  }
-
-  function idleDocs(d) {
-    detail.textContent = "";
-    const p = pane("The library", "SHELF");
-    p.classList.add("full");
-    const b = el("div", "empty");
-    b.innerHTML =
-      `<b>${nf(d.count || 0)}</b> document(s), <b>${nf(d.passages || 0)}</b> retrievable ` +
-      `passages.<br><br>Pick a row to read it, or search above to ask the papers a ` +
-      `question. Every answer arrives with the file and the line it came out of, so it ` +
-      `can be walked back to the paper and checked.` +
-      (d.gaps ? `<br><br>${nf(d.gaps)} page(s) are scanned images with no text layer. ` +
-                `They are listed, not hidden — nothing can answer from them until they ` +
-                `are put through OCR.` : "");
-    p.append(b);
-    detail.append(p);
-  }
-
-  async function showPassage(h) {
-    detail.textContent = "";
-    const left = pane(h.doc, "PASSAGE", h.where);
-    let tab = state.tab.p || "Passage";
-    const render = () => {
-      [...left.querySelectorAll(".tabs,.body")].forEach(n => n.remove());
-      left.append(tabs(["Passage", "Details"], tab, t => { state.tab.p = tab = t; render(); }));
-      const body = el("div", "body");
-      if (tab === "Details") {
-        body.append(kv([
-          ["Section", h.heading || "(no heading)"],
-          ["Document", h.doc],
-          ["Line", h.line],
-          ["Citation", h.where],
-          ["BM25 score", h.score],
-          ["Characters", nf(h.text.length)],
-        ]));
-      } else {
-        body.append(code(h.text));
-      }
-      left.append(body);
-    };
-    render();
-    detail.append(left);
-
-    const right = pane(h.doc, "DOCUMENT");
-    detail.append(right);
-    const doc = await api("/api/doc?name=" + encodeURIComponent(h.doc));
-    fillDocPane(right, doc, h.line);
-  }
-
-  async function showDoc(name, line) {
-    detail.textContent = "";
-    const meta = (state.docs.documents || []).find(d => d.name === name) || {};
-    const left = pane(meta.title || name, "DOCUMENT", meta.name);
-    let tab = state.tab.d || "Details";
-    const render = () => {
-      [...left.querySelectorAll(".tabs,.body")].forEach(n => n.remove());
-      const names = ["Details", "Sections"];
-      if (meta.original) names.push("Original");
-      left.append(tabs(names, tab, t => { state.tab.d = tab = t; render(); }));
-      const body = el("div", "body");
-      if (tab === "Details") {
-        body.append(kv([
-          ["Title", meta.title],
-          ["File", meta.name],
-          ["Kind", meta.derived_from
-            ? "extracted text — the PDF is the original"
-            : "written by hand"],
-          ["Extracted from", meta.derived_from],
-          ["Original beside it", meta.original],
-          ["Pages", meta.pages],
-          ["Pages with text", meta.pages_with_text],
-          ["Pages needing OCR", meta.gaps],
-          ["Retrievable passages", nf(meta.passages)],
-          ["Lines", nf(meta.lines)],
-          ["Size", meta.exists ? kb(meta.bytes) : "not on disk"],
-          ["Last changed", meta.modified ? `${meta.modified}  (${ago(meta.modified)})` : ""],
-          ["Path", meta.path],
-        ]));
-        if (meta.derived_from) {
-          const note = el("div", "empty");
-          note.innerHTML =
-            `This text was pulled out of a PDF by a machine. If a passage reads wrongly, ` +
-            `the paper is right — re-ingest rather than editing the markdown, or the ` +
-            `correction is lost the next time it runs.`;
-          body.append(note);
-        }
-      } else if (tab === "Sections") {
-        body.append(el("div", "empty", "Loading…"));
-      } else {
-        const note = el("div", "empty");
-        note.innerHTML =
-          `<a href="/paper?name=${encodeURIComponent(name)}" target="_blank" ` +
-          `rel="noopener">Open ${esc(meta.original)} ▸</a><br><br>` +
-          `Served straight from beside the markdown. This is the document of record; ` +
-          `everything in the pane to the right is derived from it.`;
-        body.append(note);
-      }
-      left.append(body);
-    };
-    render();
-    detail.append(left);
-
-    const right = pane(name, "CONTENT");
-    detail.append(right);
-    const doc = await api("/api/doc?name=" + encodeURIComponent(name));
-    fillDocPane(right, doc, line);
-
-    // The section list needs the text, so it is filled once the document has landed.
-    if (tab === "Sections") {
-      const body = left.querySelector(".body");
-      body.textContent = "";
-      const heads = String(doc.text || "").split("\n")
-        .map((l, i) => ({ l, n: i + 1 }))
-        .filter(x => /^#{1,6}\s/.test(x.l));
-      if (!heads.length) { body.append(el("div", "empty", "No headings in this file.")); }
-      const ul = el("div");
-      heads.forEach(x => {
-        const depth = x.l.match(/^#+/)[0].length;
-        const b = el("button", "", x.l.replace(/^#+\s*/, ""));
-        b.style.cssText = `display:block;text-align:left;width:100%;padding:5px 0 5px ${
-          (depth - 1) * 14}px;color:var(--${depth === 1 ? "ink" : "mute"})`;
-        b.onclick = () => {
-          const t = right.querySelector("#L" + x.n);
-          if (t) { t.scrollIntoView({ block: "center" }); t.classList.add("hit"); }
-        };
-        ul.append(b);
-      });
-      body.append(ul);
-    }
-  }
-
-  function fillDocPane(p, doc, line) {
-    [...p.querySelectorAll(".tabs,.body,.empty")].forEach(n => n.remove());
-    if (doc.error || !doc.exists) {
-      const e = el("div", "empty");
-      e.append(statusCell("bad", doc.error || "not on disk"));
-      p.append(e);
-      return;
-    }
-    const lines = String(doc.text).split("\n").length;
-    const badge = statusCell("ok", `${nf(lines)} lines · ${nf(doc.document.passages)} passages`);
-    p.append(tabs([`Text (${kb(doc.text.length)})`], `Text (${kb(doc.text.length)})`,
-                  () => {}, badge));
-    const body = el("div", "body");
-    body.append(code(doc.text, line));
-    p.append(body);
-    if (line) setTimeout(() => {
-      const t = p.querySelector("#L" + line);
-      if (t) t.scrollIntoView({ block: "center" });
-    }, 20);
-  }
-
-  runDocs();
-}
-
-/* ── view: tasks ─────────────────────────────────────────────────────────────────── */
-async function viewTasks() {
-  const v = el("div", "view");
-  const list = el("div");
-  list.style.cssText = "min-height:0;overflow:hidden;display:grid";
-  const detail = el("div", "split");
-
-  const seg = el("div", "seg");
-  [["all", "All"], ["open", "Open"], ["snag", "Snags"], ["service", "Service"]]
-    .forEach(([id, label]) => {
-      const b = el("button", "", label);
-      b.setAttribute("aria-pressed", state.filter === id ? "true" : "false");
-      b.onclick = () => { state.filter = id; state.sel = null; draw(); };
-      seg.append(b);
-    });
-
-  v.append(toolbar("Filter what this boat owes…", () => { state.sel = null; draw(); }, [seg]));
-  v.append(list);
-  v.append(detail);
-  mount(v);
-
-  const [maint, snags] = await Promise.all([api("/api/maintenance"), api("/api/snags")]);
-  state.maint = maint; state.snags = snags;
-
-  /* One list, because a boat has one. The engine is owed a flush because it ran in salt
-     water; the locker is owed a striker plate because somebody stood in front of it. Kept
-     apart they are two lists nobody reads. */
-  function rows() {
-    const out = [];
-    (snags.snags || []).forEach(s => out.push({
-      kind: "snag", title: s.title, where: s.where, when: s.when, open: s.open,
-      status: s.status, by: s.by, body: s.body, photos: s.photos || [],
-      updates: s.updates || [], raw: s,
-    }));
-    (maint.items || []).forEach(m => out.push({
-      kind: "service", title: m.item, where: m.description, when: m.last,
-      open: m.verdict !== "ok", status: m.verdict, why: m.why, raw: m,
-    }));
-    const q = state.q.trim().toLowerCase();
-    return out.filter(r => {
-      if (state.filter === "open" && !r.open) return false;
-      if (state.filter === "snag" && r.kind !== "snag") return false;
-      if (state.filter === "service" && r.kind !== "service") return false;
-      if (!q) return true;
-      return JSON.stringify(r).toLowerCase().includes(q);
-    });
-  }
-
-  function statusOf(r) {
-    if (r.kind === "snag")
-      return r.open ? statusCell("warn", r.status || "open")
-                    : statusCell("ok", r.status || "fixed");
-    return { due:     statusCell("bad",  "due"),
-             soon:    statusCell("warn", "soon"),
-             ok:      statusCell("ok",   "in date"),
-             unknown: statusCell("info", "never recorded") }[r.status]
-           || statusCell("", r.status);
-  }
-
-  function draw() {
-    const rs = rows();
-    list.textContent = "";
-    list.append(table([
-      { label: "SOURCE", cls: "k", w: "7em", get: r => r.kind },
-      { label: "WHAT", cls: "w", get: r => {
-          const s = el("span", "trunc", r.title);
-          if (r.updates && r.updates.length) s.title = `${r.updates.length} update(s)`;
-          return s; } },
-      { label: "WHERE", w: "30%", get: r => {
-          const s = el("span", "trunc", r.where || "—"); return s; } },
-      { label: "WHEN", cls: "num", w: "8em", get: r => ago(r.when) },
-      { label: "STATUS", cls: "st", w: "12em", get: r => statusOf(r) },
-    ], rs, (r, i) => { state.sel = i; draw(); show(r); }, state.sel));
-
-    if (!maint.items?.length && maint.engine_hours_source) {
-      const e = el("div", "empty");
-      e.append(statusCell("info", maint.engine_hours_source));
-      list.append(e);
-    }
-    if (state.sel === null) idle(rs);
-  }
-
-  function idle(rs) {
-    detail.textContent = "";
-    const open = rs.filter(r => r.open).length;
-    const p = pane("Everything the boat is owed", "LIST");
-    p.classList.add("full");
-    const b = el("div", "empty");
-    b.innerHTML =
-      `<b>${rs.length}</b> item(s), <b>${open}</b> still open.<br><br>` +
-      `Snags come from whoever stood in front of the fault with a phone. Service items ` +
-      `come from the engine's own running hours. Pick one to read it.<br><br>` +
-      `Nothing on this page closes anything: a snag is closed by editing the file, a ` +
-      `service by recording that the work actually happened.`;
-    p.append(b);
-    detail.append(p);
-  }
-
-  function show(r) {
-    detail.textContent = "";
-    const left = pane(r.title, r.kind.toUpperCase(), r.kind === "snag" ? r.when : "");
-    const body = el("div", "body");
-    if (r.kind === "snag") {
-      body.append(kv([
-        ["Filed", r.when],
-        ["Age", ago(r.when)],
-        ["Where on the boat", r.where],
-        ["Reported by", r.by || "(unnamed)"],
-        ["Status", r.status],
-        ["Photographs", r.photos.length || 0],
-        ["Updates", r.updates.length || 0],
-      ]));
-    } else {
-      const m = r.raw;
-      body.append(kv([
-        ["Item", m.item],
-        ["What it is", m.description],
-        ["Last done", m.last ? `${m.last}  (${ago(m.last)})` : "never recorded"],
-        ["Hours since", m.hours_since === null ? "" : m.hours_since?.toFixed(1) + " h"],
-        ["Days since", m.days_since],
-        ["Outings since", m.outings_since],
-        ["Interval", m.interval_hours ? m.interval_hours + " h"
-                    : m.interval_months ? m.interval_months + " months"
-                    : m.per_outing ? "every outing in salt water" : ""],
-        ["Verdict", m.verdict],
-      ]));
-      const src = el("div", "empty");
-      src.append(statusCell("info", maint.engine_hours_source || ""));
-      body.append(src);
-    }
-    left.append(body);
-    detail.append(left);
-
-    const right = pane(r.kind === "snag" ? "What was written" : "Why it is owed",
-                       r.kind === "snag" ? "NOTE" : "REASON");
-    const rb = el("div", "body");
-    if (r.kind === "snag") {
-      rb.append(code(r.body || "(no note — see the photograph)"));
-      if (r.photos.length) {
-        const shots = el("div", "shots");
-        const base = `${location.protocol}//${location.hostname}:${snags.photo_port}`;
-        r.photos.forEach(name => {
-          const a = el("a");
-          a.href = `${base}/photo?boat=${encodeURIComponent(snags.boat || "")}` +
-                   `&name=${encodeURIComponent(name)}`;
-          a.target = "_blank"; a.rel = "noopener"; a.title = name;
-          const img = el("img");
-          img.src = a.href; img.alt = name; img.loading = "lazy";
-          /* The photographs live with the write service, not with this one. If it is not
-             running, say so rather than showing a broken frame — a missing picture that
-             looks like a missing picture is honest; one that looks like no picture was
-             ever taken is not. */
-          img.onerror = () => {
-            a.textContent = "";
-            a.append(el("span", "miss", `${name}\nneeds the snag service on :${snags.photo_port}`));
-          };
-          a.append(img);
-          shots.append(a);
-        });
-        rb.append(shots);
-      }
-      r.updates.forEach(u => {
-        const h = el("div", "empty");
-        h.append(statusCell("info", `Update · ${u.when}${u.by ? " · " + u.by : ""}`));
-        rb.append(h);
-        rb.append(code(u.body || ""));
-      });
-    } else {
-      rb.append(code(r.why || ""));
-    }
-    right.append(rb);
-    detail.append(right);
-  }
-
-  draw();
-}
-
-/* ── view: dashboards ────────────────────────────────────────────────────────────── */
-const BOARDS = [
-  { id: "helm", icon: ICON.overview, url: "/index.html", title: "Helm",
-    note: "The big-numeral panel: depth, wind, battery, the forecast and the chart. Built " +
-          "to be read in sunlight at arm's length, with a day, dusk and night palette." },
-  { id: "jobs", icon: ICON.tasks, url: "/jobs.html", title: "Jobs",
-    note: "The same two lists as the Tasks page, laid out for a phone in the cockpit on a " +
-          "Saturday morning rather than for a desk." },
-  { id: "weather", icon: ICON.boards, url: "/windy.html", title: "Wind & weather",
-    note: "The forecast on a live map, with the windows the boat's own limits allow." },
-  { id: "season", icon: ICON.docs, url: "/reports/season.html", title: "Season report",
-    note: "Generated by python3 -m openboat.season. Where the boat went, how long the " +
-          "engine ran, what it cost." },
-  { id: "engine", icon: ICON.boat, url: "/reports/engine.html", title: "Engine report",
-    note: "Generated by python3 -m openboat.engine_report. Temperatures, hours, and what " +
-          "the log can and cannot say." },
-  { id: "snag", icon: ICON.tasks, url: null, title: "File a snag",
-    note: "The phone page, on its own service and its own port — the one surface that " +
-          "writes. Scan the QR it prints, or open port 8752 on this machine." },
-];
-
-function viewBoards() {
-  if (state.stage) return stage(state.stage);
-  const v = el("div", "view plain");
-  const scroll = el("div", "scroll");
-  const grid = el("div", "apps");
-  BOARDS.forEach(b => {
-    const c = el("button", "app-card");
-    const ic = el("div", "ic"); ic.innerHTML = svg(b.icon); c.append(ic);
-    c.append(el("b", "", b.title));
-    c.append(el("p", "", b.note));
-    c.append(el("span", "go", b.url ? "OPEN ▸" : "SEPARATE SERVICE ▸"));
-    c.onclick = () => {
-      if (b.url) { state.stage = b; render(); }
-      else window.open(`${location.protocol}//${location.hostname}:8752/`, "_blank",
-                       "noopener");
-    };
-    grid.append(c);
-  });
-  scroll.append(grid);
-  v.append(scroll);
-  mount(v);
-}
-
-function stage(b) {
-  const v = el("div", "view solo");
-  const s = el("div", "stage");
-  const head = el("div", "head");
-  const back = el("button", "back");
-  back.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16">` +
-                   `<path d="M15 5l-7 7 7 7"/></svg>Dashboards`;
-  back.onclick = () => { state.stage = null; render(); };
-  head.append(back);
-  head.append(el("b", "", b.title));
-  head.append(el("span", "path", b.url));
-  const out = el("a", "", "OPEN IN A TAB ▸");
-  out.href = b.url; out.target = "_blank"; out.rel = "noopener";
-  head.append(out);
-  s.append(head);
-  const f = el("iframe");
-  f.src = b.url; f.title = b.title;
-  s.append(f);
-  v.append(s);
-  mount(v);
-}
-
-/* ── view: the boat ──────────────────────────────────────────────────────────────── */
-async function viewBoat() {
-  const v = el("div", "view plain");
-  const scroll = el("div", "scroll");
-  v.append(scroll);
-  mount(v);
-
-  const p = state.profile || (state.profile = await api("/api/profile"));
-  const papers = await api("/api/papers");
-  const ves = p.vessel || {};
-
-  const facts = el("div", "card");
-  facts.append(Object.assign(el("h2", "", "Measurements"),
-    { innerHTML: `Measurements<span class="side">VESSEL</span>` }));
-  const fb = el("div"); fb.style.padding = "4px 15px 12px";
-  fb.append(kv([
-    ["Name", ves.name],
-    ["Kind", ves.kind],
-    ["Length overall", ves.length_m ? ves.length_m + " m" : ""],
-    ["Beam", ves.beam_m ? ves.beam_m + " m" : ""],
-    ["Draft", ves.draft_m ? ves.draft_m + " m" : ""],
-    ["Air draft", ves.air_draft_m ? ves.air_draft_m + " m" : ""],
-    ["Displacement", ves.displacement_kg ? nf(ves.displacement_kg) + " kg" : ""],
-    ["Sounder to keel", ves.transducer_to_keel_m ? ves.transducer_to_keel_m + " m" : ""],
-    ["Engine", ves.engine_kw ? ves.engine_kw + " kW" : ""],
-    ["Timezone", p.timezone],
-    ["Profile", p.profile],
-  ]));
-  facts.append(fb);
-
-  /* The gaps, given the same weight as the facts. A boat that does not know its own draft
-     is the ordinary case, and a panel that only lists what is filled in reads as a
-     complete spec sheet — which is the lie this project is built to refuse. */
-  const gaps = el("div", "card");
-  gaps.innerHTML = `<h2>What is not recorded<span class="side">HONEST GAPS</span></h2>`;
-  const missing = [
-    ["Berth", p.berth ? `${p.berth.name || "recorded"}` : null],
-    ["Forecast point", p.forecast_point ? (p.forecast_point.name || "recorded") : null],
-    ["Draft", ves.draft_m],
-    ["Air draft", ves.air_draft_m],
-    ["Sounder height above the keel", ves.transducer_to_keel_m],
-    ["Displacement", ves.displacement_kg],
-  ].filter(([, val]) => !val).map(([k]) => k);
-
-  const ul = el("ul");
-  missing.forEach(m => {
-    const li = el("li");
-    li.append(statusCell("warn", m));
-    li.append(el("span", "s", "not set"));
-    ul.append(li);
-  });
-  (p.unsourced || []).forEach(u => {
-    const li = el("li");
-    li.append(statusCell("info", u));
-    li.append(el("span", "s", "a value with no source"));
-    ul.append(li);
-  });
-  if (!ul.children.length)
-    gaps.append(Object.assign(el("p"), { textContent:
-      "Nothing missing and nothing unsourced. Every measurement carries a source." }));
-  else gaps.append(ul);
-
-  const lim = el("div", "card");
-  lim.innerHTML = `<h2>Limits this boat will go out in<span class="side">WEATHER</span></h2>`;
-  const lb = el("div"); lb.style.padding = "4px 15px 12px";
-  const L = p.limits || {};
-  lb.append(kv([
-    ["Wind", L.max_wind_kn ? L.max_wind_kn + " kn" : ""],
-    ["Gust", L.max_gust_kn ? L.max_gust_kn + " kn" : ""],
-    ["Wave", L.max_wave_m ? L.max_wave_m + " m" : ""],
-    ["Rain", L.max_rain_mm ? L.max_rain_mm + " mm/h" : ""],
-    ["Daylight only", L.daylight === undefined ? "" : (L.daylight ? "yes" : "no")],
-  ]));
-  lim.append(lb);
-
-  const pap = el("div", "card");
-  pap.innerHTML = `<h2>Papers<span class="side">${
-    papers.expiring ? papers.expiring + " EXPIRING" : "SHIP'S DOCUMENTS"}</span></h2>`;
-  if (!(papers.papers || []).length) {
-    pap.append(Object.assign(el("p"), { textContent:
-      "No papers recorded. Registration, insurance, radio licence and the survey all have " +
-      "dates that matter and none of them are known here." }));
-  } else {
-    const pu = el("ul");
-    papers.papers.forEach(x => {
-      const li = el("li");
-      li.append(el("span", "t", x.name || x.title || x.kind || "(unnamed)"));
-      li.append(el("span", "s", x.expires ? `${x.expires} · ${ago(x.expires)}` : "no date"));
-      pu.append(li);
-    });
-    pap.append(pu);
-  }
-
-  const cols = el("div", "cols");
-  cols.append(facts, gaps, lim, pap);
-  scroll.append(cols);
-}
-
-/* ── view: overview ──────────────────────────────────────────────────────────────── */
-async function viewOverview() {
-  const v = el("div", "view plain");
-  const scroll = el("div", "scroll");
-  v.append(scroll);
-  mount(v);
-
-  const [p, docs, snags, maint] = await Promise.all([
-    state.profile ? Promise.resolve(state.profile) : api("/api/profile"),
-    api("/api/docs"), api("/api/snags"), api("/api/maintenance"),
-  ]);
-  state.profile = p; state.docs = docs;
-
-  const open  = snags.open_count || 0;
-  const due   = (maint.items || []).filter(m => m.verdict === "due").length;
-  const soon  = (maint.items || []).filter(m => m.verdict === "soon").length;
-  const unkn  = (maint.items || []).filter(m => m.verdict === "unknown").length;
-
-  const tiles = el("div", "tiles");
-  const tile = (n, label, note, cls) => {
-    const t = el("div", "tile");
-    const b = el("b", cls || (n ? "" : "z"), String(n));
-    t.append(b);
-    t.append(el("span", "", label));
-    if (note) t.append(el("em", "", note));
-    tiles.append(t);
-  };
-  tile(nf(docs.count), "DOCUMENTS",
-       `${nf(docs.passages)} passages` + (docs.missing ? ` · ${docs.missing} missing` : ""));
-  tile(nf(docs.gaps || 0), "PAGES NEEDING OCR",
-       docs.gaps ? "nothing can answer from them" : "every page is readable",
-       docs.gaps ? "q" : "");
-  tile(open, "OPEN SNAGS", `${(snags.snags || []).length} filed in all`, open ? "q" : "");
-  tile(due, "SERVICE DUE", soon ? `${soon} coming up` : "counted in running hours",
-       due ? "q" : "");
-  tile(unkn, "NEVER RECORDED", unkn ? "no service has ever been logged" : "all accounted for",
-       unkn ? "q" : "");
-
-  scroll.append(tiles);
-
-  const cols = el("div", "cols");
-
-  const owed = el("div", "card");
-  owed.innerHTML = `<h2>What the boat is owed<span class="side">TASKS</span></h2>`;
-  const items = [
-    ...(snags.snags || []).filter(s => s.open).map(s => ({
-      t: s.title, s: `${s.where || "snag"} · ${ago(s.when)}` })),
-    ...(maint.items || []).filter(m => m.verdict === "due" || m.verdict === "soon")
-      .map(m => ({ t: m.item, s: m.why })),
-  ];
-  if (!items.length) owed.append(Object.assign(el("p"),
-    { textContent: "Nothing open and nothing due. Either the boat is in good order or " +
-                   "nobody has written anything down." }));
-  else {
-    const ul = el("ul");
-    items.slice(0, 8).forEach(i => {
-      const li = el("li");
-      li.append(el("span", "t", i.t));
-      li.append(el("span", "s", i.s));
-      ul.append(li);
-    });
-    owed.append(ul);
-    if (items.length > 8) owed.append(Object.assign(el("p"),
-      { textContent: `and ${items.length - 8} more on the Tasks page.` }));
-  }
-
-  const prov = el("div", "card");
-  prov.innerHTML = `<h2>Where the numbers come from<span class="side">PROVENANCE</span></h2>`;
-  const pl = el("ul");
-  [["Engine hours", maint.engine_hours_source || "not counted"],
-   ["Documents", `${nf(docs.count)} file(s) named in the profile, re-read on every search`],
-   ["Snags", `parsed out of the boat's own markdown, ${(snags.snags || []).length} entr` +
-             `${(snags.snags || []).length === 1 ? "y" : "ies"}`],
-   ["Measurements", (p.unsourced || []).length
-      ? `${p.unsourced.length} value(s) carry no source: ${p.unsourced.join(", ")}`
-      : "every measurement carries a source"]]
-    .forEach(([k, s]) => {
-      const li = el("li");
-      li.append(el("span", "t", k));
-      li.append(el("span", "s", s));
-      pl.append(li);
-    });
-  prov.append(pl);
-
-  const rule = el("div", "card");
-  rule.innerHTML = `<h2>The rule this console follows<span class="side">READ-ONLY</span></h2>`;
-  rule.append(Object.assign(el("p"), { innerHTML:
-    "A silent wrong answer is worse than a crash.<br><br>" +
-    "Nothing on this page is generated prose. Every passage is quoted out of a file " +
-    "somebody wrote, with the line it came from, and a gap is shown as a gap rather than " +
-    "filled in from the page next to it.<br><br>" +
-    "Nothing here writes to the boat either. Snags are filed from the phone page on its " +
-    "own service and its own port; a service record is written at a keyboard by somebody " +
-    "who knows the work happened." }));
-
-  cols.append(owed, prov, rule);
-  scroll.append(cols);
-}
-
+</script>
+<script src="console/docs.js"></script>
+<script src="console/tasks.js"></script>
+<script src="console/boards.js"></script>
+<script src="console/boat.js"></script>
+<script src="console/overview.js"></script>
+<script>
 /* ── go ──────────────────────────────────────────────────────────────────────────── */
 function render() {
   ({ overview: viewOverview, docs: viewDocs, tasks: viewTasks,
@@ -1209,11 +575,7 @@ function render() {
 }
 
 (async function boot() {
-  const start = location.hash.slice(1);
-  if (start && VIEWS.some(v => v.id === start)) state.view = start;
-  drawNav();
-  $("#title").textContent = (VIEWS.find(v => v.id === state.view) || {}).title;
-  render();
+  apply();
   try {
     const p = await api("/api/profile");
     state.profile = p;

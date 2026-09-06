@@ -52,6 +52,14 @@ def check(condition: bool, what: str) -> None:
 
 
 CONSOLE = ROOT / "openboat" / "web" / "console.html"
+#: The views live beside the shell as plain scripts; the fact check reads all of them.
+CONSOLE_DIR = ROOT / "openboat" / "web" / "console"
+
+
+def console_source() -> str:
+    parts = [CONSOLE.read_text(encoding="utf-8")]
+    parts += [f.read_text(encoding="utf-8") for f in sorted(CONSOLE_DIR.glob("*.js"))]
+    return "\n".join(parts)
 
 DERIVED = f"""# Raw water pump, model 7-J
 
@@ -285,8 +293,8 @@ def test_the_routes_the_console_reads():
 
 def test_the_console_page_holds_no_boat_facts():
     """It ships in a public repository. Every name and number on it arrives from the API."""
-    page = CONSOLE.read_text(encoding="utf-8")
-    check(CONSOLE.exists() and len(page) > 10_000, "the console page is there")
+    page = console_source()
+    check(CONSOLE.exists() and len(page) > 10_000, "the console page and its views are there")
     check("/api/profile" in page and "/api/docs" in page and "/api/snags" in page,
           "and reads its content from the API")
 
