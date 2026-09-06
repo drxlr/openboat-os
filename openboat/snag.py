@@ -109,7 +109,13 @@ def boats() -> list[dict]:
     if not found:
         try:
             boat = load()
-            found.append({"key": "boat", "name": boat.vessel.name or "This boat",
+            # Keyed by the folder the profile sits in, which is the same key the multi-boat
+            # layout above would give it. The dashboard and the snag service are separate
+            # processes with separate environments; one started with $OPENBOAT_BOATS and one
+            # without must still agree on a boat's name, or every photo URL the console
+            # builds is a 404 for a picture that exists.
+            key = boat.path.parent.name if boat.path else "boat"
+            found.append({"key": key or "boat", "name": boat.vessel.name or "This boat",
                           "profile": boat.path})
         except ProfileError:
             pass

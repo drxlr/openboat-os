@@ -279,10 +279,13 @@ def test_snags_open_and_fixed() -> None:
         tmp = Path(raw)
         boat_path = _minimal_boat(tmp)
         with Env(OPENBOAT_PROFILE=str(boat_path)):
-            # snag.boats() falls back to the single $OPENBOAT_PROFILE boat, keyed "boat",
-            # when $OPENBOAT_BOATS is not set — same profile the dashboard just loaded.
-            snag.record("boat", "Locker will not latch", "saloon", [], by="the owner")
-            snag.record("boat", "Second fault, stays open", "", [], by="the owner")
+            # snag.boats() falls back to the single $OPENBOAT_PROFILE boat when
+            # $OPENBOAT_BOATS is not set, keyed by its folder — the same key a multi-boat
+            # service would give the same file, so the two processes agree.
+            key = snag.boats()[0]["key"]
+            check(key == tmp.name, "the single-profile fallback is keyed by the profile's folder")
+            snag.record(key, "Locker will not latch", "saloon", [], by="the owner")
+            snag.record(key, "Second fault, stays open", "", [], by="the owner")
 
             target = tmp / "SNAGS.md"
             check(target.exists(), "record() wrote SNAGS.md next to the boat's profile")
@@ -309,7 +312,15 @@ def test_snags_open_and_fixed() -> None:
 #    it exists specifically so a second write route cannot be added by accident.
 # =======================================================================================
 def test_only_one_post_route_exists() -> None:
-    with Env(OPENBOAT_PROFILE=str(DEMO)), Dashboard() as dash:
+    # A throwaway boat, not the demo profile: the one allowed POST below writes a logbook
+    # line, and writing it into the tracked demo logbook left the repository dirty after
+    # every run of this file.
+    with tempfile.TemporaryDirectory() as raw:
+        _test_only_one_post_route_exists(_minimal_boat(Path(raw)))
+
+
+def _test_only_one_post_route_exists(boat_path: Path) -> None:
+    with Env(OPENBOAT_PROFILE=str(boat_path)), Dashboard() as dash:
         for route in ("/api/maintenance", "/api/snags", "/api/not-a-real-route"):
             status, _ = dash.request("POST", route, body=b"{}")
             check(status == 404,

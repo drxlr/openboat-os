@@ -29,7 +29,11 @@
   --accent:#00e3a1; --accent-ink:#04231a; --accent-wash:rgba(0,227,161,.10);
   --warn:#f0b45e; --bad:#f4715c; --info:#79c0e8;
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,"DejaVu Sans Mono",Consolas,monospace;
-  --rail:56px;
+  --rail:56px; --bar-h:58px;
+  /* Aliases. The names on the left are the ones the views were written against; the
+     ones on the right are the palette this page has always used. One set of colours,
+     two spellings, so a view can say --ok without knowing it means the accent. */
+  --acc:var(--accent); --ok:var(--accent); --line:var(--rule);
   color-scheme:dark;
 }
 *,*::before,*::after{box-sizing:border-box}
@@ -54,31 +58,40 @@ svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-l
 
 .bar{display:flex;align-items:center;gap:0;height:58px;background:var(--chrome);
      border-bottom:1px solid var(--rule);padding-right:18px}
-.hamb{width:var(--rail);height:58px;display:grid;place-items:center;color:var(--mute)}
+.hamb{width:var(--rail);height:var(--bar-h);display:grid;place-items:center start;
+      padding-left:17px;color:var(--mute);flex:0 0 auto}
 .hamb:hover{color:var(--ink)}
-.brand{font-size:19px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.brand{font-size:19px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;flex:0 0 auto}
 .brand .n{color:var(--accent)}
-.bar h1{margin:0 0 0 10px;font-size:19px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
-.bar .vessel{margin-left:auto;display:flex;align-items:center;gap:14px;
-             color:var(--dim);font-size:12px;white-space:nowrap;overflow:hidden}
-.bar .vessel b{color:var(--mute);font-weight:400}
+/* The title gives way before the identity does: on a narrow bar the page name truncates
+   and the boat's name stays whole, because you can see which page you are on and you
+   cannot see which boat you are looking at. */
+.bar h1{margin:0 0 0 10px;font-size:19px;font-weight:700;letter-spacing:-.01em;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
+.bar .vessel{margin-left:auto;padding-left:14px;display:flex;align-items:baseline;gap:14px;
+             color:var(--dim);font-size:12px;white-space:nowrap;overflow:hidden;
+             min-width:0;flex:0 0 auto}
+.bar .vessel b{color:var(--mute);font-weight:400;overflow:hidden;text-overflow:ellipsis;
+               min-width:0;max-width:44vw}
 
 .frame{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);min-height:0}
-nav{background:var(--chrome);border-right:1px solid var(--rule);
+#nav{background:var(--chrome);border-right:1px solid var(--rule);
     display:flex;flex-direction:column;padding-top:2px;overflow:hidden}
-nav button{display:flex;align-items:center;gap:14px;height:52px;padding:0 17px;
+#nav button{display:flex;align-items:center;gap:14px;height:52px;padding:0 17px;
            color:var(--dim);width:100%;flex:0 0 auto}
-nav button svg{width:22px;height:22px;flex:0 0 auto}
-nav button span{font-size:13px;opacity:0;transition:opacity .12s;white-space:nowrap}
-nav button:hover{color:var(--ink);background:#161e21}
-nav button[aria-current="true"]{background:var(--accent);color:var(--accent-ink)}
-nav button[aria-current="true"] svg{stroke-width:2.2}
+#nav button svg{width:22px;height:22px;flex:0 0 auto}
+#nav button span{font-size:13px;opacity:0;transition:opacity .12s;white-space:nowrap}
+#nav button:hover{color:var(--ink);background:#161e21}
+#nav button:focus-visible{outline:2px solid var(--accent);outline-offset:-3px}
+#nav button[aria-current="true"]{background:var(--accent);color:var(--accent-ink)}
+#nav button[aria-current="true"] svg{stroke-width:2.2}
 body.wide{--rail:210px}
-body.wide nav button span{opacity:1}
-nav .spacer{flex:1}
-nav .foot{color:var(--dim);font-size:11px;padding:0 17px 14px;white-space:nowrap;
-          opacity:0;transition:opacity .12s}
-body.wide nav .foot{opacity:1}
+body.wide #nav button span{opacity:1}
+#nav .spacer{flex:1}
+#nav .foot{color:var(--dim);font-size:11px;padding:0 17px 14px;white-space:nowrap;
+          opacity:0;transition:opacity .12s;pointer-events:none}
+body.wide #nav .foot{opacity:1;pointer-events:auto}
+#nav button.foot{height:auto;line-height:1.5}
 
 main{min-width:0;min-height:0;overflow:hidden;display:grid}
 
@@ -200,24 +213,47 @@ table.kv td:last-child{color:var(--ink);padding-right:0}
 .card li .t{display:block;color:var(--ink)}
 .card li .s{display:block;margin-top:3px;color:var(--dim);font-size:11.5px;line-height:1.65}
 .card p{margin:0;padding:14px 15px;color:var(--dim);line-height:1.75}
+/* a table inside a card: the sticky header has to match the card, not the page */
+.card .listwrap{max-height:46vh;border-bottom:0}
+.card .listwrap thead th{background:var(--panel)}
+.card h2 .minisearch{margin-left:auto}
+.card h2 .minisearch ~ .side{margin-left:12px}
+@media (max-width:719px){.card h2{flex-wrap:wrap;row-gap:8px}
+                         .card h2 .minisearch{width:100%;max-width:none;order:3}
+                         .card h2 .minisearch ~ .side{margin-left:auto}}
 
 /* ── dashboards ────────────────────────────────────────────────────────────────────── */
 .apps{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:16px}
-.app-card{background:var(--panel);border:1px solid var(--rule);padding:17px 17px 15px;
-          text-align:left;display:flex;flex-direction:column;gap:9px;min-height:158px}
+.app-card{position:relative;background:var(--panel);border:1px solid var(--rule);
+          padding:17px 17px 15px;text-align:left;display:flex;flex-direction:column;gap:9px;
+          min-height:170px}
 .app-card:hover{border-color:#33413f;background:#171f22}
 .app-card .ic{color:var(--accent)}
 .app-card .ic svg{width:24px;height:24px}
+.app-card .top{display:flex;align-items:flex-start;gap:10px}
+/* The face is a real link covering the card, so the whole card is clickable, the middle
+   button works and the status bar shows where it goes. The tab link sits above it. */
+.app-card .face{color:inherit;text-decoration:none}
+.app-card .face::after{content:"";position:absolute;inset:0}
+.app-card .tab{margin-left:auto;position:relative;z-index:1;color:var(--dim);
+               font-size:10.5px;letter-spacing:.1em;text-decoration:none;padding:2px 6px;
+               border:1px solid var(--rule);border-radius:2px}
+.app-card .tab:hover{color:var(--accent);border-color:#33413f}
 .app-card b{font-size:14px;color:var(--ink)}
-.app-card p{margin:0;color:var(--mute);font-size:12px;line-height:1.7;flex:1}
+.app-card:hover b{color:var(--accent)}
+.app-card p{margin:0;color:var(--dim);font-size:11.5px;line-height:1.7;flex:1}
+.app-card p.one{color:var(--mute);font-size:12.5px;flex:0 0 auto}
 .app-card .go{color:var(--accent);font-size:11.5px;letter-spacing:.1em}
+.stage .head .crumbs{flex:1 1 auto;min-width:0;flex-wrap:nowrap;overflow:hidden}
+.stage .head .back{flex:0 0 auto;margin-right:-6px}
 .stage{display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0}
-.stage .head{display:flex;align-items:center;gap:14px;height:46px;padding:0 16px;
-             background:var(--chrome);border-bottom:1px solid var(--rule)}
+.stage .head{display:flex;align-items:center;gap:14px;min-height:46px;padding:6px 16px;
+             background:var(--chrome);border-bottom:1px solid var(--rule);flex-wrap:wrap}
 .stage .head b{font-size:13px}
 .stage .head .path{color:var(--dim);font-size:12px;overflow:hidden;text-overflow:ellipsis;
                    white-space:nowrap}
-.stage .head a{margin-left:auto;font-size:11.5px;letter-spacing:.08em;white-space:nowrap}
+.stage .head > a:last-child{margin-left:auto;font-size:11.5px;letter-spacing:.08em;
+                             white-space:nowrap;flex:0 0 auto}
 .stage iframe{border:0;width:100%;height:100%;background:var(--bg)}
 .back{display:inline-flex;align-items:center;gap:8px;color:var(--accent);font-size:12px}
 
@@ -228,6 +264,195 @@ table.kv td:last-child{color:var(--ink);padding-right:0}
 .shots img{width:100%;height:100%;object-fit:cover;display:block}
 .shots .miss{display:grid;place-items:center;color:var(--dim);font-size:10.5px;
              text-align:center;padding:8px;line-height:1.5;height:100%}
+
+/* ── detail pages ──────────────────────────────────────────────────────────────────
+   A thing you click gets a page, not a cramped pane wedged under the table it came
+   from. `.page` is that page: it owns the whole frame and it owns its own scroll.
+   `.page-cols` puts a rail of facts beside the text at a desk and stacks it on a
+   phone, because a 300 px rail on a 390 px screen is not a rail, it is the page. */
+.page{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0;overflow:auto;
+      padding-right:4px}
+.page-cols{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;align-items:start}
+.page-body{min-width:0}
+.page-rail{min-width:0}
+@media (min-width:1100px){
+  .page-cols{grid-template-columns:296px minmax(0,1fr)}
+  .page-rail{position:sticky;top:0;align-self:start}
+}
+
+/* Documents › Impeller. The last crumb is where you already are, so it is not a link —
+   a link back to here is a control that does nothing. */
+.crumbs{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;
+        color:var(--dim);font-size:11.5px;letter-spacing:.06em}
+.crumbs a{color:var(--mute);text-decoration:none}
+.crumbs a:hover{color:var(--accent);text-decoration:underline}
+.crumbs .sep{color:var(--dim)}
+.crumbs .here{color:var(--ink);letter-spacing:0;overflow:hidden;text-overflow:ellipsis;
+              white-space:nowrap;max-width:100%}
+
+.page-head{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;min-width:0}
+.page-head .who{min-width:0;flex:1 1 320px}
+.page-head h2{margin:0;font-size:19px;font-weight:700;letter-spacing:-.01em;color:var(--ink);
+              line-height:1.3;word-break:break-word}
+.page-head .acts{margin-left:auto;display:flex;align-items:center;gap:12px;flex:0 0 auto;
+                 padding-top:3px}
+.page-head .acts a,.page-head .acts button{color:var(--accent);font-size:11.5px;
+                                           letter-spacing:.08em;white-space:nowrap;
+                                           text-decoration:none}
+.meta{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-top:6px;
+      color:var(--mute);font-size:12px;min-width:0}
+.meta .sep{color:var(--dim)}
+.meta b{color:var(--ink);font-weight:400}
+
+/* A verdict, small enough to sit in a row. Three colours and no fourth: good, wants
+   attention, wrong. Grey is the fourth and it means "nobody knows", which is a verdict
+   this project is careful to keep distinct from "fine". */
+.pill{display:inline-flex;align-items:center;gap:7px;padding:2px 9px;border-radius:2px;
+      border:1px solid var(--rule);color:var(--mute);font-size:11px;letter-spacing:.04em;
+      white-space:nowrap;vertical-align:1px}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--dim);
+              flex:0 0 auto}
+.pill.ok{color:var(--ok);border-color:rgba(0,227,161,.38)}
+.pill.ok::before{background:var(--ok)}
+.pill.warn{color:var(--warn);border-color:rgba(240,180,94,.38)}
+.pill.warn::before{background:var(--warn)}
+.pill.bad{color:var(--bad);border-color:rgba(244,113,92,.38)}
+.pill.bad::before{background:var(--bad)}
+.pill.info{color:var(--info);border-color:rgba(121,192,232,.38)}
+.pill.info::before{background:var(--info)}
+.pill.flat::before{display:none}
+
+/* ── loading, empty, error ─────────────────────────────────────────────────────────
+   Three states that have to look like the page and not like a browser. A server that
+   is not answering must produce a sentence, not a blank frame — a blank frame reads as
+   "nothing is wrong with this boat", which is the confident silence this project is
+   built to refuse. */
+.note{display:flex;align-items:flex-start;gap:11px;padding:15px;font-size:12.5px;
+      line-height:1.75;color:var(--mute)}
+.note::before{content:"";width:8px;height:8px;border-radius:50%;flex:0 0 auto;
+              margin-top:7px;background:var(--dim)}
+.note b{color:var(--ink);font-weight:400}
+.note.loading{color:var(--dim)}
+.note.loading::before{background:var(--info);animation:blip 1.1s ease-in-out infinite}
+@keyframes blip{0%,100%{opacity:.2}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.note.loading::before{animation:none}}
+.note.error{color:var(--bad)}    .note.error::before{background:var(--bad)}
+.note.warn{color:var(--warn)}    .note.warn::before{background:var(--warn)}
+.note.ok{color:var(--ok)}        .note.ok::before{background:var(--ok)}
+.note.info::before{background:var(--info)}
+.card .note,.pane .note{padding:14px 15px}
+
+/* a filter that lives in a panel header rather than in the toolbar */
+.minisearch{background:var(--field);border:1px solid transparent;border-radius:3px;
+            height:31px;padding:0 11px;outline:0;font:inherit;font-size:12.5px;
+            color:var(--ink);min-width:0;width:190px;max-width:46vw}
+.minisearch:focus{border-color:#33413f}
+.minisearch::placeholder{color:var(--dim)}
+
+/* rows that are links: the whole row, not a word in it */
+.card li a.row{display:block;margin:-10px -15px;padding:10px 15px;color:inherit;
+               text-decoration:none}
+.card li a.row:hover{background:#161e21}
+.card li a.row:hover .t{color:var(--accent)}
+a.tile{display:block;color:inherit;text-decoration:none}
+a.tile:hover{border-color:#33413f;background:#171f22}
+a.tile:hover b{text-decoration:underline;text-underline-offset:3px}
+
+/* ── overlays: the shortcut card and the search over everything ────────────────────
+   Namespaced `ob-` because the views bring their own stylesheets and a class called
+   `.sheet` is a class two people will invent. */
+.ob-veil{position:fixed;inset:0;z-index:60;background:rgba(6,10,11,.76);display:flex;
+         justify-content:center;align-items:flex-start;padding:10vh 16px 16px}
+@media (max-width:719px){.ob-veil{padding:5vh 10px 10px}}
+.ob-sheet{width:min(680px,100%);max-height:78vh;background:var(--panel);
+          border:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
+.ob-sheet .head{display:flex;align-items:center;gap:12px;padding:12px 15px;flex:0 0 auto;
+                border-bottom:1px solid var(--rule)}
+.ob-sheet .head b{font-size:13px;color:var(--ink)}
+.ob-sheet .head .side{margin-left:auto;color:var(--dim);font-size:11px;letter-spacing:.14em}
+.ob-sheet .field{display:flex;align-items:center;gap:12px;padding:0 15px;height:52px;
+                 flex:0 0 auto;border-bottom:1px solid var(--rule)}
+.ob-sheet .field svg{width:18px;height:18px;color:var(--accent);flex:0 0 auto}
+.ob-sheet .field input{flex:1;min-width:0;background:none;border:0;outline:0;font-size:15px}
+.ob-sheet .field input::placeholder{color:var(--dim)}
+.ob-sheet .out{overflow:auto;min-height:0;flex:1 1 auto}
+.ob-grp{padding:10px 15px 6px;color:var(--dim);font-size:10.5px;letter-spacing:.14em;
+        border-bottom:1px solid var(--rule-soft)}
+.ob-hit{display:block;width:100%;text-align:left;padding:10px 15px;color:var(--mute);
+        text-decoration:none;border-bottom:1px solid var(--rule-soft)}
+.ob-hit .t{display:block;color:var(--ink);overflow:hidden;text-overflow:ellipsis;
+           white-space:nowrap}
+.ob-hit .s{display:block;margin-top:3px;color:var(--dim);font-size:11.5px;overflow:hidden;
+           text-overflow:ellipsis;white-space:nowrap}
+.ob-hit:hover{background:#161e21}
+.ob-hit[aria-selected="true"]{background:var(--row-hi)}
+.ob-hit[aria-selected="true"] .t{color:var(--accent)}
+.ob-keys{width:100%;border-collapse:collapse;table-layout:auto}
+.ob-keys td{padding:9px 15px;border-bottom:1px solid var(--rule-soft);color:var(--mute);
+            font-size:12.5px}
+.ob-keys td:first-child{width:130px;white-space:nowrap;color:var(--ink)}
+kbd{display:inline-block;min-width:21px;padding:1px 6px;text-align:center;font:inherit;
+    font-size:11.5px;background:var(--field);color:var(--ink);border:1px solid var(--rule);
+    border-bottom-width:2px;border-radius:3px}
+
+/* ── the phone ─────────────────────────────────────────────────────────────────────
+   Under 720 px the rail becomes a bottom bar, the same shape as the helm page's dock,
+   for the same reason: a thumb reaches the bottom of a phone and does not reach the
+   top-left corner of it. Low-priority table columns go; nothing else does. */
+@media (max-width:719px){
+  :root{--bar-h:50px; --dockbar:56px}
+  body.wide{--rail:56px}
+  .bar{height:var(--bar-h);padding-right:12px}
+  .hamb{display:none}
+  .brand{font-size:15px;padding-left:12px}
+  .bar h1{font-size:15px;margin-left:9px}
+  .bar .vessel{font-size:11px;gap:9px;padding-left:10px}
+  .bar .vessel #vver{display:none}
+  .bar .vessel b{max-width:38vw}
+
+  .frame{grid-template-columns:minmax(0,1fr)}
+  #nav{position:fixed;left:0;right:0;bottom:0;z-index:40;flex-direction:row;
+      border-right:0;border-top:1px solid var(--rule);padding-top:0;
+      padding-bottom:env(safe-area-inset-bottom);
+      height:calc(var(--dockbar) + env(safe-area-inset-bottom))}
+  #nav button{flex:1 1 0;min-width:0;height:var(--dockbar);flex-direction:column;
+             justify-content:center;gap:2px;padding:0 2px;
+             border-top:3px solid transparent}
+  #nav button svg{width:20px;height:20px}
+  #nav button span{opacity:1;font-size:10px;letter-spacing:.01em;overflow:hidden;
+                  text-overflow:ellipsis;max-width:100%}
+  #nav button[aria-current="true"]{background:none;color:var(--accent);
+                                  border-top-color:var(--accent)}
+  #nav button[aria-current="true"] svg{stroke-width:2.2}
+  #nav .spacer,#nav .foot{display:none}
+  main{padding-bottom:calc(var(--dockbar) + env(safe-area-inset-bottom))}
+
+  .view{padding:12px 12px;gap:12px}
+  .tiles{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+  .tile{padding:12px 13px 11px}
+  .tile b{font-size:27px}
+  .cols{grid-template-columns:minmax(0,1fr);gap:12px;margin-top:12px}
+  .apps{grid-template-columns:minmax(0,1fr);gap:12px}
+  .listwrap{max-height:none}
+  /* A phone gets the columns that matter and no sideways scroll. The colgroup widths
+     were measured for a desk; here they are what pushes the last column off-screen. */
+  table{table-layout:auto}
+  colgroup col{width:auto!important}
+  th[data-prio="low"],td[data-prio="low"]{display:none}
+  td.k{white-space:normal}
+  tbody td,thead th{word-break:break-word}
+  thead th{padding:8px 10px;font-size:11.5px}
+  tbody td{padding:9px 10px;font-size:12px}
+  table.kv td:first-child{width:42%;white-space:normal}
+  .page{padding-right:0}
+  .page-head h2{font-size:16px}
+  .search{height:44px}
+  .stage .head{flex-wrap:wrap;height:auto;padding:8px 12px;gap:8px}
+}
+@media (max-width:399px){
+  .bar .vessel b{max-width:30vw}
+  #nav button span{font-size:9.5px}
+}
 </style>
 </head>
 <body>
@@ -267,9 +492,22 @@ const el = (t, c, txt) => { const n = document.createElement(t);
                             if (txt !== undefined) n.textContent = txt;
                             return n; };
 
+/* One shape for every failure, and it never throws. A view that has to wrap each fetch
+   in its own try/catch grows one that somebody forgets, and a forgotten catch on this
+   page is a blank panel where a fault list should be. So: always an object, and
+   `.error` is a sentence when something went wrong. Offline is not exceptional here —
+   it is Tuesday, with the boat ashore and the laptop on a kitchen table. */
 async function api(path) {
-  const r = await fetch(path, { headers: { Accept: "application/json" } });
-  const j = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
+  let r;
+  try {
+    r = await fetch(path, { headers: { Accept: "application/json" } });
+  } catch (e) {
+    return { error: "the server is not answering", offline: true };
+  }
+  const j = await r.json().catch(() => null);
+  if (j === null || typeof j !== "object")
+    return { error: `the server answered ${r.status} ${r.statusText}` };
+  if (!r.ok && !j.error) j.error = `the server answered ${r.status} ${r.statusText}`;
   return j;
 }
 
@@ -280,7 +518,8 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g,
   c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 const nf  = n => (n === null || n === undefined) ? "—" : Number(n).toLocaleString("en-GB");
-const kb  = n => n < 1024 ? `${n} B`
+const kb  = n => (n === null || n === undefined || isNaN(n)) ? "\u2014"
+               : n < 1024 ? `${n} B`
                : n < 1048576 ? `${(n / 1024).toFixed(0)} kB`
                : `${(n / 1048576).toFixed(1)} MB`;
 
@@ -317,7 +556,10 @@ const VIEWS = [
 ];
 
 const state = { view: "overview", sub: null, params: {}, q: "", docs: null, hits: null,
-                sel: null, tasks: null, filter: "all", profile: null, stage: null, tab: {} };
+                sel: null, tasks: null, filter: "all", profile: null, stage: null, tab: {},
+                /* the snag + service list, loaded once, so ⌘K can filter it in memory
+                   rather than asking the boat again on every keystroke */
+                index: null };
 
 /* ── chrome ──────────────────────────────────────────────────────────────────────── */
 function drawNav() {
@@ -333,7 +575,10 @@ function drawNav() {
   }
   nav.append(el("div", "spacer"));
   const foot = el("div", "foot", "read-only");
-  nav.append(foot);
+  const keys = el("button", "foot", "? for the keys");
+  keys.style.cssText = "text-align:left;height:auto";
+  keys.onclick = openKeys;
+  nav.append(foot, keys);
 }
 
 /* ── routing ──────────────────────────────────────────────────────────────────────
@@ -350,9 +595,13 @@ function route() {
   const [view, ...rest] = pathPart.split("/");
   const params = {};
   for (const [k, v] of new URLSearchParams(query)) params[k] = v;
-  return { view: VIEWS.some(v => v.id === view) ? view : "overview",
-           sub: rest.length ? decodeURIComponent(rest.join("/")) : null,
-           params };
+  // A hash somebody typed can carry a stray % ("#docs/50%"). decodeURIComponent throws
+  // on that, and a throw here comes out of the hashchange handler and stops the router
+  // moving at all. An undecodable sub is worth showing as itself.
+  const raw_sub = rest.join("/");
+  let sub = null;
+  if (rest.length) { try { sub = decodeURIComponent(raw_sub); } catch (e) { sub = raw_sub; } }
+  return { view: VIEWS.some(v => v.id === view) ? view : "overview", sub, params };
 }
 
 function href(view, sub, params) {
@@ -428,7 +677,11 @@ function table(cols, rows, onPick, selected) {
   cols.forEach(c => { const col = el("col"); if (c.w) col.style.width = c.w; cg.append(col); });
   t.append(cg);
   const thead = el("thead"), tr = el("tr");
-  cols.forEach(c => { const th = el("th", c.cls || "", c.label); tr.append(th); });
+  /* A column marked `prio: "low"` is stamped data-prio and the phone stylesheet drops
+     it. Additive: a column definition without the field behaves exactly as before. */
+  cols.forEach(c => { const th = el("th", c.cls || "", c.label);
+                      if (c.prio) th.dataset.prio = c.prio;
+                      tr.append(th); });
   thead.append(tr); t.append(thead);
   const tb = el("tbody");
   rows.forEach((row, i) => {
@@ -436,6 +689,7 @@ function table(cols, rows, onPick, selected) {
     r.setAttribute("aria-selected", selected === i ? "true" : "false");
     cols.forEach(c => {
       const td = el("td", c.cls || "");
+      if (c.prio) td.dataset.prio = c.prio;
       const v = c.get(row, i);
       if (v instanceof Node) td.append(v); else td.textContent = v;
       r.append(td);
@@ -480,11 +734,17 @@ function tabs(names, active, onPick, right) {
   return t;
 }
 
-function kv(pairs) {
+/* kv(pairs) is unchanged. kv(pairs, ["Reading", "Now"]) renames the header and
+   kv(pairs, null) drops it — a two-column table captioned "Key / Value" tells the
+   reader nothing they could not see, and in a live panel it is a row of noise. */
+function kv(pairs, heads) {
   const t = el("table", "kv");
-  const thead = el("thead");
-  thead.innerHTML = "<tr><th>Key</th><th>Value</th></tr>";
-  t.append(thead);
+  if (heads !== null) {
+    const thead = el("thead"), tr = el("tr");
+    (heads || ["Key", "Value"]).forEach(h => tr.append(el("th", "", h)));
+    thead.append(tr);
+    t.append(thead);
+  }
   const tb = el("tbody");
   pairs.forEach(([k, v]) => {
     if (v === undefined || v === null || v === "") return;
@@ -561,6 +821,313 @@ function code(text, hitLine, whole) {
 
 function mount(node) { const m = $("#main"); m.textContent = ""; m.append(node); }
 
+/* ── shared: breadcrumbs, page heads, notes, sentences, ages ───────────────────────
+   Every view builds detail pages, so the furniture for one lives here rather than five
+   times over. Signatures, for the views:
+
+     crumbs(items)               items = [{label, href}]. The last is where you are and
+                                 is rendered plain — a link back to here does nothing.
+     pageHead(title, meta, acts) title: string | Node.  meta: string | array of
+                                 strings/Nodes, joined with a middle dot.  acts: array
+                                 of Nodes, right-aligned.  → <header class="page-head">
+     note(kind, text)            kind: "loading" | "empty" | "error" | "warn" | "ok" |
+                                 "info". One line in the page's own furniture.
+     sentence(text, max)         the first sentence of something a person wrote, cut at
+                                 a sentence end or a word boundary — never mid-word.
+     since(iso)                  an age with sub-day precision, for a live feed. `ago()`
+                                 is unchanged and still the right thing for a column of
+                                 dates, where "today" is the useful answer.            */
+
+function crumbs(items) {
+  const c = el("nav", "crumbs");
+  c.setAttribute("aria-label", "Breadcrumb");
+  (items || []).forEach((it, i) => {
+    if (i) c.append(el("span", "sep", "›"));
+    const last = i === items.length - 1;
+    if (last || !it.href) {
+      c.append(el("span", "here", it.label));
+    } else {
+      const a = el("a", "", it.label);
+      a.href = it.href;
+      c.append(a);
+    }
+  });
+  return c;
+}
+
+function pageHead(title, meta, actions) {
+  const h = el("header", "page-head");
+  const who = el("div", "who");
+  const t = el("h2");
+  if (title instanceof Node) t.append(title); else t.textContent = title;
+  who.append(t);
+  const parts = meta === undefined || meta === null ? []
+              : Array.isArray(meta) ? meta.filter(m => m !== null && m !== undefined && m !== "")
+              : [meta];
+  if (parts.length) {
+    const m = el("div", "meta");
+    parts.forEach((x, i) => {
+      if (i) m.append(el("span", "sep", "·"));
+      if (x instanceof Node) m.append(x); else m.append(document.createTextNode(String(x)));
+    });
+    who.append(m);
+  }
+  h.append(who);
+  if (actions && actions.length) {
+    const a = el("div", "acts");
+    actions.forEach(n => a.append(n));
+    h.append(a);
+  }
+  return h;
+}
+
+function note(kind, text) { return el("div", "note " + (kind || "info"), text); }
+
+/* A card header whose title is the link, when the card has a page behind it. Built as
+   DOM rather than innerHTML because the side label is the only thing that is constant. */
+function cardHead(title, side, to) {
+  const h = el("h2");
+  if (to) {
+    const a = el("a", "", title);
+    a.href = to;
+    a.style.cssText = "color:inherit;text-decoration:none";
+    a.onmouseover = () => { a.style.color = "var(--accent)"; };
+    a.onmouseout  = () => { a.style.color = "inherit"; };
+    h.append(a);
+  } else {
+    h.append(document.createTextNode(title));
+  }
+  h.append(el("span", "side", side));
+  return h;
+}
+
+function sentence(text, max) {
+  const s = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  const lim = max || 150;
+  const stop = s.search(/[.!?…](?:\s|$)/);
+  if (stop > 0 && stop + 1 <= lim) return s.slice(0, stop + 1);
+  if (s.length <= lim) return s;
+  const cut = s.lastIndexOf(" ", lim);
+  return s.slice(0, cut > Math.min(40, lim - 20) ? cut : lim).trimEnd() + "…";
+}
+
+function since(iso) {
+  if (!iso) return "—";
+  const then = new Date(String(iso).replace(" ", "T"));
+  if (isNaN(then)) return String(iso);
+  const s = Math.round((Date.now() - then) / 1000);
+  const span = n => n < 60 ? `${n} s`
+                  : n < 3600 ? `${Math.round(n / 60)} min`
+                  : n < 86400 ? `${Math.round(n / 3600)} h`
+                  : `${Math.floor(n / 86400)} d`;
+  if (s < 0) return "in " + span(-s);
+  if (s < 5) return "just now";
+  return span(s) + " ago";
+}
+
+/* ── the keyboard ─────────────────────────────────────────────────────────────────
+   This page is read at a desk by somebody who is already annoyed, so the keys are the
+   ones their hands already know: `/` for the box on this page, `?` for the card that
+   says what the keys are, `g` then a letter to move, ⌘K to search everything. Nothing
+   fires while you are typing into something, and Esc always closes what is open.    */
+
+const CHORD = { o: "overview", d: "docs", t: "tasks", s: "boards", b: "boat" };
+let chordAt = 0;
+
+const typingIn = t => !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA"
+                              || t.isContentEditable);
+const overlay = () => $(".ob-veil");
+
+function closeOverlay() {
+  const v = overlay();
+  if (!v) return false;
+  v.remove();
+  return true;
+}
+
+function openOverlay(sheet) {
+  closeOverlay();
+  const veil = el("div", "ob-veil");
+  veil.onmousedown = e => { if (e.target === veil) closeOverlay(); };
+  veil.append(sheet);
+  document.body.append(veil);
+  return veil;
+}
+
+function openKeys() {
+  const sh = el("div", "ob-sheet");
+  const head = el("div", "head");
+  head.append(el("b", "", "Keyboard"));
+  head.append(el("span", "side", "ESC TO CLOSE"));
+  sh.append(head);
+  const out = el("div", "out");
+  const t = el("table", "ob-keys"), tb = el("tbody");
+  [["⌘K Ctrl-K", "search the papers and the tasks"],
+   ["/",         "the search box on this page"],
+   ["g o",       "Overview"],
+   ["g d",       "Documents"],
+   ["g t",       "Tasks"],
+   ["g s",       "Dashboards"],
+   ["g b",       "Boat"],
+   ["?",         "this card"],
+   ["Esc",       "close this, or leave a page you opened"]].forEach(([keys, what]) => {
+    const tr = el("tr"), kcell = el("td");
+    keys.split(" ").forEach((part, i) => {
+      if (i) kcell.append(document.createTextNode(" "));
+      kcell.append(el("kbd", "", part));
+    });
+    tr.append(kcell, el("td", "", what));
+    tb.append(tr);
+  });
+  t.append(tb);
+  out.append(t);
+  sh.append(out);
+  openOverlay(sh);
+}
+
+/* The tasks half of the search is filtered in memory, so it answers while you type and
+   it answers the way the Tasks page would. The papers half is the same BM25 the MCP
+   companion uses — the console does not get a second opinion about retrieval. */
+async function taskIndex() {
+  if (state.index) return state.index;
+  const [snags, maint] = await Promise.all([api("/api/snags"), api("/api/maintenance")]);
+  // An empty index off a failed request is not an index, and caching it would make one
+  // bad moment permanent for the life of the tab. Report it and ask again next time.
+  if (snags.error || maint.error)
+    return { error: snags.error || maint.error, snags: [], service: [] };
+  state.index = { snags: snags.snags || [], service: maint.items || [] };
+  return state.index;
+}
+
+function openFind() {
+  const sh = el("div", "ob-sheet");
+  const field = el("div", "field");
+  field.innerHTML =
+    `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>`;
+  const input = el("input");
+  input.type = "search";
+  input.placeholder = "Search the papers and the tasks…";
+  input.setAttribute("aria-label", "Search everything");
+  field.append(input);
+  const out = el("div", "out");
+  sh.append(field, out);
+  openOverlay(sh);
+  input.focus();
+
+  /* A row is {group, title, line, view, addr}: `addr` is the sub-path the address needs,
+     so opening one is nav(view, addr) and nothing else. */
+  let rows = [], sel = 0, timer = 0, token = 0, failure = null;
+
+  const open = i => {
+    const r = rows[i];
+    if (!r) return;
+    closeOverlay();
+    nav(r.view, r.addr);
+  };
+
+  const paint = () => {
+    out.textContent = "";
+    if (input.value.trim().length < 2) {
+      out.append(note("info", "Two letters and it starts looking. ↑↓ to choose, "
+                            + "Enter to open, Esc to close."));
+      return;
+    }
+    if (failure) { out.append(note("error", failure)); return; }
+    if (!rows.length) { out.append(note("empty", "Nothing matched that.")); return; }
+    let group = null;
+    rows.forEach((r, i) => {
+      if (r.group !== group) { group = r.group; out.append(el("div", "ob-grp", group)); }
+      const a = el("a", "ob-hit");
+      a.href = href(r.view, r.addr);
+      a.setAttribute("aria-selected", i === sel ? "true" : "false");
+      a.append(el("span", "t", r.title));
+      a.append(el("span", "s", r.line));
+      a.onclick = e => { e.preventDefault(); open(i); };
+      out.append(a);
+    });
+  };
+
+  const run = async () => {
+    const q = input.value.trim();
+    const mine = ++token;
+    if (q.length < 2) { rows = []; sel = 0; failure = null; paint(); return; }
+    const [res, idx] = await Promise.all([
+      api("/api/ask?q=" + encodeURIComponent(q)), taskIndex(),
+    ]);
+    if (mine !== token) return;                       // a later keystroke already won
+    // "Nothing matched that" off a server that never answered is the wrong sentence: it
+    // says the boat does not have it, and what happened is that nobody could ask.
+    failure = res.error || idx.error || null;
+    if (failure) { rows = []; sel = 0; paint(); return; }
+    const needle = q.toLowerCase();
+    const has = (...bits) => bits.some(b => String(b ?? "").toLowerCase().includes(needle));
+
+    /* The preview strips markdown emphasis; the passage itself is never touched. A row
+       reading "**Status:** open" is the file's punctuation getting in the way of the
+       one line you are scanning, and the document page still quotes it verbatim. */
+    const plain = t => String(t ?? "").replace(/[*`_>#|]+/g, " ");
+    const papers = (res.passages || []).slice(0, 5).map(p => ({
+      group: "IN THE PAPERS",
+      title: p.heading || p.doc || "a passage",
+      line: `${p.doc || ""} · line ${nf(p.line)} · ${sentence(plain(p.text), 80)}`,
+      view: "docs", addr: `${p.doc}/L${p.line}`,
+    }));
+    const snags = (idx.snags || []).filter(s => has(s.title, s.where, s.body))
+      .slice(0, 4).map(s => ({
+        group: "TASKS",
+        title: s.title || "an untitled snag",
+        line: `${s.open ? "open" : "closed"} · ${s.where || "snag"} · ${ago(s.when)}`,
+        view: "tasks", addr: "snag:" + s.when,
+      }));
+    const svc = (idx.service || []).filter(m => has(m.item, m.description, m.why))
+      .slice(0, 4).map(m => ({
+        group: "TASKS",
+        title: m.item || "a service item",
+        line: `${m.verdict || "service"} · ${sentence(m.why, 80)}`,
+        view: "tasks", addr: "service:" + m.item,
+      }));
+
+    rows = papers.concat(snags, svc).slice(0, 8);
+    sel = 0;
+    paint();
+  };
+
+  input.oninput = () => { clearTimeout(timer); timer = setTimeout(run, 180); };
+  input.onkeydown = e => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault(); sel = Math.min(sel + 1, Math.max(rows.length - 1, 0)); paint();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault(); sel = Math.max(sel - 1, 0); paint();
+    } else if (e.key === "Enter") {
+      e.preventDefault(); open(sel);
+    }
+  };
+  paint();
+}
+
+document.addEventListener("keydown", e => {
+  const k = e.key;
+  if ((e.metaKey || e.ctrlKey) && (k === "k" || k === "K")) {
+    e.preventDefault();
+    if (overlay()) closeOverlay(); else openFind();
+    return;
+  }
+  if (k === "Escape") { if (closeOverlay()) e.preventDefault(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (typingIn(e.target) || overlay()) return;
+  if (k === "/") {
+    e.preventDefault();
+    const box = $(".search input") || $(".minisearch");
+    if (box) { box.focus(); if (box.select) box.select(); } else openFind();
+    return;
+  }
+  if (k === "?") { e.preventDefault(); openKeys(); return; }
+  if (k === "g") { chordAt = Date.now(); return; }
+  if (chordAt && Date.now() - chordAt < 1400 && CHORD[k]) { chordAt = 0; nav(CHORD[k]); return; }
+  chordAt = 0;
+});
+
 </script>
 <script src="console/docs.js"></script>
 <script src="console/tasks.js"></script>
@@ -576,14 +1143,14 @@ function render() {
 
 (async function boot() {
   apply();
-  try {
-    const p = await api("/api/profile");
-    state.profile = p;
-    $("#vname").textContent = (p.vessel && p.vessel.name) || "no profile";
-    $("#vver").textContent = "v" + (p.version || "?");
-  } catch (e) {
-    $("#vname").textContent = "the server is not answering";
+  const p = await api("/api/profile");
+  if (p.error) {
+    $("#vname").textContent = p.error;
+    return;
   }
+  state.profile = p;
+  $("#vname").textContent = (p.vessel && p.vessel.name) || "no profile";
+  $("#vver").textContent = "v" + (p.version || "?");
 })();
 </script>
 </body>

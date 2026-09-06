@@ -1,2 +1,183 @@
 /* OpenBoat console — styles owned by the tasks view (console/tasks.js). Tokens come from
-   console.html; nothing here redefines them. */
+   console.html; nothing here redefines them. Every selector is prefixed `t-` so the lead
+   can see at a glance what belongs to this view and hoist the duplicates later.
+
+   Two shapes live here: a list of everything the boat is owed, and the page you get when
+   you click one of them. The list is a table on a desk and a stack of two-line cards on a
+   phone, from the same DOM — a row is a grid, and the phone breakpoint just changes how
+   many columns that grid has. Nothing is truncated mid-word anywhere: a title wraps, and
+   only the dim second line is allowed to run out of room. */
+
+/* ── the list ─────────────────────────────────────────────────────────────────────── */
+.t-shell{display:grid;grid-template-rows:auto minmax(0,1fr);gap:16px;min-height:0}
+.t-listwrap{overflow:auto;min-height:0;border-top:1px solid var(--rule)}
+
+/* Filter chips are anchors, not buttons, because a filtered list is a place you can send
+   somebody. They carry the same furniture as `.tools .seg` in console.html. */
+.t-seg{display:flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden;
+       flex:0 0 auto}
+.t-seg a{display:flex;align-items:center;gap:7px;padding:0 13px;height:44px;
+         color:var(--mute);font-size:12px;text-decoration:none;white-space:nowrap;
+         border-right:1px solid var(--rule)}
+.t-seg a:last-child{border-right:0}
+.t-seg a:hover{background:#161e21;color:var(--ink)}
+.t-seg a[aria-current="true"]{background:var(--accent);color:var(--accent-ink)}
+.t-seg a .n{opacity:.62;font-variant-numeric:tabular-nums}
+
+.t-head,.t-row{display:grid;grid-template-columns:7em minmax(0,1fr) 15em;
+               gap:0 14px;align-items:start}
+.t-head{position:sticky;top:0;z-index:2;background:var(--bg);padding:9px 13px;
+        border-bottom:1px solid var(--rule);font-size:12.5px;font-weight:700;
+        color:var(--ink);letter-spacing:.02em}
+.t-row{padding:12px 13px;border-bottom:1px solid var(--rule-soft);text-decoration:none;
+       color:inherit}
+.t-row:hover{background:#161e21}
+.t-row[aria-current="true"]{background:var(--row-hi)}
+.t-row:focus-visible{outline-offset:-2px}
+.t-kind{color:var(--mute);font-size:12px;letter-spacing:.06em;padding-top:1px}
+.t-row[aria-current="true"] .t-kind{color:var(--ink)}
+.t-t{display:block;color:var(--ink);font-size:13px;line-height:1.5;
+     overflow-wrap:anywhere}
+.t-sub{display:block;margin-top:4px;color:var(--dim);font-size:11.5px;line-height:1.6;
+       overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t-when{display:block;margin-top:4px;color:var(--dim);font-size:11.5px}
+.t-col3{text-align:left}
+
+.t-note{color:var(--dim);padding:18px 13px;font-size:12.5px;line-height:1.8}
+.t-note b{color:var(--mute);font-weight:400}
+
+/* ── phone: the same rows, stacked ────────────────────────────────────────────────── */
+@media (max-width:720px){
+  .t-head{display:none}
+  .t-row{grid-template-columns:minmax(0,1fr);gap:0;padding:13px 12px}
+  .t-row .t-col3{display:flex;align-items:center;gap:12px;margin-top:7px}
+  .t-row .t-when{margin-top:0}
+  .t-kind{display:none}
+  /* The toolbar is a single flex row on a desk and two on a phone: the box and its clear
+     button, then the chips across the full width underneath. Without the wrap the chips
+     push the whole column wider than the screen and every title runs off the right. */
+  .t-shell{min-width:0}
+  .t-shell .tools{flex-wrap:wrap}
+  .t-shell .search{flex:1 1 0;min-width:0;height:44px}
+  /* The chips are appended before the clear button, so on a wrapped toolbar they would
+     push it onto a third line of its own. Ordering puts the clear button back beside the
+     box it clears and leaves the chips a full row. */
+  .t-shell .tools .act{order:0}
+  .t-seg{flex:1 1 100%;width:100%;order:1}
+  .t-seg a{flex:1 1 0;min-width:0;justify-content:center;padding:0 6px;gap:5px}
+}
+
+/* ── a detail page ────────────────────────────────────────────────────────────────── */
+.t-page{padding-bottom:40px}
+.t-page .t-inner{max-width:1080px}
+.t-crumbs{display:flex;align-items:center;gap:9px;color:var(--dim);font-size:12px;
+          margin-bottom:14px;flex-wrap:wrap}
+.t-crumbs a{text-decoration:none}
+.t-crumbs a:hover{text-decoration:underline}
+.t-crumbs .sep{color:var(--rule)}
+.t-crumbs .here{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+                max-width:70ch}
+.t-h1{margin:0;font-size:21px;line-height:1.35;font-weight:700;letter-spacing:-.01em;
+      color:var(--ink);overflow-wrap:anywhere}
+.t-hrow{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.t-pill{display:inline-flex;align-items:center;padding:3px 11px;border:1px solid var(--rule);
+        border-radius:2px;font-size:12px;letter-spacing:.04em;white-space:nowrap;
+        margin-top:3px;flex:0 0 auto}
+.t-meta{display:flex;flex-wrap:wrap;gap:0 10px;margin-top:11px;color:var(--dim);
+        font-size:12px;line-height:1.7}
+.t-meta .sep{color:var(--rule)}
+
+.t-sec{margin-top:30px}
+.t-sec>h2{margin:0 0 13px;font-size:11.5px;font-weight:700;letter-spacing:.14em;
+          color:var(--mute);text-transform:uppercase;padding-bottom:9px;
+          border-bottom:1px solid var(--rule);display:flex;align-items:baseline;gap:12px}
+.t-sec>h2 .side{margin-left:auto;color:var(--dim);font-weight:400;letter-spacing:.1em}
+
+.t-prose{max-width:82ch}
+.t-prose p{margin:0 0 13px;color:var(--mute);font-size:13px;line-height:1.8;
+           white-space:pre-wrap;overflow-wrap:anywhere}
+.t-prose p:last-child{margin-bottom:0}
+.t-prose a{overflow-wrap:anywhere}
+.t-dim{color:var(--dim);font-size:12px;line-height:1.8;max-width:82ch}
+
+/* ── photographs ──────────────────────────────────────────────────────────────────── */
+.t-shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.t-shot{display:block;position:relative;aspect-ratio:4/3;border:1px solid var(--rule);
+        background:#0b1012;overflow:hidden;text-decoration:none}
+.t-shot:hover{border-color:#3a4a47}
+.t-shot img{width:100%;height:100%;object-fit:cover;display:block}
+.t-shot .t-miss{position:absolute;inset:0;display:grid;place-items:center;text-align:center;
+                padding:16px;color:var(--dim);font-size:11.5px;line-height:1.7;
+                white-space:pre-line;overflow-wrap:anywhere}
+.t-shot .t-n{position:absolute;left:0;bottom:0;background:rgba(14,19,21,.86);
+             color:var(--mute);font-size:11px;padding:3px 8px;letter-spacing:.04em}
+
+/* ── the lightbox ─────────────────────────────────────────────────────────────────── */
+.t-lb{position:fixed;inset:0;z-index:60;background:rgba(9,13,14,.95);
+      display:grid;grid-template-rows:auto minmax(0,1fr) auto}
+.t-lb .bar{display:flex;align-items:center;gap:14px;height:52px;padding:0 16px;
+           background:var(--chrome);border-bottom:1px solid var(--rule);flex:0 0 auto}
+.t-lb .bar b{font-size:12.5px;font-weight:400;color:var(--mute);overflow:hidden;
+             text-overflow:ellipsis;white-space:nowrap}
+.t-lb .bar .of{margin-left:auto;color:var(--dim);font-size:11.5px;letter-spacing:.12em;
+               white-space:nowrap}
+.t-lb .bar button{width:38px;height:38px;display:grid;place-items:center;color:var(--mute);
+                  border:1px solid var(--rule);border-radius:3px;flex:0 0 auto}
+.t-lb .bar button:hover{color:var(--ink);border-color:#3a4a47}
+.t-lb .bar button svg{width:18px;height:18px}
+.t-lb .stagebox{min-height:0;display:grid;place-items:center;padding:18px}
+.t-lb img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.t-lb .miss{color:var(--dim);font-size:12.5px;line-height:1.9;text-align:center;
+            max-width:50ch;overflow-wrap:anywhere}
+.t-lb .foot{padding:11px 16px;border-top:1px solid var(--rule);background:var(--chrome);
+            color:var(--dim);font-size:11.5px;letter-spacing:.06em;flex:0 0 auto}
+
+/* ── follow-ups ───────────────────────────────────────────────────────────────────── */
+.t-tl{border-left:1px solid var(--rule);padding-left:20px;margin-left:5px;
+      display:grid;gap:22px}
+.t-tl>li{list-style:none;position:relative}
+.t-tl>li::before{content:"";position:absolute;left:-25px;top:6px;width:9px;height:9px;
+                 border-radius:50%;background:var(--rule);border:1px solid var(--bg)}
+.t-tl>li:last-child::before{background:var(--accent)}
+.t-tl .t-w{color:var(--mute);font-size:12px;letter-spacing:.03em;margin-bottom:8px}
+.t-tl .t-w .sep{color:var(--rule);padding:0 6px}
+ul.t-tl{margin:0;padding-left:20px}
+
+/* ── passages from the papers ─────────────────────────────────────────────────────── */
+.t-hits{display:grid;gap:11px;max-width:900px}
+.t-hit{display:block;background:var(--panel);border:1px solid var(--rule);padding:13px 15px;
+       text-decoration:none;color:inherit}
+.t-hit:hover{border-color:#3a4a47;background:#171f22}
+.t-hit .d{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.t-hit .d b{color:var(--ink);font-size:12.5px;font-weight:700;overflow-wrap:anywhere}
+.t-hit .d .ln{margin-left:auto;color:var(--accent);font-size:11.5px;letter-spacing:.06em;
+              white-space:nowrap}
+.t-hit .hd{color:var(--mute);font-size:11.5px;margin-top:3px;overflow:hidden;
+           text-overflow:ellipsis;white-space:nowrap}
+.t-hit .sn{margin:8px 0 0;color:var(--dim);font-size:12px;line-height:1.7;
+           display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+           overflow:hidden;overflow-wrap:anywhere}
+
+/* ── key/value that keeps its empties ─────────────────────────────────────────────── */
+table.t-kv{width:100%;max-width:760px;border-collapse:collapse;table-layout:auto}
+table.t-kv td{border-bottom:1px solid var(--rule-soft);padding:9px 16px 9px 0;
+              vertical-align:top;word-break:break-word;font-size:12.5px}
+table.t-kv td:first-child{color:var(--mute);width:34%;white-space:nowrap}
+table.t-kv td:last-child{color:var(--ink);padding-right:0}
+table.t-kv td.none{color:var(--dim)}
+
+/* ── the command you type instead of the button this page does not have ───────────── */
+.t-cmd{margin:0;background:var(--panel);border:1px solid var(--rule);padding:13px 15px;
+       color:var(--accent);font:inherit;font-size:12.5px;overflow-x:auto;
+       white-space:pre;line-height:1.7}
+.t-foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--rule);
+        color:var(--dim);font-size:11.5px;line-height:1.9;max-width:88ch}
+.t-foot code{color:var(--warn)}
+.t-foot b{color:var(--mute);font-weight:400}
+
+@media (max-width:720px){
+  .t-page .t-inner{max-width:none}
+  .t-h1{font-size:18px}
+  .t-shots{grid-template-columns:minmax(0,1fr)}
+  .t-sec{margin-top:24px}
+}
