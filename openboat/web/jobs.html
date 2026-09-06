@@ -761,6 +761,8 @@ document.addEventListener('alpine:init', () => {
         parts.push(item.hours_since / item.interval_hours);
       if (item.interval_months && item.days_since != null)
         parts.push(item.days_since / (item.interval_months * 30.44));
+      if (item.interval_days && item.days_since != null)
+        parts.push(item.days_since / item.interval_days);
       return parts.length ? Math.max(...parts) : null;
     },
 
@@ -792,6 +794,8 @@ document.addEventListener('alpine:init', () => {
         return `${item.hours_since.toFixed(1)} / ${item.interval_hours.toFixed(0)} h`;
       if (item.interval_months && item.days_since != null)
         return `${item.days_since} / ${Math.round(item.interval_months * 30.44)} d`;
+      if (item.interval_days && item.days_since != null)
+        return `${item.days_since} / ${item.interval_days} d`;
       if (item.hours_since != null) return `${item.hours_since.toFixed(1)} h`;
       return '—';
     },
@@ -799,7 +803,8 @@ document.addEventListener('alpine:init', () => {
     whenDone(item) { return item.last ? shortDate(item.last) : 'never recorded'; },
 
     needsInterval(item) {
-      return !item.per_outing && !item.interval_hours && !item.interval_months;
+      return !item.per_outing && !item.interval_hours && !item.interval_months
+             && !item.interval_days;
     },
 
     interval(item) {
@@ -807,6 +812,7 @@ document.addEventListener('alpine:init', () => {
       const bits = [];
       if (item.interval_hours) bits.push(`${item.interval_hours.toFixed(0)} running hours`);
       if (item.interval_months) bits.push(`${item.interval_months} months`);
+      if (item.interval_days) bits.push(`${item.interval_days} days`);
       return bits.length ? 'every ' + bits.join(' or ') : 'none set';
     },
 

@@ -240,8 +240,8 @@ def test_due_as_dict_round_trips() -> None:
                    interval_months=None, per_outing=True, verdict="due", why="one outing since")
 
     expected_keys = {"item", "description", "last", "hours_since", "days_since",
-                     "outings_since", "interval_hours", "interval_months", "per_outing",
-                     "verdict", "why", "symbol"}
+                     "outings_since", "interval_hours", "interval_months", "interval_days",
+                     "per_outing", "verdict", "why", "symbol"}
     for due in (never_serviced, serviced):
         d = due.as_dict()
         check(set(d) == expected_keys, f"every field is present, symbol included (got {sorted(d)})")
@@ -305,6 +305,55 @@ def test_snags_open_and_fixed() -> None:
 
 
 # =======================================================================================
+# 5b. Calendar routines, and a boat that owes no flush. A wash-down every fourteen days is
+#    neither engine hours nor months, and a closed freshwater circuit must be able to say
+#    so — otherwise the schedule shows a flush that is confidently wrong, and those get
+#    followed.
+# =======================================================================================
+def test_day_intervals_and_the_flush_opt_out() -> None:
+    from openboat import engine, maintenance
+    from openboat.profile import load
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        (tmp / "boat.toml").write_text(
+            "[vessel]\n"
+            'name = "Test Boat"\n'
+            "\n"
+            "[maintenance.flush]\n"
+            "enabled = false\n"
+            "\n"
+            "[maintenance.wash]\n"
+            'description = "Wash-down"\n'
+            "days = 14\n"
+            "\n"
+            "[maintenance.bilge]\n"
+            'description = "Bilge look"\n'
+            "weeks = 1\n"
+        )
+        db = engine.connect(tmp / "engine-log.db")
+        maintenance.ensure(db)
+        now = datetime.now(timezone.utc)
+        maintenance.record(db, "wash", when=now - timedelta(days=20))
+        maintenance.record(db, "bilge", when=now - timedelta(days=2))
+
+        by_item = {d.item: d for d in maintenance.due(db, load(tmp / "boat.toml"))}
+        db.close()
+
+        check("flush" not in by_item, "enabled = false takes the flush off the schedule")
+        wash = by_item.get("wash")
+        check(wash is not None and wash.interval_days == 14, "a `days` interval is carried")
+        check(wash is not None and wash.verdict == "due",
+              f"twenty days against a fourteen-day routine is due (got {wash and wash.verdict!r})")
+        check(wash is not None and wash.as_dict()["interval_days"] == 14,
+              "and it is serialised for the pages")
+        bilge = by_item.get("bilge")
+        check(bilge is not None and bilge.interval_days == 7, "`weeks` lands in days")
+        check(bilge is not None and bilge.verdict == "ok",
+              f"two days against a weekly routine is fine (got {bilge and bilge.verdict!r})")
+
+
+# =======================================================================================
 # 6. THE ARCHITECTURAL INVARIANT. This dashboard accepts exactly one POST route, ever.
 #    A POST to either new GET route, or to anything else, must 404 — the same way it
 #    already 404s a POST to /api/profile or /api/state. If this test ever has to be
@@ -344,6 +393,7 @@ if __name__ == "__main__":
                 test_due_as_dict_round_trips,
                 test_snags_with_no_file_yet,
                 test_snags_open_and_fixed,
+                test_day_intervals_and_the_flush_opt_out,
                 test_only_one_post_route_exists):
         case()
     print("-" * 78)

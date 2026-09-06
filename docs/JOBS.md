@@ -67,6 +67,13 @@ none, because it gets followed. The page inherits that refusal rather than paper
 with a plausible default. `unknown` is a state you can see, and the fix for it is your engine's
 own manual, in your profile's `[maintenance]` table.
 
+That table takes three kinds of interval, and an item may carry more than one: `hours` of
+engine running, `months`, and `days` (or `weeks`) for the routines that are calendar rather
+than engine — a wash-down every fortnight, an antifouling every year. Whichever clock runs
+out first sets the verdict. A boat with a closed freshwater circuit owes no flush and says
+so with `[maintenance.flush] enabled = false`; an absent block still means a raw-water
+engine, because the quiet default has to be the one that errs towards the flush.
+
 Snags carry the same honesty in the other direction. Every entry is marked unverified —
 recorded from a phone at the moment of noticing, confirmed by nobody since — and the page
 keeps that mark visible rather than promoting somebody's hurried note to a fact.

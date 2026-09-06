@@ -738,6 +738,8 @@ function tasksServicePage(m, maint, docs) {
              "no interval set");
   tasksKvRow(tb, "Interval, months", m.interval_months ? `${nf(m.interval_months)} months`
                                                        : null, "no interval set");
+  tasksKvRow(tb, "Interval, days", m.interval_days ? `${nf(m.interval_days)} days`
+                                                   : null, "no interval set");
   tasksKvRow(tb, "Every outing", m.per_outing === null || m.per_outing === undefined
                                  ? null : (m.per_outing ? "yes" : "no"));
   tasksKvRow(tb, "Verdict", m.verdict);

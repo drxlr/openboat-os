@@ -152,6 +152,16 @@ description = "Fresh-water flush of the raw-water circuit"
 # [maintenance.anodes]
 # description = "Sacrificial anodes, checked and replaced"
 # months = 6
+#
+# Routines that are calendar rather than engine take `days` (or `weeks`):
+# [maintenance.wash]
+# description = "Wash-down of deck and topsides"
+# days = 14
+#
+# A boat with a closed freshwater circuit owes no flush. Say so, rather than deleting the
+# block — an absent block still means a raw-water engine:
+# [maintenance.flush]
+# enabled = false
 
 
 # ── Control (ring 2) ─────────────────────────────────────────────────────────────────

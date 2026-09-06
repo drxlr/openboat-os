@@ -89,6 +89,10 @@ class Due:
     per_outing: bool
     verdict: str                     # 'due' | 'soon' | 'ok' | 'unknown'
     why: str
+    #: Calendar days, for the routines that are neither engine hours nor months — a
+    #: fortnightly wash-down, a weekly bilge look. Last, and defaulted, so that the older
+    #: positional constructions above it stay valid.
+    interval_days: int | None = None
 
     @property
     def symbol(self) -> str:
@@ -113,6 +117,7 @@ class Due:
             "outings_since": self.outings_since,
             "interval_hours": self.interval_hours,
             "interval_months": self.interval_months,
+            "interval_days": self.interval_days,
             "per_outing": self.per_outing,
             "verdict": self.verdict,
             "why": self.why,
@@ -197,7 +202,13 @@ def due(db: sqlite3.Connection, boat: Profile | None = None) -> list[Due]:
     # The flush is always assessed, whether or not the profile mentions it, because it is a
     # property of raw-water cooling rather than of one engine. Its settings are still yours.
     flush_cfg = dict(schedule.pop(FLUSH, {}) or {})
-    items: list[Due] = [_assess_flush(db, flush_cfg)]
+    # Unless the profile says, in so many words, that this engine does not sit full of the
+    # sea: `[maintenance.flush] enabled = false`. A closed freshwater circuit owes no flush,
+    # and an item saying it does is a schedule that is confidently wrong. Only an explicit
+    # false switches it off — an absent block still means a raw-water engine.
+    items: list[Due] = []
+    if flush_cfg.get("enabled", True) is not False:
+        items.append(_assess_flush(db, flush_cfg))
 
     for item, cfg in sorted(schedule.items()):
         items.append(_assess_interval(db, item, dict(cfg or {})))
@@ -240,6 +251,10 @@ def _assess_interval(db: sqlite3.Connection, item: str, cfg: dict) -> Due:
     interval_m = cfg.get("months")
     interval_h = float(interval_h) if interval_h else None
     interval_m = int(interval_m) if interval_m else None
+    # `days`, or `weeks` for the person who thinks of a wash-down as fortnightly. Both land
+    # in days, which is what the record is counted in.
+    interval_d = cfg.get("days") or (int(cfg["weeks"]) * 7 if cfg.get("weeks") else None)
+    interval_d = int(interval_d) if interval_d else None
 
     last = _last(db, item)
     last_when = last[0] if last else None
@@ -249,9 +264,10 @@ def _assess_interval(db: sqlite3.Connection, item: str, cfg: dict) -> Due:
     if last_when is None:
         return Due(item, description, None, hours_since, None, None, interval_h, interval_m,
                    False, "unknown",
-                   "never recorded — the total above is the whole log, not an interval")
+                   "never recorded — the total above is the whole log, not an interval",
+                   interval_days=interval_d)
 
-    if interval_h is None and interval_m is None:
+    if interval_h is None and interval_m is None and interval_d is None:
         return Due(item, description, last_when, hours_since, days, None, None, None, False,
                    "unknown",
                    "no interval set in the profile, so no verdict — the counters are yours "
@@ -269,9 +285,15 @@ def _assess_interval(db: sqlite3.Connection, item: str, cfg: dict) -> Due:
             worst = "due"
         elif days >= limit_days * 0.85 and worst == "ok":
             worst = "soon"
+    if interval_d is not None and days is not None:
+        reasons.append(f"{days} of {interval_d} days")
+        if days >= interval_d:
+            worst = "due"
+        elif days >= interval_d * 0.85 and worst == "ok":
+            worst = "soon"
 
     return Due(item, description, last_when, hours_since, days, None, interval_h, interval_m,
-               False, worst, " and ".join(reasons))
+               False, worst, " and ".join(reasons), interval_days=interval_d)
 
 
 def suggest_unrecorded_flushes(db: sqlite3.Connection, limit: int = 5) -> list[datetime]:
