@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- The same compass rose the helm uses: one app, one mark in the tab strip. -->
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzEiIGZpbGw9IiMwQjExMTYiLz48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIyOS41IiBmaWxsPSJub25lIiBzdHJva2U9IiMyQzQ2NTUiIHN0cm9rZS13aWR0aD0iMS41Ii8+PHBhdGggZD0iTTMyIDQgTDM3LjUgMjYuNSBMNjAgMzIgTDM3LjUgMzcuNSBMMzIgNjAgTDI2LjUgMzcuNSBMNCAzMiBMMjYuNSAyNi41IFoiIGZpbGw9IiM4RkI2QzkiLz48cGF0aCBkPSJNMzIgNCBMMzcuNSAyNi41IEwzMiAzMiBMMjYuNSAyNi41IFoiIGZpbGw9IiNGRjZBM0MiLz48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIzIiBmaWxsPSIjMEIxMTE2Ii8+PC9zdmc+">
+<title>Jobs</title>
+<style>
+  /* The palettes are the helm's, token for token — same names, same measured contrast, so
+     a skipper who has set the tablet to night at 23:00 does not get a white page when they
+     tap through to the jobs. Nothing here defines a colour outside these three blocks.
+
+     day    18.6:1 on numerals, 13.0:1 on labels, 7.9:1 on the small line.
+     dusk   14.2:1 / 9.6:1 / 6.1:1.
+     night  red on black, 7.2:1 on the numeral, 5.2:1 on the labels.                    */
+  :root {
+    color-scheme:light;
+    --paper:#EEF1EF; --panel:#FFFFFF; --ink:#0F1412; --ink-soft:#2B3330; --muted:#4A5350;
+    --rule:#7E8984; --rule-soft:#C9D0CC;
+    --red:#B3261E; --water:#175E7E; --rust:#7A5200; --good:#2B6B3E;
+    --bar:#FFFFFF; --panel-bad:#FFF4F2; --shadow:none; --lift:0 14px 34px rgba(15,20,18,.28);
+  }
+  :root[data-mode="dusk"] {
+    color-scheme:dark;
+    --paper:#15181A; --panel:#1D2123; --ink:#EEF0ED; --ink-soft:#C2C8C4; --muted:#98A09C;
+    --rule:#6B7578; --rule-soft:#2E3436;
+    --red:#F07A66; --water:#74BBD9; --rust:#E3A75E; --good:#7CBD8F;
+    --bar:#1A1E20; --panel-bad:#33201D; --lift:0 14px 34px rgba(0,0,0,.6);
+  }
+  :root[data-mode="night"] {
+    color-scheme:dark;
+    --paper:#000000; --panel:#0A0303; --ink:#FF6A3C; --ink-soft:#E0512E; --muted:#B4401F;
+    --rule:#5C2116; --rule-soft:#2A0E09;
+    --red:#FF8A60; --water:#FF6A3C; --rust:#FF6A3C; --good:#E0512E;
+    --bar:#050101; --panel-bad:#3A0C05; --lift:0 14px 34px rgba(0,0,0,.9);
+  }
+  /* Fallback only: the script below sets data-mode before first paint. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-mode]) {
+      color-scheme:dark;
+      --paper:#15181A; --panel:#1D2123; --ink:#EEF0ED; --ink-soft:#C2C8C4; --muted:#98A09C;
+      --rule:#6B7578; --rule-soft:#2E3436;
+      --red:#F07A66; --water:#74BBD9; --rust:#E3A75E; --good:#7CBD8F;
+      --bar:#1A1E20; --panel-bad:#33201D;
+    }
+  }
+
+  :root { --side:16px; --gap:12px; --top:64px; --dock:72px;
+          /* Where the due line stands in a track. The 28 % to the right of it is the
+             overrun lane: a job can be shown past its interval rather than pinned at
+             full, because "overdue" and "just due" are different situations.        */
+          --due-at:72%; }
+  @media (max-width:599px) { :root { --side:12px; --gap:10px; } }
+
+  *,*::before,*::after { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body {
+    margin:0; background:var(--paper); color:var(--ink); font-size:18px; line-height:1.5;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; -webkit-tap-highlight-color:transparent;
+  }
+  /* Paths, filenames and photo names are the long unbreakable strings on this page, and a
+     phone is 375 px wide. Anything nowrap (a figure) is unaffected — nowrap wins. */
+  .n { font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+       font-variant-numeric:tabular-nums; letter-spacing:-.02em; overflow-wrap:anywhere;
+       min-width:0; }
+  .num { font-variant-numeric:tabular-nums; font-weight:700; letter-spacing:-.015em; }
+  a { color:var(--water); }
+  button { font:inherit; color:inherit; }
+  :focus-visible { outline:3px solid var(--water); outline-offset:3px; border-radius:8px; }
+  code { background:var(--rule-soft); padding:.1rem .35rem; border-radius:4px; font-size:.85em; }
+  .quiet { color:var(--muted); font-size:.95rem; }
+  .warntext { color:var(--rust); font-size:.95rem; }
+
+  /* --- shell: identity above, palette and the way back below ----------------------- */
+  .top { position:sticky; top:0; z-index:40; background:var(--bar);
+         border-bottom:1px solid var(--rule-soft); height:var(--top);
+         display:flex; align-items:center; gap:.6rem; padding:0 var(--side); }
+  .top h1 { margin:0; font-size:1.25rem; letter-spacing:-.02em; white-space:nowrap; }
+  .top .sub { color:var(--muted); font-size:.95rem; white-space:nowrap; overflow:hidden;
+              text-overflow:ellipsis; }
+  .top .stamp { margin-left:auto; color:var(--muted); font-size:.9rem; white-space:nowrap; }
+  @media (max-width:599px) { .top .sub { display:none; } }
+
+  :root[data-framed] .top, :root[data-framed] .dock { display:none; }
+  :root[data-framed] main { padding-bottom:var(--gap); }
+
+  main { max-width:1000px; margin:0 auto;
+         padding:calc(var(--gap) + .4rem) var(--side)
+                 calc(var(--dock) + env(safe-area-inset-bottom) + var(--gap)); }
+
+  .dock { position:fixed; left:0; right:0; bottom:0; z-index:40; background:var(--bar);
+          border-top:1px solid var(--rule-soft); display:flex; align-items:stretch;
+          height:calc(var(--dock) + env(safe-area-inset-bottom));
+          padding-bottom:env(safe-area-inset-bottom); }
+  .dock nav { flex:1 1 auto; display:flex; min-width:0; }
+  .dock nav a { flex:0 0 auto; min-width:96px; min-height:56px; display:flex;
+    align-items:center; justify-content:center; padding:0 1.15rem; text-decoration:none;
+    border-top:4px solid transparent; color:var(--muted); font-size:1.05rem; font-weight:600; }
+  .dock nav a.here { color:var(--ink); border-top-color:var(--water); }
+  .mode { flex:0 0 auto; min-width:128px; border:0; border-left:1px solid var(--rule-soft);
+          background:none; color:var(--ink); cursor:pointer; display:flex; align-items:center;
+          gap:.6rem; padding:0 1rem; text-align:left; user-select:none; -webkit-user-select:none; }
+  .mode svg { width:28px; height:28px; fill:none; stroke:currentColor; stroke-width:2;
+              stroke-linecap:round; stroke-linejoin:round; flex:0 0 auto; }
+  .mode b { display:block; font-size:1.05rem; line-height:1.15; }
+  .mode small { display:block; font-size:.8rem; color:var(--muted); line-height:1.15; }
+  @media (max-width:599px) { .mode { min-width:100px; padding:0 .7rem; } .mode small { display:none; } }
+
+  /* --- the sentence at the top: the whole answer, in words ------------------------- */
+  .lead { font-size:1.5rem; font-weight:600; letter-spacing:-.02em; line-height:1.25;
+          margin:.2rem 0 .35rem; }
+  .lead .due { color:var(--red); }
+  .lead .soon { color:var(--rust); }
+  .lead .clear { color:var(--good); }
+  /* The engine log's account of itself is not a caption. It is the only channel for three
+     things the maintenance shape has no field for — that a log was fabricated, that a
+     total is hours-since-logging-began rather than the engine's own, and how much of the
+     season it covers — and every figure below this page's fold depends on which of those
+     is true. So it reads at body weight, not as a footnote under the sentence. */
+  .hours { margin:0 0 1.1rem; color:var(--ink-soft); font-size:1rem; }
+  .hours.warntext { color:var(--rust); font-weight:600; }
+
+  /* --- a lane: one of the two lists, plus the log of what has been looked at ------- */
+  .lane { background:var(--panel); border:2px solid var(--rule-soft); border-radius:14px;
+          padding:.9rem 1.1rem 1.1rem; margin-bottom:.9rem; }
+  .lanehead { display:flex; align-items:center; gap:.5rem; margin:0 0 .2rem; }
+  .lanehead h2 { margin:0; font-size:1rem; font-weight:600; letter-spacing:-.01em; }
+  .lanehead .count { color:var(--muted); font-size:1rem; font-variant-numeric:tabular-nums; }
+  .grip { margin-left:auto; width:56px; height:56px; flex:0 0 auto; border:0; padding:0;
+          background:none; color:var(--rule); cursor:grab; border-radius:12px;
+          display:flex; align-items:center; justify-content:center; touch-action:none; }
+  .grip svg { width:24px; height:24px; fill:currentColor; stroke:none; }
+  .grip:active { cursor:grabbing; color:var(--ink); }
+  .sortghost { opacity:.35; }
+  .sortdrag { box-shadow:var(--lift); }
+  .lanenote { margin:.1rem 0 .9rem; }
+
+  /* --- the due line ----------------------------------------------------------------
+     One vertical rule down the whole block, at the point where a job becomes owed. Every
+     track is normalised to its own interval, so hours, months and salt-water outings all
+     read against the same line: left of it is time in hand, on it is owed, past it is
+     overdue. That is the one bold thing on this page and everything else stays quiet. */
+  .rows { position:relative; }
+  .rows.labelled { padding-top:1.4rem; }
+  .rows.spaced { margin-top:1.1rem; }
+  .dueline { position:absolute; top:0; left:var(--due-at); padding-left:.4rem;
+             font-size:.8rem; font-weight:600; color:var(--muted); pointer-events:none; }
+
+  .jrow { display:block; position:relative; width:100%; text-align:left; background:none;
+          border:0; border-top:1px solid var(--rule-soft); padding:.7rem 0 .8rem;
+          cursor:pointer; min-height:56px; }
+  /* The line, continued through the row itself. It runs behind the text and only on a
+     screen wide enough that there is no text at that point to run behind — on a phone the
+     notch in each track carries it alone, which is the same mark at the same place. */
+  @media (min-width:600px) {
+    .jrow.plot::after { content:""; position:absolute; left:var(--due-at); top:0; bottom:0;
+      border-left:2px solid var(--ink); opacity:.5; z-index:0; pointer-events:none; }
+  }
+  .jhead, .track, .why, .meta, .said-it { position:relative; z-index:1; }
+  .rows .jrow:first-of-type { border-top:0; }
+  .jhead { display:flex; align-items:baseline; gap:.6rem; }
+  .jsym { flex:0 0 1.1em; font-size:1.05rem; line-height:1.2; color:var(--muted); }
+  .jrow.due .jsym { color:var(--red); }
+  .jrow.soon .jsym { color:var(--rust); }
+  .jname { flex:1 1 auto; font-size:1.1rem; font-weight:600; line-height:1.25;
+           overflow-wrap:anywhere; }
+  .jrow.due .jname { font-weight:700; }
+  .jfig { flex:0 0 auto; font-variant-numeric:tabular-nums; font-weight:650;
+          font-size:1.05rem; white-space:nowrap; }
+  .jrow.due .jfig { color:var(--red); }
+  .jrow.soon .jfig { color:var(--rust); }
+  .caret { flex:0 0 auto; width:22px; height:22px; fill:none; stroke:var(--muted);
+           stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; align-self:center; }
+  .jrow[aria-expanded="true"] .caret { transform:rotate(180deg); }
+
+  .track { display:block; position:relative; height:10px; margin:.55rem 0 0; background:var(--rule-soft);
+           border-radius:3px; overflow:hidden; }
+  .track .run { position:absolute; left:0; top:0; bottom:0; background:var(--water);
+                border-radius:3px 0 0 3px; }
+  .jrow.soon .track .run { background:var(--rust); }
+  .jrow.due  .track .run { background:var(--red); }
+  .track .over { position:absolute; top:0; bottom:0; left:var(--due-at); background:var(--red);
+                 opacity:.45; }
+  /* Where the job becomes owed, marked in the track itself: the one point on this page a
+     skipper is actually reading for. */
+  .track.plot::after { content:""; position:absolute; left:var(--due-at); top:0; bottom:0;
+    width:2px; background:var(--ink); opacity:.75; }
+  /* An item with no interval has no finish line to draw, so its track is drawn without
+     one: an open, dashed rule that runs off the end rather than a bar that fills up. The
+     honest shape for "we are counting this and judging nothing". */
+  .track.open { background:none; border-radius:0;
+    background-image:repeating-linear-gradient(to right, var(--rule) 0 8px, transparent 8px 15px);
+    background-position:0 4px; background-size:100% 2px; background-repeat:repeat-x; }
+  .why { display:block; margin:.45rem 0 0; color:var(--muted); font-size:.95rem; line-height:1.35; }
+  .jrow.due .why { color:var(--ink); font-weight:600; }
+
+  /* --- what opens under a row ------------------------------------------------------ */
+  .panel { padding:.2rem 0 1rem; border-top:1px dashed var(--rule-soft);
+           margin:-.2rem 0 0; }
+  ul.rows2 { list-style:none; margin:.6rem 0 0; padding:0; }
+  ul.rows2 li { display:flex; justify-content:space-between; gap:1rem; padding:.5rem 0;
+                border-top:1px solid var(--rule-soft); flex-wrap:wrap; }
+  ul.rows2 li:first-child { border-top:0; }
+  ul.rows2 .k { color:var(--muted); }
+  .doors { display:flex; gap:.55rem; flex-wrap:wrap; margin-top:.9rem; align-items:center; }
+  .bt { min-height:56px; min-width:56px; padding:0 1.1rem; border-radius:12px;
+        border:2px solid var(--rule); background:var(--panel); color:var(--ink);
+        font-weight:600; font-size:1.05rem; cursor:pointer; white-space:nowrap; }
+  .bt:disabled { opacity:.45; cursor:default; }
+  .said { color:var(--good); font-weight:600; font-size:.95rem; }
+  .said.bad { color:var(--red); }
+  .cmd { display:flex; gap:.55rem; align-items:stretch; margin-top:.7rem; flex-wrap:wrap; }
+  .cmd .snip { flex:1 1 18rem; min-width:0; background:var(--bar); border:1px solid var(--rule-soft);
+    border-radius:10px; padding:.75rem .9rem; font-size:.9rem; overflow-x:auto;
+    font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    white-space:pre; margin:0; }
+
+  /* --- snags ----------------------------------------------------------------------- */
+  .mark { font-size:.9rem; font-weight:600; color:var(--rust); }
+  .meta { margin:.35rem 0 0; color:var(--muted); font-size:.95rem;
+          display:flex; gap:.55rem; flex-wrap:wrap; align-items:baseline; }
+  .meta .n { font-size:.9rem; }
+  .said-it { display:block; margin:.5rem 0 0; padding:.1rem 0 .1rem .9rem; border-left:3px solid var(--rule);
+             color:var(--ink-soft); font-size:1rem; line-height:1.5; white-space:pre-wrap;
+             overflow-wrap:anywhere; }
+  .jrow.fixed .jname { font-weight:600; color:var(--muted); }
+
+  /* --- empty states: an invitation, not an error ------------------------------------ */
+  .invite h3 { margin:.2rem 0 .3rem; font-size:1.1rem; font-weight:600; }
+  .invite p { margin:.4rem 0 0; }
+  .foot { margin:1.4rem 0 0; }
+  .foot p { margin:.5rem 0 0; }
+
+  @media (prefers-reduced-motion:no-preference) {
+    .caret { transition:transform .18s ease; }
+    .track .run, .track .over { transition:width .3s ease; }
+  }
+</style>
+
+<script>
+// ── The boat's identity ───────────────────────────────────────────────────────────────
+// No boat facts in this file. The name and the subtitle come from /api/profile, and it is
+// read synchronously for the same reason index.html reads it that way: the palette below
+// needs the berth to work out where the sun is before the first paint, and a page that
+// flashed white at 23:00 would be the bug this palette exists to prevent.
+window.OB_HOME = [0, 0];
+window.OB_PROFILE = null;
+(function () {
+  var request = new XMLHttpRequest();
+  try {
+    request.open('GET', '/api/profile', false);
+    request.send(null);
+    if (request.status === 200) {
+      var p = JSON.parse(request.responseText);
+      window.OB_PROFILE = p;
+      if (p.berth) window.OB_HOME = [p.berth.lat, p.berth.lon];
+    }
+  } catch (e) { /* no profile: the page still runs, describing no boat rather than a wrong one */ }
+})();
+
+function obApplyProfile() {
+  var p = window.OB_PROFILE;
+  if (!p) return;
+  var v = p.vessel || {};
+  var name = v.name || 'OpenBoat';
+  document.title = name + ' · Jobs';
+  var h1 = document.getElementById('boatname');
+  if (h1) h1.textContent = name;
+  var sub = document.getElementById('sub');
+  if (sub) {
+    var bits = ['Jobs'];
+    if (v.kind) bits.push(v.kind);
+    if (p.berth && p.berth.name) bits.push(p.berth.name);
+    sub.textContent = bits.join(' · ');
+  }
+}
+document.addEventListener('DOMContentLoaded', obApplyProfile);
+
+/* Palette before first paint, following the sun over the berth — the helm's own script,
+   and the helm's own storage key, so a palette chosen there is the palette here. */
+(function () {
+  const KEY = 'openboat.mode.v1', HOME = (window.OB_HOME || [0, 0]);
+  function solarElevation(date, lat, lon) {
+    const rad = Math.PI / 180;
+    const n = date.getTime() / 86400000 + 2440587.5 - 2451545.0;      // days since J2000
+    const L = (280.460 + 0.9856474 * n) % 360;
+    const g = ((357.528 + 0.9856003 * n) % 360) * rad;
+    const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+    const eps = (23.439 - 0.0000004 * n) * rad;
+    const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+    const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+    const gmst = (18.697374558 + 24.06570982441908 * n) % 24;
+    const ha = (gmst * 15 + lon) * rad - ra;
+    return Math.asin(Math.sin(lat * rad) * Math.sin(dec) +
+                     Math.cos(lat * rad) * Math.cos(dec) * Math.cos(ha)) / rad;
+  }
+  function resolve(pref) {
+    if (pref === 'day' || pref === 'dusk' || pref === 'night') return pref;
+    const el = solarElevation(new Date(), HOME[0], HOME[1]);
+    return el >= 3 ? 'day' : el >= -6 ? 'dusk' : 'night';
+  }
+  let pref = 'auto';
+  try { pref = localStorage.getItem(KEY) || 'auto'; } catch (e) {}
+  document.documentElement.dataset.mode = resolve(pref);
+  window.Palette = { KEY, pref, resolve };
+
+  // The dashboard holds this page in a frame as one of its apps, and that frame already
+  // has a boat name above it and a palette button below it. Two of each is one too many,
+  // so the page drops its own — before first paint, not after a flash of them.
+  try { if (window.self !== window.top) document.documentElement.dataset.framed = '1'; }
+  catch (e) { document.documentElement.dataset.framed = '1'; }   // cross-origin: framed
+})();
+</script>
+</head>
+<body x-data="jobs">
+
+<header class="top">
+  <h1 id="boatname">OpenBoat</h1>
+  <span class="sub" id="sub">Jobs</span>
+  <span class="stamp n" x-text="stamp"></span>
+</header>
+
+<main>
+
+  <!-- The answer, in one sentence, before any chart. A skipper standing in the cockpit
+       asked a question in words and gets it back in words; the ruler below is how you
+       check it. -->
+  <p class="lead" aria-live="polite">
+    <span :class="say.jobs.cls" x-text="say.jobs.head">Reading the boat's own files…</span><span
+      x-text="say.jobs.tail"></span><span x-text="say.sep"></span><span
+      :class="say.faults.cls" x-text="say.faults.head"></span><span x-text="say.faults.tail"></span>
+  </p>
+  <p class="quiet hours" :class="{'warntext': hoursLine.startsWith('SYNTHETIC')}"
+     x-text="hoursLine"></p>
+
+  <div id="lanes">
+
+    <!-- ── owed ────────────────────────────────────────────────────────────────────── -->
+    <section class="lane" data-lane="owed">
+      <div class="lanehead">
+        <h2>What the boat is owed</h2>
+        <span class="count" x-text="m.items.length ? m.items.length : ''"></span>
+        <button class="grip" aria-label="Drag to reorder this section" title="Drag to reorder">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none">
+            <circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/>
+            <circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/>
+            <circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>
+        </button>
+      </div>
+
+      <p class="quiet lanenote" x-show="m.error" x-text="m.error"></p>
+
+      <!-- Items with an interval to be judged against: plotted on the due line. -->
+      <div class="rows labelled" x-show="plotted.length">
+        <span class="dueline" aria-hidden="true">due</span>
+        <template x-for="item in plotted" :key="item.item">
+          <div>
+            <button class="jrow plot" :class="item.verdict" :aria-expanded="isOpen(item.item)"
+                    @click="toggle(item.item)">
+              <span class="jhead">
+                <span class="jsym" aria-hidden="true" x-text="item.symbol"></span>
+                <span class="jname" x-text="item.description"></span>
+                <span class="jfig n" x-text="figure(item)"></span>
+                <svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </span>
+              <span class="track plot" aria-hidden="true">
+                <span class="run" :style="'width:' + runPct(item) + '%'"></span>
+                <span class="over" :style="'width:' + overPct(item) + '%'"></span>
+              </span>
+              <span class="why" x-text="item.why"></span>
+            </button>
+            <div class="panel" x-show="isOpen(item.item)">
+              <ul class="rows2">
+                <li><span class="k">Last done</span><span class="n" x-text="whenDone(item)"></span></li>
+                <li><span class="k">Interval</span><span class="n" x-text="interval(item)"></span></li>
+              </ul>
+              <div class="doors">
+                <button class="bt" @click="check('maintenance', item.description, 'ok', item.item)">Checked, fine</button>
+                <button class="bt" @click="check('maintenance', item.description, 'watch', item.item)">Checked, watch it</button>
+                <span class="said" :class="{'bad': logMsgBad[item.item]}" x-text="logMsg[item.item]"></span>
+              </div>
+              <p class="quiet" style="margin:.9rem 0 0">Doing the service is not a button.
+                Recording one resets the clock every figure above is measured from, which is
+                a command typed at a desk rather than a tap on a wet screen:</p>
+              <div class="cmd">
+                <pre class="snip" x-text="didCommand(item)"></pre>
+                <button class="bt" @click="copy(didCommand(item), $event)">Copy</button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Items with no interval anywhere: counted, and deliberately not judged. -->
+      <div class="rows" x-show="uncounted.length" :class="{ spaced: plotted.length }">
+        <p class="quiet" style="margin:0 0 .3rem">Counted, not judged — each line says what
+          is missing. This project ships no intervals of its own, because an invented one gets
+          followed.</p>
+        <template x-for="item in uncounted" :key="item.item">
+          <div>
+            <button class="jrow" :aria-expanded="isOpen(item.item)" @click="toggle(item.item)">
+              <span class="jhead">
+                <span class="jsym" aria-hidden="true" x-text="item.symbol"></span>
+                <span class="jname" x-text="item.description"></span>
+                <span class="jfig n" x-text="figure(item)"></span>
+                <svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </span>
+              <span class="track open" aria-hidden="true"></span>
+              <span class="why" x-text="item.why"></span>
+            </button>
+            <div class="panel" x-show="isOpen(item.item)">
+              <ul class="rows2">
+                <li><span class="k">Last done</span><span class="n" x-text="whenDone(item)"></span></li>
+                <li><span class="k">Interval</span><span class="n" x-text="interval(item)"></span></li>
+              </ul>
+              <p class="quiet" style="margin:.9rem 0 0" x-show="needsInterval(item)">Give it one
+                in your profile and it joins the line above:</p>
+              <div class="cmd" x-show="needsInterval(item)">
+                <pre class="snip" x-text="tomlFor(item)"></pre>
+                <button class="bt" @click="copy(tomlFor(item), $event)">Copy</button>
+              </div>
+              <div class="doors">
+                <button class="bt" @click="check('maintenance', item.description, 'ok', item.item)">Checked, fine</button>
+                <button class="bt" @click="check('maintenance', item.description, 'watch', item.item)">Checked, watch it</button>
+                <span class="said" :class="{'bad': logMsgBad[item.item]}" x-text="logMsg[item.item]"></span>
+              </div>
+              <div class="cmd">
+                <pre class="snip" x-text="didCommand(item)"></pre>
+                <button class="bt" @click="copy(didCommand(item), $event)">Copy</button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Nothing at all: the state a fresh clone is in, and the one worth designing. -->
+      <div class="invite" x-show="!m.loading && !m.items.length && !m.error">
+        <h3>Nothing is being counted yet</h3>
+        <p class="quiet">The service schedule is your engine's, not this software's — it ships
+          no intervals, because "every 100 hours" is right for some engines and wrong for
+          others, and a schedule that is confidently wrong gets followed. Take them from your
+          own manual, in <code>boat.toml</code>:</p>
+        <div class="cmd">
+          <pre class="snip">[maintenance.impeller]
+description = "Raw-water pump impeller"
+hours = 100
+months = 12</pre>
+          <button class="bt" @click="copy(sampleToml, $event)">Copy</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── broken ──────────────────────────────────────────────────────────────────── -->
+    <section class="lane" data-lane="broken">
+      <div class="lanehead">
+        <h2>What is broken</h2>
+        <span class="count" x-text="s.open_count ? s.open_count + ' open' : ''"></span>
+        <button class="grip" aria-label="Drag to reorder this section" title="Drag to reorder">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none">
+            <circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/>
+            <circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/>
+            <circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>
+        </button>
+      </div>
+
+      <p class="quiet lanenote" x-show="s.error" x-text="s.error"></p>
+      <p class="quiet lanenote" x-show="!s.error && s.snags.length">Every entry is unverified:
+        it is what somebody saw from a phone at the moment of noticing, confirmed by nobody
+        since. Nothing here promotes that to a fact.</p>
+
+      <div class="rows">
+        <template x-for="(snag, i) in shownSnags" :key="snag.when + '/' + i">
+          <div>
+            <button class="jrow" :class="snag.open ? 'due' : 'fixed'"
+                    :aria-expanded="isOpen('snag' + i)" @click="toggle('snag' + i)">
+              <span class="jhead">
+                <span class="jsym" aria-hidden="true" x-text="snag.open ? '▲' : '✓'"></span>
+                <span class="jname" x-text="snag.title"></span>
+                <span class="jfig n" x-text="shortDate(snag.when)"></span>
+                <svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+              </span>
+              <span class="meta">
+                <span class="mark" x-show="snag.open">unverified</span>
+                <span x-show="!snag.open" x-text="snag.status"></span>
+                <span x-show="snag.where" x-text="snag.where"></span>
+                <span x-show="snag.by" x-text="'noticed by ' + snag.by"></span>
+                <span x-show="snag.photos.length" class="n"
+                      x-text="snag.photos.length + (snag.photos.length === 1 ? ' photograph' : ' photographs')"></span>
+              </span>
+              <span class="said-it" x-show="snag.body" x-text="snag.body"></span>
+            </button>
+            <div class="panel" x-show="isOpen('snag' + i)">
+              <ul class="rows2">
+                <li><span class="k">Filed</span><span class="n" x-text="snag.when"></span></li>
+                <li><span class="k">Status</span><span class="n" x-text="snag.status"></span></li>
+                <li x-show="snag.photos.length"><span class="k">Photographs</span>
+                  <span class="n" x-text="snag.photos.join('  ')"></span></li>
+              </ul>
+              <p class="warntext" style="margin:.8rem 0 0" x-show="snag.open">Recorded at the moment
+                of noticing and not confirmed by anybody since. Go and look before you buy a part
+                for it.</p>
+              <div class="doors">
+                <button class="bt" @click="check('snag', snag.title, 'ok', 'snag' + i)">Looked, it's fine</button>
+                <button class="bt" @click="check('snag', snag.title, 'watch', 'snag' + i)">Looked, still there</button>
+                <span class="said" :class="{'bad': logMsgBad['snag' + i]}" x-text="logMsg['snag' + i]"></span>
+              </div>
+              <p class="quiet" style="margin:.9rem 0 0" x-show="snag.open">Closing it is a line
+                changed by hand in <code>SNAGS.md</code>, beside the boat's own
+                <code>boat.toml</code>. Nothing automatic will ever edit that file — that is what
+                makes it worth trusting. Change <code>**Status:** open</code> to:</p>
+              <div class="cmd" x-show="snag.open">
+                <pre class="snip" x-text="closeLine"></pre>
+                <button class="bt" @click="copy(closeLine, $event)">Copy</button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="doors" x-show="closedCount">
+        <button class="bt" @click="showClosed = !showClosed"
+                x-text="showClosed ? 'Hide the closed ones' : 'Show ' + closedCount + ' closed'"></button>
+      </div>
+
+      <div class="invite" x-show="!s.loading && !s.snags.length && !s.error">
+        <h3>No faults on the list</h3>
+        <p class="quiet">Faults are filed from a phone, standing where the fault is — its own
+          small service, on its own port, because this dashboard does not write to the boat.
+          Start it on the machine the boat's files live on and open it on any phone on the
+          same network:</p>
+        <div class="cmd">
+          <pre class="snip">python3 -m openboat.snag</pre>
+          <button class="bt" @click="copy('python3 -m openboat.snag', $event)">Copy</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── the one write this page has ─────────────────────────────────────────────── -->
+    <section class="lane" data-lane="checked" x-show="log.entries.length">
+      <div class="lanehead">
+        <h2>Looked at lately</h2>
+        <span class="count" x-text="log.entries.length"></span>
+        <button class="grip" aria-label="Drag to reorder this section" title="Drag to reorder">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none">
+            <circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/>
+            <circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/>
+            <circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>
+        </button>
+      </div>
+      <ul class="rows2">
+        <template x-for="(entry, i) in log.entries" :key="i">
+          <li>
+            <span x-text="entry.what + (entry.found ? ' — ' + entry.found : '')"></span>
+            <span class="n" x-text="shortDate(entry.at) + ' · ' + entry.verdict"></span>
+          </li>
+        </template>
+      </ul>
+      <p class="quiet" style="margin:.8rem 0 0" x-show="log.path">Appended to
+        <span class="n" x-text="log.path"></span>.</p>
+    </section>
+
+  </div>
+
+  <div class="foot quiet">
+    <p>Nothing on this page changes the boat. It reads two files and writes one line to the
+      check log when you say you have looked at something; recording a service and closing a
+      snag are both deliberate acts elsewhere, which is why neither is a button here.</p>
+    <p>Dragging a section by its handle arranges this screen and nothing else. The order is
+      remembered in this browser.</p>
+  </div>
+
+  <p class="quiet" id="noscript-note" hidden>The page's own script did not load.
+    <code>vendor/alpine.min.js</code> is served from this machine, not from the internet — if
+    it is missing, the dashboard was installed incompletely.</p>
+</main>
+
+<div class="dock">
+  <nav>
+    <a href="/#helm">Helm</a>
+    <a href="/jobs.html" class="here" aria-current="page">Jobs</a>
+  </nav>
+  <button class="mode" id="mode" aria-label="Palette: tap for the next, hold for automatic"></button>
+</div>
+
+<script src="vendor/alpine.min.js" defer></script>
+<script src="vendor/sortable.min.js" defer></script>
+<script>
+"use strict";
+
+/* ── the palette button ────────────────────────────────────────────────────────────
+   The helm's control, the helm's storage key, the helm's behaviour: tap for the next
+   palette, hold to go back to following the sun. Lifted deliberately rather than
+   redesigned — two pages of one dashboard that disagree about how to get to night mode
+   is a worse outcome than a repeated forty lines.                                   */
+const MODES = ['day', 'dusk', 'night'];
+const GLYPH = {
+  day: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/>' +
+       '<path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg>',
+  dusk: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/>' +
+        '<path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>',
+  night: '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+         '<path d="M19 14.5A8 8 0 0 1 9.5 5a8 8 0 1 0 9.5 9.5z" fill="currentColor"/></svg>',
+};
+
+function paintMode() {
+  const shown = Palette.resolve(Palette.pref);
+  if (document.documentElement.dataset.mode !== shown) document.documentElement.dataset.mode = shown;
+  const btn = document.getElementById('mode');
+  const name = shown[0].toUpperCase() + shown.slice(1);
+  btn.innerHTML = GLYPH[shown] + `<span><b>${name}</b><small>${
+    Palette.pref === 'auto' ? 'automatic' : 'hold for automatic'}</small></span>`;
+}
+
+function setMode(pref) {
+  Palette.pref = pref;
+  try { pref === 'auto' ? localStorage.removeItem(Palette.KEY) : localStorage.setItem(Palette.KEY, pref); }
+  catch (e) {}
+  paintMode();
+}
+
+(function modeButton() {
+  const btn = document.getElementById('mode');
+  let held = null, long = false;
+  const next = () => {
+    const shown = document.documentElement.dataset.mode;
+    setMode(MODES[(MODES.indexOf(shown) + 1) % MODES.length]);
+  };
+  btn.addEventListener('pointerdown', () => {
+    long = false;
+    held = setTimeout(() => { long = true; setMode('auto'); }, 550);
+  });
+  const release = () => { clearTimeout(held); held = null; };
+  btn.addEventListener('pointerup', () => {
+    if (held === null) return;
+    release();
+    if (!long) next();
+  });
+  btn.addEventListener('pointercancel', release);
+  btn.addEventListener('pointerleave', release);
+  btn.addEventListener('contextmenu', e => e.preventDefault());
+  btn.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); next(); }
+    if (e.key === 'Escape' || e.key === 'Backspace') setMode('auto');
+  });
+  paintMode();
+  setInterval(paintMode, 60000);        // the sun moves even when nobody touches the tablet
+})();
+
+// A palette chosen on the helm is stored under the same key on the same origin, so the
+// browser tells this document about it. Without this, the page held in the dashboard's
+// frame would stay on the old palette until its own minute was up — a white panel inside
+// a night screen, which is the exact failure the night palette exists to prevent.
+addEventListener('storage', event => {
+  if (event.key && event.key !== Palette.KEY) return;
+  try { Palette.pref = localStorage.getItem(Palette.KEY) || 'auto'; } catch (e) {}
+  paintMode();
+});
+
+/* ── formatting ───────────────────────────────────────────────────────────────────── */
+const pad = n => String(n).padStart(2, '0');
+const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+const word = n => (n >= 0 && n < WORDS.length ? WORDS[n] : String(n));
+
+/* Dates arrive in two shapes — an ISO stamp from the maintenance record, and the snag
+   file's own "2026-09-05 15:12", which Safari will not parse. Both are read by hand and
+   anything unrecognised is passed through untouched rather than shown as "Invalid Date". */
+function shortDate(value) {
+  if (!value) return '';
+  const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : String(value);
+}
+
+function hhmm(d) { return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+
+/* ── the page ─────────────────────────────────────────────────────────────────────── */
+document.addEventListener('alpine:init', () => {
+  Alpine.data('jobs', () => ({
+    // Each stream carries its own loading and error state: a missing engine log must not
+    // take the snag list down with it, and the other way round.
+    m: { loading: true, error: '', items: [], running_hours: null, engine_hours_source: null },
+    s: { loading: true, error: '', snags: [], open_count: 0 },
+    log: { entries: [], path: '' },
+    opened: {}, logMsg: {}, logMsgBad: {}, showClosed: false, stamp: '',
+    sampleToml: '[maintenance.impeller]\ndescription = "Raw-water pump impeller"\nhours = 100\nmonths = 12',
+
+    init() {
+      this.load();
+      setInterval(() => this.load(), 60000);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) this.load();
+      });
+    },
+
+    async load() {
+      await Promise.all([this.loadMaintenance(), this.loadSnags(), this.loadLog()]);
+      this.stamp = 'read ' + hhmm(new Date());
+    },
+
+    /* One reader for both routes. The server answers an unknown /api/ path with a 200 and
+       an {"error"} body rather than a status code, so the body is checked as carefully as
+       the response — and a route that is simply not there says so in a sentence instead of
+       leaving an empty list that reads like "nothing is due". */
+    async read(route) {
+      const r = await fetch(route);
+      // A page pointed at the wrong port is a real way to arrive here — the snag service
+      // and the dashboard both serve this directory, and only one of them has an API. Say
+      // that in a sentence rather than letting JSON.parse report an unexpected '<'.
+      if (!r.ok) throw new Error(`${route} answered ${r.status}. Is this the dashboard's own port?`);
+      const data = await r.json();
+      if (data && data.error) throw new Error(data.error);
+      return data;
+    },
+
+    async loadMaintenance() {
+      try {
+        const d = await this.read('/api/maintenance');
+        this.m = { loading: false, error: '', items: d.items || [],
+                   running_hours: d.running_hours ?? null,
+                   engine_hours_source: d.engine_hours_source ?? null };
+      } catch (e) {
+        this.m = { loading: false, items: [], running_hours: null, engine_hours_source: null,
+                   error: 'The service record could not be read — ' + e.message };
+      }
+    },
+
+    async loadSnags() {
+      try {
+        const d = await this.read('/api/snags');
+        const snags = (d.snags || []).map(x => ({ photos: [], body: '', where: '', by: '',
+                                                  status: 'open', ...x }));
+        this.s = { loading: false, error: '', snags,
+                   open_count: d.open_count ?? snags.filter(x => x.open).length };
+      } catch (e) {
+        this.s = { loading: false, snags: [], open_count: 0,
+                   error: 'The fault list could not be read — ' + e.message };
+      }
+    },
+
+    // The receipt for this page's own write. Quiet on failure: the log is a nicety here,
+    // and a boat with no logbook yet should not be told about it in red.
+    async loadLog() {
+      try {
+        const d = await this.read('/api/logbook?limit=6');
+        this.log = { entries: d.entries || [], path: d.path || '' };
+      } catch (e) { this.log = { entries: [], path: '' }; }
+    },
+
+    /* ── how far through its interval a job is ────────────────────────────────────
+       One number per item, whatever it is counted in: 1 means owed. Hours and months are
+       both taken where both are set, and the worse of the two wins, which is what
+       maintenance.py does when it decides the verdict. The flush is counted in salt-water
+       outings, where one outing is one flush owed, so the outing count is the fraction. */
+    fraction(item) {
+      if (item.per_outing) return item.outings_since == null ? null : item.outings_since;
+      const parts = [];
+      if (item.interval_hours && item.hours_since != null)
+        parts.push(item.hours_since / item.interval_hours);
+      if (item.interval_months && item.days_since != null)
+        parts.push(item.days_since / (item.interval_months * 30.44));
+      return parts.length ? Math.max(...parts) : null;
+    },
+
+    // Plotted against the line: everything with a fraction and a verdict behind it. An
+    // 'unknown' item is never plotted even where a number could be drawn — a flush that has
+    // never been recorded has nothing to count from, and a bar would imply it had.
+    get plotted() {
+      return this.m.items.filter(i => i.verdict !== 'unknown' && this.fraction(i) !== null);
+    },
+    get uncounted() {
+      return this.m.items.filter(i => i.verdict === 'unknown' || this.fraction(i) === null);
+    },
+
+    runPct(item) { return Math.min(this.fraction(item) ?? 0, 1) * 72; },
+    // Past the line, half an interval of overrun fills the remaining lane. Beyond that it
+    // stops growing and the figure alongside carries the truth — a bar four screens long
+    // says nothing a bar at the end of its lane does not.
+    overPct(item) {
+      const f = this.fraction(item) ?? 0;
+      return f <= 1 ? 0 : Math.min((f - 1) / 0.5, 1) * 28;
+    },
+
+    figure(item) {
+      if (item.per_outing) {
+        if (item.outings_since == null) return '—';
+        return item.outings_since === 1 ? '1 outing' : item.outings_since + ' outings';
+      }
+      if (item.interval_hours && item.hours_since != null)
+        return `${item.hours_since.toFixed(1)} / ${item.interval_hours.toFixed(0)} h`;
+      if (item.interval_months && item.days_since != null)
+        return `${item.days_since} / ${Math.round(item.interval_months * 30.44)} d`;
+      if (item.hours_since != null) return `${item.hours_since.toFixed(1)} h`;
+      return '—';
+    },
+
+    whenDone(item) { return item.last ? shortDate(item.last) : 'never recorded'; },
+
+    needsInterval(item) {
+      return !item.per_outing && !item.interval_hours && !item.interval_months;
+    },
+
+    interval(item) {
+      if (item.per_outing) return 'every salt-water outing';
+      const bits = [];
+      if (item.interval_hours) bits.push(`${item.interval_hours.toFixed(0)} running hours`);
+      if (item.interval_months) bits.push(`${item.interval_months} months`);
+      return bits.length ? 'every ' + bits.join(' or ') : 'none set';
+    },
+
+    didCommand(item) { return `python3 -m openboat.maintenance --did ${item.item}`; },
+
+    tomlFor(item) {
+      return `[maintenance.${item.item}]\ndescription = "${item.description}"\nhours = 100\nmonths = 12`;
+    },
+
+    get closeLine() {
+      const d = new Date();
+      return `**Status:** fixed — what was done, ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    },
+
+    /* ── the sentence ─────────────────────────────────────────────────────────────
+       Both streams in one line, because the question in the cockpit is one question. */
+    get say() {
+      const nothing = { head: '', tail: '', cls: '' };
+      if (this.m.loading && this.s.loading)
+        return { jobs: { head: "Reading the boat's own files…", tail: '', cls: '' },
+                 sep: '', faults: nothing };
+      /* A read that failed is not a boat with nothing wrong with it. Saying "nothing is
+         broken" because the fault list would not open is the same class of error as
+         printing a fuel figure from a burn rate nobody measured — so a stream that could
+         not be read says so, in the place the answer would have been. */
+      if (this.m.error && this.s.error)
+        return { jobs: { head: "The boat's own files", tail: ' could not be read.', cls: '' },
+                 sep: '', faults: nothing };
+      const due = this.m.items.filter(i => i.verdict === 'due').length;
+      const soon = this.m.items.filter(i => i.verdict === 'soon').length;
+      const faults = this.s.open_count || 0;
+      const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+
+      let jobs;
+      if (this.m.error) jobs = { head: 'The service record', tail: ' could not be read', cls: '' };
+      else if (due) jobs = { head: cap(word(due)), cls: 'due',
+                        tail: ` ${due === 1 ? 'job is' : 'jobs are'} past the line` };
+      else if (soon) jobs = { head: cap(word(soon)), cls: 'soon',
+                              tail: ` ${soon === 1 ? 'job is' : 'jobs are'} close to it` };
+      else if (this.plotted.length) jobs = { head: 'Nothing', tail: ' is owed', cls: 'clear' };
+      else if (this.m.items.length) jobs = { head: 'Nothing', tail: ' is being judged', cls: '' };
+      else jobs = { head: 'Nothing', tail: ' is being counted', cls: '' };
+
+      const broken = this.s.error
+        ? { head: 'the fault list', tail: ' could not be read.', cls: '' }
+        : faults
+        ? { head: word(faults), cls: 'due',
+            tail: ` ${faults === 1 ? 'fault is' : 'faults are'} open.` }
+        : { head: 'nothing', tail: ' is broken.', cls: 'clear' };
+      return { jobs, sep: ', ', faults: broken };
+    },
+
+    /* The engine log's own account of itself, quoted rather than paraphrased. It knows
+       things a figure cannot carry — how much of the season it actually covers, and that
+       hours counted since logging began are not the hours on the engine — and a page that
+       reduced that to a number would be inventing the confidence the sentence withholds. */
+    get hoursLine() {
+      if (this.m.error || this.m.loading) return '';
+      if (this.m.engine_hours_source) return this.m.engine_hours_source;
+      if (this.m.running_hours == null)
+        return 'The engine log holds no running hours yet, so everything here is counted ' +
+               'from the dates alone.';
+      return `${this.m.running_hours.toFixed(1)} running hours on the log.`;
+    },
+
+    get shownSnags() {
+      return this.showClosed ? this.s.snags : this.s.snags.filter(x => x.open);
+    },
+    get closedCount() { return this.s.snags.filter(x => !x.open).length; },
+
+    isOpen(id) { return !!this.opened[id]; },
+    toggle(id) { this.opened[id] = !this.opened[id]; },
+
+    /* The one write. A notebook entry: somebody looked at something and says what they
+       saw. It changes no service record and closes no snag — both of those are deliberate
+       acts elsewhere — and it is the right weight for something done standing up. */
+    async check(kind, what, verdict, id) {
+      this.logMsgBad[id] = false;
+      this.logMsg[id] = 'writing…';
+      try {
+        const r = await fetch('/api/logbook', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ what, found: '', verdict, by: 'jobs page',
+                                 refs: [kind + ':' + what] }),
+        }).then(x => x.json());
+        if (r.error) throw new Error(r.error);
+        this.logMsg[id] = `logged as ${r.logged.verdict}`;
+        this.loadLog();
+      } catch (e) {
+        this.logMsgBad[id] = true;
+        this.logMsg[id] = 'could not write the log';
+      }
+    },
+
+    /* Copy, on a page that is almost never in a secure context. This dashboard is reached
+       at http://boat.local:8747 far more often than at localhost, and outside a secure
+       context navigator.clipboard does not exist at all — so the old selection API is the
+       path that actually runs aboard, and when even that is refused the text is left
+       selected for the person to copy themselves rather than a button that silently does
+       nothing. */
+    copy(text, event) {
+      const button = event.currentTarget, said = button.textContent;
+      const done = ok => {
+        button.textContent = ok ? 'Copied' : 'Select it';
+        setTimeout(() => { button.textContent = said; }, 1800);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+        return;
+      }
+      const pad = document.createElement('textarea');
+      pad.value = text;
+      pad.setAttribute('readonly', '');
+      pad.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(pad);
+      pad.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      document.body.removeChild(pad);
+      if (!ok) {
+        const snip = button.parentNode.querySelector('.snip');
+        if (snip) {
+          const range = document.createRange();
+          range.selectNodeContents(snip);
+          const selection = getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      }
+      done(ok);
+    },
+  }));
+});
+
+/* ── arranging ────────────────────────────────────────────────────────────────────
+   SortableJS moves the sections of this page and nothing else. It does not reorder jobs
+   — their order is a verdict, sorted worst first by the code that decided the verdict —
+   and it never writes to the boat. What it arranges is one person's screen, kept in that
+   browser, the same bargain as the arrangeable helm tiles.
+
+   Dragging is on a handle rather than the whole section, so a thumb scrolling a wet
+   screen never picks a lane up by accident.                                          */
+const LANES = 'openboat.jobs.lanes.v1';
+
+function arrangeable() {
+  const box = document.getElementById('lanes');
+  if (!box || typeof Sortable === 'undefined') return;
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(LANES) || '[]');
+    saved.forEach(name => {
+      const lane = box.querySelector(`[data-lane="${CSS.escape(name)}"]`);
+      if (lane) box.appendChild(lane);
+    });
+  } catch (e) { /* an unreadable order is no order: the default one is already on screen */ }
+
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  Sortable.create(box, {
+    handle: '.grip',
+    draggable: '.lane',
+    animation: still ? 0 : 150,
+    ghostClass: 'sortghost',
+    dragClass: 'sortdrag',
+    touchStartThreshold: 4,
+    onEnd() {
+      const order = [...box.querySelectorAll('.lane')].map(el => el.dataset.lane);
+      try { localStorage.setItem(LANES, JSON.stringify(order)); } catch (e) {}
+    },
+  });
+}
+
+/* Alpine and Sortable are files on this machine, not a CDN — but a half-copied install is
+   a real thing on a boat, and a page that just sat there saying "Reading the boat's own
+   files…" for ever would be lying about why. */
+if (document.readyState === 'loading')
+  document.addEventListener('DOMContentLoaded', arrangeable);
+else
+  arrangeable();
+
+setTimeout(() => {
+  if (typeof Alpine === 'undefined') document.getElementById('noscript-note').hidden = false;
+}, 4000);
+</script>
+</body>
+</html>

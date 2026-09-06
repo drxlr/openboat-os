@@ -94,6 +94,31 @@ class Due:
     def symbol(self) -> str:
         return {"due": "▲", "soon": "·", "ok": " ", "unknown": "?"}[self.verdict]
 
+    def as_dict(self) -> dict:
+        """This item as JSON, for `/api/maintenance` and anything else that renders it.
+
+        `symbol` is serialised even though it is derived, because the alternative is every
+        caller keeping its own copy of the verdict-to-glyph mapping, and two copies of a
+        mapping drift. `last` is the only field that is not already a JSON type.
+
+        Nothing is rounded here. `hours_since` is a measured quantity and the decision about
+        how many decimals to show belongs to whatever is showing it, not to the record.
+        """
+        return {
+            "item": self.item,
+            "description": self.description,
+            "last": self.last.isoformat() if self.last else None,
+            "hours_since": self.hours_since,
+            "days_since": self.days_since,
+            "outings_since": self.outings_since,
+            "interval_hours": self.interval_hours,
+            "interval_months": self.interval_months,
+            "per_outing": self.per_outing,
+            "verdict": self.verdict,
+            "why": self.why,
+            "symbol": self.symbol,
+        }
+
 
 def ensure(db: sqlite3.Connection) -> None:
     db.executescript(SCHEMA)

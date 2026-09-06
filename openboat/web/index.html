@@ -11,7 +11,7 @@
      network, like everything else here. -->
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PGNpcmNsZSBjeD0iMzIiIGN5PSIzMiIgcj0iMzEiIGZpbGw9IiMwQjExMTYiLz48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIyOS41IiBmaWxsPSJub25lIiBzdHJva2U9IiMyQzQ2NTUiIHN0cm9rZS13aWR0aD0iMS41Ii8+PHBhdGggZD0iTTMyIDQgTDM3LjUgMjYuNSBMNjAgMzIgTDM3LjUgMzcuNSBMMzIgNjAgTDI2LjUgMzcuNSBMNCAzMiBMMjYuNSAyNi41IFoiIGZpbGw9IiM4RkI2QzkiLz48cGF0aCBkPSJNMzIgNCBMMzcuNSAyNi41IEwzMiAzMiBMMjYuNSAyNi41IFoiIGZpbGw9IiNGRjZBM0MiLz48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIzIiBmaWxsPSIjMEIxMTE2Ii8+PC9zdmc+">
 <title>OpenBoat</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="vendor/leaflet.css">
 <style>
   /* Three palettes, one set of token names. Everything below reads tokens, never hex, so
      the whole page — helm tiles, weather, chart chrome — follows the palette.
@@ -508,7 +508,7 @@ document.addEventListener('DOMContentLoaded', obApplyProfile);
 
 <div class="sheet" id="sheet" hidden></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="vendor/leaflet.js"></script>
 <script>
 "use strict";
 
@@ -1738,6 +1738,22 @@ OS.app({
       <iframe class="report" src="${src}" title="${title}" loading="lazy"></iframe>`;
   }
 }));
+
+/* ── app: jobs ─────────────────────────────────────────────────────────────────────
+   What the boat is owed and what is broken, read together: the service record counted in
+   running hours and salt-water outings, and the faults somebody photographed at the
+   pontoon. A page of its own rather than tiles, because it is a list you read and act on
+   rather than a state you glance at — held in a frame here like the reports, and openable
+   on its own for the phone standing in front of the fault.                              */
+OS.app({
+  id:'jobs', title:'Jobs',
+  mount(el) {
+    el.innerHTML = `<p class="quiet" style="margin:.1rem .2rem .6rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
+      <span>What is due, counted in hours the engine actually ran, and what has been reported broken.</span>
+      <a href="/jobs.html" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;min-height:44px">Open on its own</a></p>
+      <iframe class="report" src="/jobs.html" title="Jobs" loading="lazy"></iframe>`;
+  }
+});
 
 /* ── app: the companion ───────────────────────────────────────────────────────────
    Ask the boat about itself. Three sources, kept visibly apart because they have very

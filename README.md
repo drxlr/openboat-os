@@ -39,6 +39,9 @@ is the only requirement.
 - **A snag list you can file from a phone.** Photograph a fault at the pontoon, say what is
   wrong, send — it lands in the boat's own file in ten seconds, appended and never rewritten.
   See [docs/SNAGS.md](docs/SNAGS.md).
+- **One page for everything the boat owes you** — service due in running hours and salt-water
+  outings, alongside the faults somebody photographed at the pontoon. Nothing on it writes:
+  a check is a notebook line, a service is a command at a desk. See [docs/JOBS.md](docs/JOBS.md).
 - **Five read-only tools for an AI assistant**, over MCP. Ask Claude when the next four-hour
   window is and it answers from live data.
 
@@ -141,7 +144,7 @@ that flushes the engine's raw-water circuit and records it here.
 | `signalk/` | Signal K in Docker, plus an NMEA simulator so everything is testable with no boat |
 | `arduino/` | Analogue engine senders → NMEA → Signal K. ⚠️ Never tested against a real engine |
 | `scripts/` | The private-content check and its git hook |
-| `docs/` | [Hardware](docs/HARDWARE.md) · [Network](docs/NETWORK.md) · [Forecast](docs/FORECAST.md) · [Charts](docs/CHARTS.md) · [Companion](docs/COMPANION.md) · [Snags](docs/SNAGS.md) · [Private and public](docs/PRIVATE-AND-PUBLIC.md) |
+| `docs/` | [Hardware](docs/HARDWARE.md) · [Network](docs/NETWORK.md) · [Forecast](docs/FORECAST.md) · [Charts](docs/CHARTS.md) · [Companion](docs/COMPANION.md) · [Snags](docs/SNAGS.md) · [Jobs](docs/JOBS.md) · [Private and public](docs/PRIVATE-AND-PUBLIC.md) |
 
 ## Contributing
 

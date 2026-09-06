@@ -27,7 +27,10 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from time import time
 
-from . import boat, knowledge, ledger, logbook, papers, windows
+from . import __version__
+from . import boat, engine_hours, knowledge, ledger, logbook, maintenance, papers, windows
+from .engine import DEFAULT_DB
+from .engine import connect as connect_engine_log
 from .marine import ForecastUnavailable, forecast
 from .profile import ProfileError, load, require_point
 from .route import Waypoint, plan
@@ -90,6 +93,8 @@ class OpenBoat(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/"):
             return self.api()
+        if self.path.split("?")[0] == "/paper":
+            return self.send_paper()
         report = self.REPORTS.get(self.path.split("?")[0])
         if report:
             return self.send_report(report)
@@ -117,6 +122,38 @@ class OpenBoat(SimpleHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError) as exc:
             return self.send_json({"error": str(exc)}, status=400)
         return self.send_json({"logged": json.loads(entry.line())})
+
+    def send_paper(self):
+        """The PDF a derived document was extracted from, if it is still beside it.
+
+        `openboat.ingest` writes markdown and says in its own header that the paper is the
+        original. This is the route that makes that sentence actionable from a browser
+        instead of true but unreachable.
+
+        It will only ever serve a file the profile already named, or the `.pdf` sitting
+        beside one. Any other path is a 404 — the console is on an open port, and "serve
+        whatever is asked for" is how a dashboard becomes a file server.
+        """
+        params = {k: v[0] for k, v in
+                  urllib.parse.parse_qs(self.path.partition("?")[2]).items()}
+        try:
+            library = knowledge.load(load())
+        except ProfileError as exc:
+            return self.send_json({"error": str(exc)}, status=500)
+        named = knowledge.find(library, params.get("name", ""))
+        if named is None:
+            return self.send_json({"error": "not in this boat's library"}, status=404)
+        paper = named.with_suffix(".pdf")
+        if not paper.exists():
+            return self.send_json({"error": f"no {paper.name} beside {named.name}"},
+                                  status=404)
+        body = paper.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", f'inline; filename="{paper.name}"')
+        self.end_headers()
+        self.wfile.write(body)
 
     def send_report(self, report: Path):
         if not report.exists():
@@ -167,7 +204,10 @@ class OpenBoat(SimpleHTTPRequestHandler):
             # The dashboard has no boat facts of its own: its title, its subtitle and the
             # point its chart opens on all come from here. That is what keeps one person's
             # vessel out of a public repository's HTML.
-            return boat_profile.as_dict()
+            # The version rides along so the console can print what it is running against
+            # rather than carrying its own copy of the number and drifting from it.
+            return {**boat_profile.as_dict(), "version": __version__,
+                    "profile": str(boat_profile.path) if boat_profile.path else ""}
 
         if route == "/api/forecast":
             days = int(params.get("days", 3))
@@ -229,6 +269,105 @@ class OpenBoat(SimpleHTTPRequestHandler):
                                                what=params.get("what", ""),
                                                limit=int(params.get("limit", 50))),
                     "path": str(logbook.path_for(boat_profile))}
+
+        if route == "/api/maintenance":
+            # What the engine is owed. Read-only, and there is deliberately no companion
+            # route that records a service: writing one is `python3 -m openboat.maintenance
+            # --did …` at a keyboard, or OpenBoat Flush writing its own record when a valve
+            # actually opened. Both are deliberate acts by something that knows the work
+            # happened. A dashboard button is neither.
+            #
+            # The log is opened only if it is already there. `engine.connect()` creates the
+            # file, and a GET that quietly creates a database in whatever directory the
+            # server was started from is a side effect a read-only route must not have. A
+            # fresh clone has no log, and the honest answer is that nothing has been counted
+            # — not an empty file and a confident zero.
+            if not DEFAULT_DB.exists():
+                return {"items": [], "running_hours": None,
+                        "engine_hours_source":
+                            f"no engine log at {DEFAULT_DB} — nothing has been counted. "
+                            f"Start one with python3 -m openboat.engine"}
+            db = connect_engine_log(DEFAULT_DB)
+            try:
+                items = [d.as_dict() for d in maintenance.due(db, boat_profile)]
+                meter = engine_hours.summary(db)
+            finally:
+                db.close()
+
+            # There is no field here for "and by the way this log was fabricated", so the
+            # provenance string carries it. Every other renderer of this data says so on
+            # every page, and a maintenance verdict computed from a seeded log that did not
+            # announce itself would be the exact failure this project refuses.
+            if not meter["samples"]:
+                running, source = None, "the engine log exists but holds no samples yet"
+            elif meter["engine_hours_total"] is not None:
+                running = meter["engine_hours_total"]
+                # Counted *since the baseline*, which is not `running_h`: that is the whole
+                # log, including the hours before the display was photographed, and adding
+                # it to the baseline would count them twice.
+                since = meter["engine_hours_total"] - meter["baseline_hours"]
+                source = (f"{meter['baseline_hours']:.1f} h read off the helm display on "
+                          f"{meter['baseline_at']}, plus {since:.1f} h counted since")
+            else:
+                running = meter["running_h"]
+                source = (f"{meter['running_h']:.1f} h counted since logging began, over "
+                          f"{meter['coverage'] * 100:.0f} % coverage. Not engine hours: "
+                          f"nothing here knows what the engine did before the log existed")
+            if meter["synthetic"]:
+                source = "SYNTHETIC DATA — no engine ran. " + source
+            return {"items": items, "running_hours": running,
+                    "engine_hours_source": source}
+
+        if route == "/api/snags":
+            # `openboat.snag` is the *write* surface — its own service, on its own port,
+            # which is the reason this server accepts exactly one POST. Imported here rather
+            # than at the top of the file so that the module holding `record()` never joins
+            # this one's namespace. It was checked: nothing in `snag` runs at import time,
+            # so this is a boundary made visible rather than a safety mechanism. The
+            # boundary is the point of the two being separate services at all.
+            from . import snag
+
+            # The snag service can serve several boats; this server serves exactly one. Match
+            # on the resolved profile path rather than a name, because two boats may share a
+            # name and only one file is the one this dashboard was started on.
+            here = boat_profile.path.resolve() if boat_profile.path else None
+            key = next((b["key"] for b in snag.boats()
+                        if here and Path(b["profile"]).resolve() == here), None)
+            # A boat the snag service does not know about, or one with no SNAGS.md yet, has
+            # nothing to report — which is not an error. Nothing has been filed.
+            entries = snag.read_snags(key) if key else []
+            return {"snags": entries,
+                    "open_count": sum(1 for e in entries if e["open"])}
+
+        if route == "/api/docs":
+            # The library as a shelf rather than as an answer. The console's Documents page
+            # is built from this, and so is the honest part of it: a path named in the
+            # profile that is not on disk comes back marked missing instead of being left
+            # out, because a shelf that hides its gaps is how somebody comes to believe a
+            # manual is loaded when nothing can read it.
+            library = knowledge.load(boat_profile)
+            found = [d.as_dict() for d in knowledge.manifest(library)]
+            return {"documents": found,
+                    "count": len(found),
+                    "missing": sum(1 for d in found if not d["exists"]),
+                    "passages": sum(d["passages"] for d in found),
+                    "gaps": sum(d["gaps"] or 0 for d in found)}
+
+        if route == "/api/doc":
+            # Reading one document whole, so a passage can be seen in the paragraph it came
+            # out of. `knowledge.find` resolves only against the paths the profile already
+            # named — this server binds every interface, and a route that turned a query
+            # parameter straight into a file read would hand out the disk.
+            library = knowledge.load(boat_profile)
+            path = knowledge.find(library, params.get("name", ""))
+            if path is None:
+                return {"error": "no such document in this boat's library"}
+            if not path.exists():
+                return {"name": path.name, "path": str(path), "exists": False, "text": "",
+                        "error": f"{path} is named in the profile but is not on disk"}
+            return {"name": path.name, "path": str(path), "exists": True,
+                    "text": path.read_text(encoding="utf-8", errors="replace"),
+                    "document": knowledge.describe(path).as_dict()}
 
         if route == "/api/state":
             try:

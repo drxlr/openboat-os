@@ -23,7 +23,11 @@
   weather picture that looks authoritative and is not is worse than no picture.
 -->
 
-<script src="https://unpkg.com/leaflet@1.4.0/dist/leaflet.js"></script>
+<script src="vendor/leaflet-1.4.0.js"></script>
+<!-- Windy's own API, not vendorable: it is Windy's hosted library, keyed to their service,
+     and not a static asset that could be mirrored here. This is the one runtime network
+     fetch left in the dashboard, so this page — and only this page's Windy layer — needs
+     internet; everything else, including the base chart on the Chart tab, works offline. -->
 <script src="https://api.windy.com/assets/map-forecast/libBoot.js"></script>
 
 <style>
