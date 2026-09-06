@@ -37,6 +37,7 @@ import re
 import sys
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 #: Words carrying no signal, in the two languages these documents are actually written in.
@@ -323,6 +324,144 @@ def load(boat=None) -> Library:
         if extra.exists() and extra not in paths:
             paths.append(extra)
     return Library(paths=paths)
+
+
+@dataclass
+class Document:
+    """One file in the library, described without being searched.
+
+    The manifest exists because a library is not only a thing to query — it is a thing to
+    audit. "How much of this boat's paper is actually answerable" is a different question
+    from "what does the manual say about the impeller", and it is the one somebody asks
+    before trusting an answer at all.
+    """
+
+    path: Path
+    title: str
+    exists: bool
+    bytes: int = 0
+    lines: int = 0
+    passages: int = 0
+    modified: str = ""
+    #: The PDF this markdown was extracted from, if `openboat.ingest` wrote it. Empty for a
+    #: file a person typed, and the difference matters: derived text can be wrong in ways
+    #: paper is not, and it is re-generated rather than corrected.
+    derived_from: str = ""
+    pages: int | None = None
+    pages_with_text: int | None = None
+    #: The original beside the markdown, if it is still there to be opened.
+    original: str = ""
+
+    @property
+    def gaps(self) -> int | None:
+        """Pages that yielded no text — the part of this document nobody can answer from."""
+        if self.pages is None or self.pages_with_text is None:
+            return None
+        return self.pages - self.pages_with_text
+
+    def as_dict(self) -> dict:
+        return {"name": self.path.name, "path": str(self.path), "title": self.title,
+                "exists": self.exists, "bytes": self.bytes, "lines": self.lines,
+                "passages": self.passages, "modified": self.modified,
+                "derived_from": self.derived_from, "pages": self.pages,
+                "pages_with_text": self.pages_with_text, "gaps": self.gaps,
+                "original": self.original}
+
+
+#: Written into the header of anything `openboat.ingest` produced. Matched as a literal
+#: rather than imported so that reading a library never pulls in the PDF machinery.
+DERIVED_BANNER = "This is a derived file — the PDF is the original."
+_FROM = re.compile(r"Text extracted from `([^`]+)`")
+_PAGES = re.compile(r"^> (\d+) pages, (\d+) with a text layer", re.M)
+
+
+def describe(path: Path) -> Document:
+    """What is known about one document without answering a question from it."""
+    if not path.exists():
+        return Document(path=path, title=path.stem, exists=False)
+
+    stat = path.stat()
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    head = text[:2000]
+
+    title = path.stem.replace("_", " ").replace("-", " ")
+    for line in head.splitlines():
+        if line.startswith("# "):
+            title = line[2:].strip()
+            break
+
+    derived, pages, with_text = "", None, None
+    if DERIVED_BANNER in head:
+        found = _FROM.search(head)
+        derived = found.group(1) if found else "a PDF"
+        counted = _PAGES.search(head)
+        if counted:
+            pages, with_text = int(counted.group(1)), int(counted.group(2))
+
+    found_original = original_for(path, derived)
+    original = found_original.name if found_original else ""
+
+    return Document(
+        path=path, title=title, exists=True,
+        bytes=stat.st_size, lines=text.count("\n") + 1,
+        passages=len(_split(path)),
+        modified=datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+        derived_from=derived, pages=pages, pages_with_text=with_text, original=original)
+
+
+def original_for(path: Path, derived_from: str = "") -> Path | None:
+    """The PDF a derived markdown came out of, wherever it actually sits.
+
+    `openboat.ingest --out` is the normal way to run this: the extracted text goes into a
+    subdirectory so the manuals folder stays a folder of manuals, which means the paper is
+    usually one level up rather than beside its own text. Both shapes are checked, and the
+    plain `.pdf` beside the file is checked first because that is what a bare `ingest` with
+    no `--out` produces.
+
+    Only the *basename* of the recorded source is ever used. That string is read out of the
+    document's own header — a file on disk — and this function's answer is handed to a
+    route on an open port. `../../` in a header must not become a file the server serves.
+    """
+    candidates = [path.with_suffix(".pdf")]
+    if derived_from:
+        name = Path(derived_from).name
+        if name and name not in (".", ".."):
+            candidates += [path.parent / name, path.parent.parent / name]
+    # Last: the PDF one level up carrying this file's own stem. `ingest --out` writes the
+    # text into a subdirectory so the manuals folder stays a folder of manuals, and a PDF
+    # renamed after it was ingested no longer matches the name recorded in the header.
+    # Tried after the recorded name so an exact match always wins, and the console shows
+    # the two side by side — a stem that agrees and a header that does not is worth seeing.
+    candidates.append(path.parent.parent / (path.stem + ".pdf"))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def manifest(library: "Library") -> list[Document]:
+    """Every document the library points at, described. Missing ones included, and said so.
+
+    A path in the profile that is not on disk is the single most useful thing this function
+    reports. Dropping it would make the library look complete and quietly stop answering
+    from a manual somebody believes is loaded — which is exactly the confident silence this
+    project exists to refuse.
+    """
+    return [describe(path) for path in library.paths]
+
+
+def find(library: "Library", name: str) -> Path | None:
+    """Resolve a document *named by the library* — and nothing else.
+
+    The dashboard binds every interface, so a route that turns a query parameter into a
+    file read is a file-disclosure hole unless the answer can only ever be one of the paths
+    the profile already named. Matching against `library.paths` is what makes it one.
+    """
+    wanted = Path(name).expanduser()
+    for path in library.paths:
+        if path.name == name or path == wanted or str(path) == name:
+            return path
+    return None
 
 
 if __name__ == "__main__":

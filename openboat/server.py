@@ -143,9 +143,9 @@ class OpenBoat(SimpleHTTPRequestHandler):
         named = knowledge.find(library, params.get("name", ""))
         if named is None:
             return self.send_json({"error": "not in this boat's library"}, status=404)
-        paper = named.with_suffix(".pdf")
-        if not paper.exists():
-            return self.send_json({"error": f"no {paper.name} beside {named.name}"},
+        paper = knowledge.original_for(named, knowledge.describe(named).derived_from)
+        if paper is None:
+            return self.send_json({"error": f"no original found beside {named.name}"},
                                   status=404)
         body = paper.read_bytes()
         self.send_response(200)
@@ -336,7 +336,11 @@ class OpenBoat(SimpleHTTPRequestHandler):
             # A boat the snag service does not know about, or one with no SNAGS.md yet, has
             # nothing to report — which is not an error. Nothing has been filed.
             entries = snag.read_snags(key) if key else []
-            return {"snags": entries,
+            # The key and the port are handed back so a page can build a photo URL. The
+            # photographs live with the write service, not here: this server never grew a
+            # route into the boat's folders, and a console that wants to show a picture
+            # asks the service that stored it.
+            return {"snags": entries, "boat": key, "photo_port": snag.PORT,
                     "open_count": sum(1 for e in entries if e["open"])}
 
         if route == "/api/docs":

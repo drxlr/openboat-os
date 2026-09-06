@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OpenBoat console</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230E1315'/%3E%3Cpath d='M14 44h36M20 44V20l24 12-24 12' stroke='%2300E3A1' stroke-width='4' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+/* ── OpenBoat console ────────────────────────────────────────────────────────────────
+   The workshop end of the boat, as opposed to the helm. `index.html` is built to be read
+   in sunlight at arm's length with wet hands; this is built to be read at a desk with a
+   keyboard, where the questions are "what does the manual say", "what is this boat owed"
+   and "what did somebody photograph last week".
+
+   Monospace throughout, and that is a decision rather than a style. Nearly everything on
+   this page is a quantity, a file name, a line number or a timestamp — the things a
+   proportional font makes harder to compare down a column. Tabular figures mean 9.8 and
+   10.1 occupy the same width, so a column of hours can be scanned instead of read.
+
+   It holds no fact about any boat. Every name, number and document on it arrives from the
+   API at run time, which is what lets this file live in a public repository.            */
+
+:root{
+  --bg:#0e1315; --chrome:#11181a; --panel:#151c1f; --field:#212a2d;
+  --row-hi:#1e272a; --rule:#222c30; --rule-soft:#1a2225;
+  --ink:#e9efec; --mute:#8a9994; --dim:#5d6b67;
+  --accent:#00e3a1; --accent-ink:#04231a; --accent-wash:rgba(0,227,161,.10);
+  --warn:#f0b45e; --bad:#f4715c; --info:#79c0e8;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,"DejaVu Sans Mono",Consolas,monospace;
+  --rail:56px;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:400 13px/1.55 var(--mono); font-variant-numeric:tabular-nums;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input{font:inherit;color:inherit}
+a{color:var(--accent)}
+svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#263034;border:3px solid var(--bg);border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ── shell ─────────────────────────────────────────────────────────────────────────── */
+.app{display:grid;grid-template-rows:auto 1fr;height:100dvh;min-height:0}
+
+.bar{display:flex;align-items:center;gap:0;height:58px;background:var(--chrome);
+     border-bottom:1px solid var(--rule);padding-right:18px}
+.hamb{width:var(--rail);height:58px;display:grid;place-items:center;color:var(--mute)}
+.hamb:hover{color:var(--ink)}
+.brand{font-size:19px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.brand .n{color:var(--accent)}
+.bar h1{margin:0 0 0 10px;font-size:19px;font-weight:700;letter-spacing:-.01em;white-space:nowrap}
+.bar .vessel{margin-left:auto;display:flex;align-items:center;gap:14px;
+             color:var(--dim);font-size:12px;white-space:nowrap;overflow:hidden}
+.bar .vessel b{color:var(--mute);font-weight:400}
+
+.frame{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);min-height:0}
+nav{background:var(--chrome);border-right:1px solid var(--rule);
+    display:flex;flex-direction:column;padding-top:2px;overflow:hidden}
+nav button{display:flex;align-items:center;gap:14px;height:52px;padding:0 17px;
+           color:var(--dim);width:100%;flex:0 0 auto}
+nav button svg{width:22px;height:22px;flex:0 0 auto}
+nav button span{font-size:13px;opacity:0;transition:opacity .12s;white-space:nowrap}
+nav button:hover{color:var(--ink);background:#161e21}
+nav button[aria-current="true"]{background:var(--accent);color:var(--accent-ink)}
+nav button[aria-current="true"] svg{stroke-width:2.2}
+body.wide{--rail:210px}
+body.wide nav button span{opacity:1}
+nav .spacer{flex:1}
+nav .foot{color:var(--dim);font-size:11px;padding:0 17px 14px;white-space:nowrap;
+          opacity:0;transition:opacity .12s}
+body.wide nav .foot{opacity:1}
+
+main{min-width:0;min-height:0;overflow:hidden;display:grid}
+
+/* ── a view: toolbar, list, split detail ───────────────────────────────────────────── */
+.view{display:grid;grid-template-rows:auto minmax(0,auto) minmax(0,1fr);
+      gap:16px;padding:18px 20px;min-height:0;min-width:0}
+.view.plain{grid-template-rows:minmax(0,1fr)}
+.view.solo{grid-template-rows:minmax(0,1fr);padding:0}
+
+.tools{display:flex;align-items:center;gap:12px}
+.search{flex:1;min-width:0;display:flex;align-items:center;gap:13px;height:48px;
+        background:var(--field);border:1px solid transparent;border-radius:3px;padding:0 15px}
+.search:focus-within{border-color:#33413f}
+.search svg{width:19px;height:19px;flex:0 0 auto}
+.search .filt{color:var(--accent)}
+.search input{flex:1;min-width:0;background:none;border:0;outline:0;font-size:14px}
+.search input::placeholder{color:var(--dim)}
+.search .go{color:var(--ink);opacity:.85}
+.tools .act{width:44px;height:44px;display:grid;place-items:center;color:var(--accent);
+            border-radius:3px}
+.tools .act:hover{background:var(--accent-wash)}
+.tools .act svg{width:21px;height:21px}
+.tools .seg{display:flex;border:1px solid var(--rule);border-radius:3px;overflow:hidden}
+.tools .seg button{padding:0 14px;height:44px;color:var(--mute);font-size:12px;
+                   border-right:1px solid var(--rule)}
+.tools .seg button:last-child{border-right:0}
+.tools .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+
+.listwrap{overflow:auto;min-height:0;max-height:52vh;border-bottom:1px solid var(--rule)}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+thead th{position:sticky;top:0;z-index:2;background:var(--bg);text-align:left;
+         font-size:12.5px;font-weight:700;color:var(--ink);padding:9px 13px;
+         border-bottom:1px solid var(--rule);white-space:nowrap}
+tbody td{padding:11px 13px;border-bottom:1px solid var(--rule-soft);color:var(--mute);
+         font-size:12.5px;vertical-align:top}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:#161e21}
+tbody tr[aria-selected="true"] td{background:var(--row-hi);color:var(--ink)}
+td.k{color:var(--ink);white-space:nowrap}
+td.w{color:var(--ink)}
+td.num{text-align:right;white-space:nowrap;color:var(--ink)}
+td.st{white-space:nowrap}
+.trunc{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:9px;
+     vertical-align:1px;background:var(--dim)}
+.ok .dot{background:var(--accent)} .ok{color:var(--accent)}
+.warn .dot{background:var(--warn)} .warn{color:var(--warn)}
+.bad .dot{background:var(--bad)}   .bad{color:var(--bad)}
+.info .dot{background:var(--info)} .info{color:var(--info)}
+.tag{display:inline-block;padding:1px 7px;border:1px solid var(--rule);border-radius:2px;
+     font-size:11px;color:var(--dim);letter-spacing:.03em}
+
+/* ── the split ─────────────────────────────────────────────────────────────────────── */
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;min-height:0}
+@media (max-width:1000px){.split{grid-template-columns:minmax(0,1fr)}}
+.pane{background:var(--panel);border:1px solid var(--rule);display:flex;flex-direction:column;
+      min-height:0;min-width:0}
+.pane .head{display:flex;align-items:center;gap:12px;padding:12px 15px;min-height:47px;
+            flex:0 0 auto}
+.pane .head b{font-size:14px;font-weight:700;color:var(--ink);overflow:hidden;
+              text-overflow:ellipsis;white-space:nowrap}
+.pane .head .side{margin-left:auto;color:var(--dim);font-size:11px;letter-spacing:.14em;
+                  white-space:nowrap}
+.pane .head .meta{color:var(--mute);font-size:12px;white-space:nowrap}
+.tabs{display:flex;gap:22px;padding:0 15px;border-bottom:1px solid var(--rule);
+      overflow-x:auto;scrollbar-width:none;flex:0 0 auto}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{padding:9px 0 8px;border-bottom:2px solid transparent;color:var(--mute);
+             font-size:12.5px;white-space:nowrap}
+.tabs button:hover{color:var(--ink)}
+.tabs button[aria-selected="true"]{color:var(--accent);border-color:var(--accent)}
+.tabs .right{margin-left:auto;display:flex;align-items:center;gap:11px;color:var(--mute);
+             font-size:12px;padding:9px 0}
+.body{overflow:auto;padding:13px 15px;min-height:0;flex:1 1 auto;
+      font-size:12.5px;line-height:1.7}
+.pane.full{grid-column:1/-1}
+.empty{color:var(--dim);padding:22px 15px;font-size:12.5px;line-height:1.8}
+.empty b{color:var(--mute);font-weight:400}
+
+/* key/value, the shape a header table has */
+table.kv{border-collapse:collapse;table-layout:auto}
+table.kv th{background:none;position:static;padding:7px 0;border-bottom:1px solid var(--rule)}
+table.kv td{border-bottom:1px solid var(--rule-soft);padding:9px 16px 9px 0;
+            vertical-align:top;word-break:break-word}
+table.kv td:first-child{color:var(--mute);width:34%;white-space:nowrap}
+table.kv td:last-child{color:var(--ink);padding-right:0}
+
+/* line-numbered text */
+.code{font-size:12.5px;line-height:1.65}
+.code .ln{display:flex;gap:16px}
+.code .no{color:var(--dim);text-align:right;min-width:3.2ch;user-select:none;flex:0 0 auto}
+.code .tx{white-space:pre-wrap;word-break:break-word;flex:1;min-width:0;color:var(--mute)}
+.code .ln:target .tx,.code .ln.hit .tx{background:var(--accent-wash)}
+.code .h{color:var(--ink);font-weight:700}
+.code .q{color:var(--accent)}
+.code .c{color:var(--warn)}
+.code .u{color:#e08a5a;text-decoration:underline}
+.code .g{color:var(--dim)}
+
+/* ── overview ──────────────────────────────────────────────────────────────────────── */
+.scroll{overflow:auto;min-height:0;padding-right:4px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:14px}
+.tile{background:var(--panel);border:1px solid var(--rule);padding:15px 16px 14px}
+.tile b{display:block;font-size:33px;line-height:1.1;font-weight:700;color:var(--accent);
+        letter-spacing:-.02em}
+.tile b.q{color:var(--warn)} .tile b.z{color:var(--dim)}
+.tile span{display:block;margin-top:7px;color:var(--mute);font-size:11.5px;letter-spacing:.05em}
+.tile em{display:block;margin-top:4px;color:var(--dim);font-size:11px;font-style:normal}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px;
+      margin-top:16px}
+.card{background:var(--panel);border:1px solid var(--rule)}
+.card h2{margin:0;padding:12px 15px;font-size:13px;font-weight:700;
+         border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:10px}
+.card h2 .side{margin-left:auto;color:var(--dim);font-size:11px;letter-spacing:.14em;
+               font-weight:400}
+.card ul{margin:0;padding:6px 0;list-style:none}
+.card li{padding:10px 15px;border-bottom:1px solid var(--rule-soft)}
+.card li:last-child{border-bottom:0}
+.card li .t{display:block;color:var(--ink)}
+.card li .s{display:block;margin-top:3px;color:var(--dim);font-size:11.5px;line-height:1.65}
+.card p{margin:0;padding:14px 15px;color:var(--dim);line-height:1.75}
+
+/* ── dashboards ────────────────────────────────────────────────────────────────────── */
+.apps{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:16px}
+.app-card{background:var(--panel);border:1px solid var(--rule);padding:17px 17px 15px;
+          text-align:left;display:flex;flex-direction:column;gap:9px;min-height:158px}
+.app-card:hover{border-color:#33413f;background:#171f22}
+.app-card .ic{color:var(--accent)}
+.app-card .ic svg{width:24px;height:24px}
+.app-card b{font-size:14px;color:var(--ink)}
+.app-card p{margin:0;color:var(--mute);font-size:12px;line-height:1.7;flex:1}
+.app-card .go{color:var(--accent);font-size:11.5px;letter-spacing:.1em}
+.stage{display:grid;grid-template-rows:auto minmax(0,1fr);min-height:0}
+.stage .head{display:flex;align-items:center;gap:14px;height:46px;padding:0 16px;
+             background:var(--chrome);border-bottom:1px solid var(--rule)}
+.stage .head b{font-size:13px}
+.stage .head .path{color:var(--dim);font-size:12px;overflow:hidden;text-overflow:ellipsis;
+                   white-space:nowrap}
+.stage .head a{margin-left:auto;font-size:11.5px;letter-spacing:.08em;white-space:nowrap}
+.stage iframe{border:0;width:100%;height:100%;background:var(--bg)}
+.back{display:inline-flex;align-items:center;gap:8px;color:var(--accent);font-size:12px}
+
+/* photographs filed with a snag */
+.shots{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.shots a{display:block;width:132px;height:99px;border:1px solid var(--rule);overflow:hidden;
+         background:#0b1012}
+.shots img{width:100%;height:100%;object-fit:cover;display:block}
+.shots .miss{display:grid;place-items:center;color:var(--dim);font-size:10.5px;
+             text-align:center;padding:8px;line-height:1.5;height:100%}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <div class="bar">
+    <button class="hamb" id="hamb" title="Wider sidebar" aria-label="Wider sidebar">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <span class="brand"><span class="n">OpenBoat</span>://</span>
+    <h1 id="title">Overview</h1>
+    <div class="vessel"><b id="vname">…</b><span id="vver"></span></div>
+  </div>
+
+  <div class="frame">
+    <nav id="nav"></nav>
+    <main id="main"></main>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+/* ── the shape of the thing ──────────────────────────────────────────────────────────
+   Five views, one list-plus-split layout, and no state that outlives a reload. The page
+   asks the API on every switch rather than caching, for the same reason `knowledge.py`
+   re-reads its files: these documents are edited by hand, often in the middle of the job
+   being asked about, and a stale answer about a boat is worse than a slow one.
+
+   Nothing here writes. The console is a reader; the write surfaces are the snag service
+   on its own port and a keyboard.                                                     */
+
+const $  = (s, r = document) => r.querySelector(s);
+const el = (t, c, txt) => { const n = document.createElement(t);
+                            if (c) n.className = c;
+                            if (txt !== undefined) n.textContent = txt;
+                            return n; };
+
+async function api(path) {
+  const r = await fetch(path, { headers: { Accept: "application/json" } });
+  const j = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
+  return j;
+}
+
+/* Never innerHTML with anything that came off disk. Every code line is escaped first and
+   the only markup added afterwards is the span colouring below, built from the escaped
+   text — a manual containing a `<script>` is a manual, not an instruction. */
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const nf  = n => (n === null || n === undefined) ? "—" : Number(n).toLocaleString("en-GB");
+const kb  = n => n < 1024 ? `${n} B`
+               : n < 1048576 ? `${(n / 1024).toFixed(0)} kB`
+               : `${(n / 1048576).toFixed(1)} MB`;
+
+/* "3 days ago" beats an ISO string in a column you are scanning, but the exact stamp goes
+   in the detail pane — an age is for comparing, a timestamp is for quoting. */
+function ago(iso) {
+  if (!iso) return "—";
+  const then = new Date(iso.replace(" ", "T"));
+  if (isNaN(then)) return iso;
+  const days = Math.floor((Date.now() - then) / 86400000);
+  if (days < 0) return "in " + (-days) + " d";
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 60) return days + " d ago";
+  if (days < 730) return Math.floor(days / 30) + " mo ago";
+  return Math.floor(days / 365) + " y ago";
+}
+
+const ICON = {
+  overview: "M12 3a9 9 0 100 18 9 9 0 000-18zm3.6 5.4l-2 5.2-5.2 2 2-5.2 5.2-2z",
+  docs:     "M7 3h7l5 5v13H7zM14 3v5h5M10 13h7M10 17h7",
+  tasks:    "M4 7l2 2 3.5-3.5M4 15l2 2 3.5-3.5M13 7h7M13 16h7",
+  boards:   "M4 4h7v6H4zM13 4h7v10h-7zM4 13h7v7H4zM13 17h7v3h-7z",
+  boat:     "M3 16h18l-2.5 5H5.5zM12 16V4l7 12M12 16H6l2-6h4",
+};
+const svg = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+
+const VIEWS = [
+  { id: "overview",  label: "Overview",   title: "Overview" },
+  { id: "docs",      label: "Documents",  title: "Documents" },
+  { id: "tasks",     label: "Tasks",      title: "Tasks" },
+  { id: "boards",    label: "Dashboards", title: "Dashboards" },
+  { id: "boat",      label: "Boat",       title: "The boat" },
+];
+
+const state = { view: "overview", q: "", docs: null, hits: null, sel: null,
+                tasks: null, filter: "all", profile: null, stage: null, tab: {} };
+
+/* ── chrome ──────────────────────────────────────────────────────────────────────── */
+function drawNav() {
+  const nav = $("#nav");
+  nav.textContent = "";
+  for (const v of VIEWS) {
+    const b = el("button");
+    b.innerHTML = svg(ICON[v.id]) + `<span>${v.label}</span>`;
+    b.setAttribute("aria-current", state.view === v.id ? "true" : "false");
+    b.title = v.label;
+    b.onclick = () => go(v.id);
+    nav.append(b);
+  }
+  nav.append(el("div", "spacer"));
+  const foot = el("div", "foot", "read-only");
+  nav.append(foot);
+}
+
+function go(view) {
+  state.view = view;
+  state.stage = null;
+  // The search box is per view. Carrying a query across meant arriving at Tasks with a
+  // manual's vocabulary typed into it and being told, correctly and uselessly, that
+  // nothing matched.
+  state.q = "";
+  state.sel = null;
+  location.hash = view;
+  drawNav();
+  $("#title").textContent = (VIEWS.find(v => v.id === view) || {}).title || view;
+  render();
+}
+
+$("#hamb").onclick = () => document.body.classList.toggle("wide");
+window.addEventListener("hashchange", () => {
+  const want = location.hash.slice(1);
+  if (want && want !== state.view && VIEWS.some(v => v.id === want)) go(want);
+});
+
+/* ── shared furniture ────────────────────────────────────────────────────────────── */
+function toolbar(placeholder, onInput, extras) {
+  const wrap = el("div", "tools");
+  const box  = el("div", "search");
+  box.innerHTML =
+    `<svg class="filt" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>`;
+  const input = el("input");
+  input.type = "search";
+  input.placeholder = placeholder;
+  input.value = state.q;
+  input.oninput = () => { state.q = input.value; onInput(input.value); };
+  box.append(input);
+  const go = el("span", "go");
+  go.innerHTML =
+    `<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>`;
+  box.append(go);
+  wrap.append(box);
+  (extras || []).forEach(n => wrap.append(n));
+  const clear = el("button", "act");
+  clear.title = "Clear";
+  clear.innerHTML =
+    `<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>`;
+  clear.onclick = () => { state.q = ""; input.value = ""; onInput(""); };
+  wrap.append(clear);
+  setTimeout(() => input.focus(), 30);
+  return wrap;
+}
+
+function table(cols, rows, onPick, selected) {
+  const wrap = el("div", "listwrap");
+  const t = el("table");
+  const cg = el("colgroup");
+  cols.forEach(c => { const col = el("col"); if (c.w) col.style.width = c.w; cg.append(col); });
+  t.append(cg);
+  const thead = el("thead"), tr = el("tr");
+  cols.forEach(c => { const th = el("th", c.cls || "", c.label); tr.append(th); });
+  thead.append(tr); t.append(thead);
+  const tb = el("tbody");
+  rows.forEach((row, i) => {
+    const r = el("tr");
+    r.setAttribute("aria-selected", selected === i ? "true" : "false");
+    cols.forEach(c => {
+      const td = el("td", c.cls || "");
+      const v = c.get(row, i);
+      if (v instanceof Node) td.append(v); else td.textContent = v;
+      r.append(td);
+    });
+    r.onclick = () => onPick(row, i);
+    tb.append(r);
+  });
+  t.append(tb);
+  wrap.append(t);
+  if (!rows.length) {
+    wrap.append(el("div", "empty", "Nothing here."));
+  }
+  return wrap;
+}
+
+function statusCell(kind, text) {
+  const s = el("span", kind);
+  s.append(el("span", "dot"));
+  s.append(document.createTextNode(text));
+  return s;
+}
+
+function pane(title, sideLabel, meta) {
+  const p = el("div", "pane");
+  const head = el("div", "head");
+  head.append(el("b", "", title));
+  if (meta) head.append(el("span", "meta", meta));
+  head.append(el("span", "side", sideLabel));
+  p.append(head);
+  return p;
+}
+
+function tabs(names, active, onPick, right) {
+  const t = el("div", "tabs");
+  names.forEach(n => {
+    const b = el("button", "", n);
+    b.setAttribute("aria-selected", n === active ? "true" : "false");
+    b.onclick = () => onPick(n);
+    t.append(b);
+  });
+  if (right) { const r = el("div", "right"); r.append(right); t.append(r); }
+  return t;
+}
+
+function kv(pairs) {
+  const t = el("table", "kv");
+  const thead = el("thead");
+  thead.innerHTML = "<tr><th>Key</th><th>Value</th></tr>";
+  t.append(thead);
+  const tb = el("tbody");
+  pairs.forEach(([k, v]) => {
+    if (v === undefined || v === null || v === "") return;
+    const r = el("tr");
+    r.append(el("td", "", k));
+    const td = el("td");
+    if (v instanceof Node) td.append(v); else td.textContent = String(v);
+    r.append(td);
+    tb.append(r);
+  });
+  t.append(tb);
+  return t;
+}
+
+/* Markdown, coloured just enough to find your place in it. Not a renderer: the text stays
+   exactly as it is on disk, line for line, because the line number is half the citation
+   and reflowing a manual would break the thing that makes an answer checkable.
+
+   Two things here are about a 150-page manual rather than about a note. Most lines carry
+   no markup at all, so they are set with textContent and never go near the HTML parser —
+   parsing seven thousand fragments one at a time is what made an operator's manual take
+   the best part of a minute to open. And a document past MAX_LINES opens as a window
+   around the line being cited, with the rest one click away: a citation points at a line,
+   and everything above it can wait until somebody asks for it. */
+
+const MAX_LINES = 2200;
+const RICH = /https?:\/\/|`|\*\*|^\s{0,3}(?:#{1,6}\s|>)/;
+
+function code(text, hitLine, whole) {
+  const box = el("div", "code");
+  const lines = String(text ?? "").split("\n");
+
+  let from = 0, to = lines.length;
+  if (!whole && lines.length > MAX_LINES) {
+    const centre = hitLine ? hitLine - 1 : 0;
+    to = Math.min(lines.length, Math.max(centre + Math.floor(MAX_LINES / 2), MAX_LINES));
+    from = Math.max(0, to - MAX_LINES);
+    const bar = el("div", "empty");
+    bar.append(statusCell("info",
+      `Showing lines ${nf(from + 1)}–${nf(to)} of ${nf(lines.length)}.`));
+    const more = el("button");
+    more.textContent = `Show the whole file ▸`;
+    more.style.cssText = "color:var(--accent);margin-left:10px";
+    more.onclick = () => box.replaceWith(code(text, hitLine, true));
+    bar.append(more);
+    box.append(bar);
+  }
+
+  const frag = document.createDocumentFragment();
+  for (let i = from; i < to; i++) {
+    const line = lines[i], n = i + 1;
+    const row = el("div", "ln" + (hitLine && n === hitLine ? " hit" : ""));
+    row.id = "L" + n;
+    row.append(el("span", "no", String(n)));
+    const tx = el("span", "tx");
+    if (!RICH.test(line)) {
+      tx.textContent = line;                       // the common case, and the fast one
+    } else {
+      let html = esc(line);
+      if (/^\s{0,3}#{1,6}\s/.test(line))     html = `<span class="h">${html}</span>`;
+      else if (/^\s{0,3}>/.test(line))       html = `<span class="g">${html}</span>`;
+      html = html
+        .replace(/(https?:\/\/[^\s&<]+)/g, '<span class="u">$1</span>')
+        .replace(/(`[^`]+`)/g, '<span class="c">$1</span>')
+        .replace(/(\*\*[^*]+\*\*)/g, '<span class="q">$1</span>');
+      tx.innerHTML = html;
+    }
+    row.append(tx);
+    frag.append(row);
+  }
+  box.append(frag);
+  return box;
+}
+
+function mount(node) { const m = $("#main"); m.textContent = ""; m.append(node); }
+
+/* ── view: documents ─────────────────────────────────────────────────────────────── */
+async function viewDocs() {
+  const v = el("div", "view");
+  const list = el("div"); list.style.minHeight = "0"; list.style.overflow = "hidden";
+  list.style.display = "grid";
+  const detail = el("div", "split");
+
+  let timer = null;
+  v.append(toolbar("Search this boat's papers — a symptom, a part, a word off a label…",
+                   () => { clearTimeout(timer); timer = setTimeout(runDocs, 260); }));
+  v.append(list);
+  v.append(detail);
+  mount(v);
+
+  async function runDocs() {
+    if (state.q.trim()) {
+      const r = await api("/api/ask?q=" + encodeURIComponent(state.q) + "&limit=25");
+      state.hits = r.passages || [];
+      state.askedOf = r.documents;
+      drawHits(r);
+    } else {
+      state.hits = null;
+      if (!state.docs) state.docs = await api("/api/docs");
+      drawLibrary();
+    }
+  }
+
+  function drawLibrary() {
+    const d = state.docs || {};
+    const rows = d.documents || [];
+    list.textContent = "";
+    list.append(table([
+      { label: "KIND", cls: "k", w: "8.5em", get: r =>
+          !r.exists ? "missing" : r.derived_from ? "extracted" : "written" },
+      { label: "DOCUMENT", cls: "w", get: r => {
+          const s = el("span", "trunc", r.title || r.name); s.title = r.name; return s; } },
+      { label: "SOURCE", w: "26%", get: r => {
+          const s = el("span", "trunc",
+            r.derived_from ? "from " + r.derived_from : "typed by hand");
+          return s; } },
+      { label: "PASSAGES", cls: "num", w: "7em", get: r => r.exists ? nf(r.passages) : "—" },
+      { label: "SIZE", cls: "num", w: "6em", get: r => r.exists ? kb(r.bytes) : "—" },
+      { label: "STATUS", cls: "st", w: "17em", get: r => {
+          if (!r.exists) return statusCell("bad", "named but not on disk");
+          if (r.gaps)    return statusCell("warn", `${r.gaps} of ${r.pages} pages need OCR`);
+          if (r.pages)   return statusCell("ok", `${r.pages_with_text}/${r.pages} pages read`);
+          return statusCell("ok", "readable");
+        } },
+    ], rows, (row, i) => { state.sel = i; drawLibrary(); showDoc(row.name, null); },
+       state.sel));
+    if (d.missing) {
+      const w = el("div", "empty");
+      w.append(statusCell("bad",
+        `${d.missing} document${d.missing > 1 ? "s are" : " is"} named in the profile and ` +
+        `not on disk. Nothing can be answered from ${d.missing > 1 ? "them" : "it"}.`));
+      list.append(w);
+    }
+    if (state.sel === null) idleDocs(d);
+  }
+
+  function drawHits(r) {
+    const rows = state.hits || [];
+    list.textContent = "";
+    list.append(table([
+      { label: "SCORE", cls: "num", w: "6em", get: h => h.score.toFixed(2) },
+      { label: "DOCUMENT", cls: "k", w: "26%", get: h => {
+          const s = el("span", "trunc", h.doc); s.title = h.path; return s; } },
+      { label: "SECTION", cls: "w", get: h => {
+          const s = el("span", "trunc", h.heading || "(no heading)"); return s; } },
+      { label: "LINE", cls: "num", w: "5em", get: h => h.line },
+      { label: "RANK", cls: "st", w: "5.5em", get: (h, i) =>
+          statusCell(i === 0 ? "ok" : h.score > 20 ? "info" : "", `#${i + 1}`) },
+    ], rows, (h, i) => { state.sel = i; drawHits(r); showPassage(h); }, state.sel));
+
+    if (!rows.length) {
+      list.textContent = "";
+      const e = el("div", "empty");
+      e.innerHTML =
+        `Nothing in ${nf(r.documents || 0)} document(s) matches <b>${esc(state.q)}</b>.` +
+        `<br><br>That is an answer, not a failure — this boat's library does not contain ` +
+        `it. Ask in either language; the query is widened both ways.`;
+      list.append(e);
+      detail.textContent = "";
+    }
+  }
+
+  function idleDocs(d) {
+    detail.textContent = "";
+    const p = pane("The library", "SHELF");
+    p.classList.add("full");
+    const b = el("div", "empty");
+    b.innerHTML =
+      `<b>${nf(d.count || 0)}</b> document(s), <b>${nf(d.passages || 0)}</b> retrievable ` +
+      `passages.<br><br>Pick a row to read it, or search above to ask the papers a ` +
+      `question. Every answer arrives with the file and the line it came out of, so it ` +
+      `can be walked back to the paper and checked.` +
+      (d.gaps ? `<br><br>${nf(d.gaps)} page(s) are scanned images with no text layer. ` +
+                `They are listed, not hidden — nothing can answer from them until they ` +
+                `are put through OCR.` : "");
+    p.append(b);
+    detail.append(p);
+  }
+
+  async function showPassage(h) {
+    detail.textContent = "";
+    const left = pane(h.doc, "PASSAGE", h.where);
+    let tab = state.tab.p || "Passage";
+    const render = () => {
+      [...left.querySelectorAll(".tabs,.body")].forEach(n => n.remove());
+      left.append(tabs(["Passage", "Details"], tab, t => { state.tab.p = tab = t; render(); }));
+      const body = el("div", "body");
+      if (tab === "Details") {
+        body.append(kv([
+          ["Section", h.heading || "(no heading)"],
+          ["Document", h.doc],
+          ["Line", h.line],
+          ["Citation", h.where],
+          ["BM25 score", h.score],
+          ["Characters", nf(h.text.length)],
+        ]));
+      } else {
+        body.append(code(h.text));
+      }
+      left.append(body);
+    };
+    render();
+    detail.append(left);
+
+    const right = pane(h.doc, "DOCUMENT");
+    detail.append(right);
+    const doc = await api("/api/doc?name=" + encodeURIComponent(h.doc));
+    fillDocPane(right, doc, h.line);
+  }
+
+  async function showDoc(name, line) {
+    detail.textContent = "";
+    const meta = (state.docs.documents || []).find(d => d.name === name) || {};
+    const left = pane(meta.title || name, "DOCUMENT", meta.name);
+    let tab = state.tab.d || "Details";
+    const render = () => {
+      [...left.querySelectorAll(".tabs,.body")].forEach(n => n.remove());
+      const names = ["Details", "Sections"];
+      if (meta.original) names.push("Original");
+      left.append(tabs(names, tab, t => { state.tab.d = tab = t; render(); }));
+      const body = el("div", "body");
+      if (tab === "Details") {
+        body.append(kv([
+          ["Title", meta.title],
+          ["File", meta.name],
+          ["Kind", meta.derived_from
+            ? "extracted text — the PDF is the original"
+            : "written by hand"],
+          ["Extracted from", meta.derived_from],
+          ["Original beside it", meta.original],
+          ["Pages", meta.pages],
+          ["Pages with text", meta.pages_with_text],
+          ["Pages needing OCR", meta.gaps],
+          ["Retrievable passages", nf(meta.passages)],
+          ["Lines", nf(meta.lines)],
+          ["Size", meta.exists ? kb(meta.bytes) : "not on disk"],
+          ["Last changed", meta.modified ? `${meta.modified}  (${ago(meta.modified)})` : ""],
+          ["Path", meta.path],
+        ]));
+        if (meta.derived_from) {
+          const note = el("div", "empty");
+          note.innerHTML =
+            `This text was pulled out of a PDF by a machine. If a passage reads wrongly, ` +
+            `the paper is right — re-ingest rather than editing the markdown, or the ` +
+            `correction is lost the next time it runs.`;
+          body.append(note);
+        }
+      } else if (tab === "Sections") {
+        body.append(el("div", "empty", "Loading…"));
+      } else {
+        const note = el("div", "empty");
+        note.innerHTML =
+          `<a href="/paper?name=${encodeURIComponent(name)}" target="_blank" ` +
+          `rel="noopener">Open ${esc(meta.original)} ▸</a><br><br>` +
+          `Served straight from beside the markdown. This is the document of record; ` +
+          `everything in the pane to the right is derived from it.`;
+        body.append(note);
+      }
+      left.append(body);
+    };
+    render();
+    detail.append(left);
+
+    const right = pane(name, "CONTENT");
+    detail.append(right);
+    const doc = await api("/api/doc?name=" + encodeURIComponent(name));
+    fillDocPane(right, doc, line);
+
+    // The section list needs the text, so it is filled once the document has landed.
+    if (tab === "Sections") {
+      const body = left.querySelector(".body");
+      body.textContent = "";
+      const heads = String(doc.text || "").split("\n")
+        .map((l, i) => ({ l, n: i + 1 }))
+        .filter(x => /^#{1,6}\s/.test(x.l));
+      if (!heads.length) { body.append(el("div", "empty", "No headings in this file.")); }
+      const ul = el("div");
+      heads.forEach(x => {
+        const depth = x.l.match(/^#+/)[0].length;
+        const b = el("button", "", x.l.replace(/^#+\s*/, ""));
+        b.style.cssText = `display:block;text-align:left;width:100%;padding:5px 0 5px ${
+          (depth - 1) * 14}px;color:var(--${depth === 1 ? "ink" : "mute"})`;
+        b.onclick = () => {
+          const t = right.querySelector("#L" + x.n);
+          if (t) { t.scrollIntoView({ block: "center" }); t.classList.add("hit"); }
+        };
+        ul.append(b);
+      });
+      body.append(ul);
+    }
+  }
+
+  function fillDocPane(p, doc, line) {
+    [...p.querySelectorAll(".tabs,.body,.empty")].forEach(n => n.remove());
+    if (doc.error || !doc.exists) {
+      const e = el("div", "empty");
+      e.append(statusCell("bad", doc.error || "not on disk"));
+      p.append(e);
+      return;
+    }
+    const lines = String(doc.text).split("\n").length;
+    const badge = statusCell("ok", `${nf(lines)} lines · ${nf(doc.document.passages)} passages`);
+    p.append(tabs([`Text (${kb(doc.text.length)})`], `Text (${kb(doc.text.length)})`,
+                  () => {}, badge));
+    const body = el("div", "body");
+    body.append(code(doc.text, line));
+    p.append(body);
+    if (line) setTimeout(() => {
+      const t = p.querySelector("#L" + line);
+      if (t) t.scrollIntoView({ block: "center" });
+    }, 20);
+  }
+
+  runDocs();
+}
+
+/* ── view: tasks ─────────────────────────────────────────────────────────────────── */
+async function viewTasks() {
+  const v = el("div", "view");
+  const list = el("div");
+  list.style.cssText = "min-height:0;overflow:hidden;display:grid";
+  const detail = el("div", "split");
+
+  const seg = el("div", "seg");
+  [["all", "All"], ["open", "Open"], ["snag", "Snags"], ["service", "Service"]]
+    .forEach(([id, label]) => {
+      const b = el("button", "", label);
+      b.setAttribute("aria-pressed", state.filter === id ? "true" : "false");
+      b.onclick = () => { state.filter = id; state.sel = null; draw(); };
+      seg.append(b);
+    });
+
+  v.append(toolbar("Filter what this boat owes…", () => { state.sel = null; draw(); }, [seg]));
+  v.append(list);
+  v.append(detail);
+  mount(v);
+
+  const [maint, snags] = await Promise.all([api("/api/maintenance"), api("/api/snags")]);
+  state.maint = maint; state.snags = snags;
+
+  /* One list, because a boat has one. The engine is owed a flush because it ran in salt
+     water; the locker is owed a striker plate because somebody stood in front of it. Kept
+     apart they are two lists nobody reads. */
+  function rows() {
+    const out = [];
+    (snags.snags || []).forEach(s => out.push({
+      kind: "snag", title: s.title, where: s.where, when: s.when, open: s.open,
+      status: s.status, by: s.by, body: s.body, photos: s.photos || [],
+      updates: s.updates || [], raw: s,
+    }));
+    (maint.items || []).forEach(m => out.push({
+      kind: "service", title: m.item, where: m.description, when: m.last,
+      open: m.verdict !== "ok", status: m.verdict, why: m.why, raw: m,
+    }));
+    const q = state.q.trim().toLowerCase();
+    return out.filter(r => {
+      if (state.filter === "open" && !r.open) return false;
+      if (state.filter === "snag" && r.kind !== "snag") return false;
+      if (state.filter === "service" && r.kind !== "service") return false;
+      if (!q) return true;
+      return JSON.stringify(r).toLowerCase().includes(q);
+    });
+  }
+
+  function statusOf(r) {
+    if (r.kind === "snag")
+      return r.open ? statusCell("warn", r.status || "open")
+                    : statusCell("ok", r.status || "fixed");
+    return { due:     statusCell("bad",  "due"),
+             soon:    statusCell("warn", "soon"),
+             ok:      statusCell("ok",   "in date"),
+             unknown: statusCell("info", "never recorded") }[r.status]
+           || statusCell("", r.status);
+  }
+
+  function draw() {
+    const rs = rows();
+    list.textContent = "";
+    list.append(table([
+      { label: "SOURCE", cls: "k", w: "7em", get: r => r.kind },
+      { label: "WHAT", cls: "w", get: r => {
+          const s = el("span", "trunc", r.title);
+          if (r.updates && r.updates.length) s.title = `${r.updates.length} update(s)`;
+          return s; } },
+      { label: "WHERE", w: "30%", get: r => {
+          const s = el("span", "trunc", r.where || "—"); return s; } },
+      { label: "WHEN", cls: "num", w: "8em", get: r => ago(r.when) },
+      { label: "STATUS", cls: "st", w: "12em", get: r => statusOf(r) },
+    ], rs, (r, i) => { state.sel = i; draw(); show(r); }, state.sel));
+
+    if (!maint.items?.length && maint.engine_hours_source) {
+      const e = el("div", "empty");
+      e.append(statusCell("info", maint.engine_hours_source));
+      list.append(e);
+    }
+    if (state.sel === null) idle(rs);
+  }
+
+  function idle(rs) {
+    detail.textContent = "";
+    const open = rs.filter(r => r.open).length;
+    const p = pane("Everything the boat is owed", "LIST");
+    p.classList.add("full");
+    const b = el("div", "empty");
+    b.innerHTML =
+      `<b>${rs.length}</b> item(s), <b>${open}</b> still open.<br><br>` +
+      `Snags come from whoever stood in front of the fault with a phone. Service items ` +
+      `come from the engine's own running hours. Pick one to read it.<br><br>` +
+      `Nothing on this page closes anything: a snag is closed by editing the file, a ` +
+      `service by recording that the work actually happened.`;
+    p.append(b);
+    detail.append(p);
+  }
+
+  function show(r) {
+    detail.textContent = "";
+    const left = pane(r.title, r.kind.toUpperCase(), r.kind === "snag" ? r.when : "");
+    const body = el("div", "body");
+    if (r.kind === "snag") {
+      body.append(kv([
+        ["Filed", r.when],
+        ["Age", ago(r.when)],
+        ["Where on the boat", r.where],
+        ["Reported by", r.by || "(unnamed)"],
+        ["Status", r.status],
+        ["Photographs", r.photos.length || 0],
+        ["Updates", r.updates.length || 0],
+      ]));
+    } else {
+      const m = r.raw;
+      body.append(kv([
+        ["Item", m.item],
+        ["What it is", m.description],
+        ["Last done", m.last ? `${m.last}  (${ago(m.last)})` : "never recorded"],
+        ["Hours since", m.hours_since === null ? "" : m.hours_since?.toFixed(1) + " h"],
+        ["Days since", m.days_since],
+        ["Outings since", m.outings_since],
+        ["Interval", m.interval_hours ? m.interval_hours + " h"
+                    : m.interval_months ? m.interval_months + " months"
+                    : m.per_outing ? "every outing in salt water" : ""],
+        ["Verdict", m.verdict],
+      ]));
+      const src = el("div", "empty");
+      src.append(statusCell("info", maint.engine_hours_source || ""));
+      body.append(src);
+    }
+    left.append(body);
+    detail.append(left);
+
+    const right = pane(r.kind === "snag" ? "What was written" : "Why it is owed",
+                       r.kind === "snag" ? "NOTE" : "REASON");
+    const rb = el("div", "body");
+    if (r.kind === "snag") {
+      rb.append(code(r.body || "(no note — see the photograph)"));
+      if (r.photos.length) {
+        const shots = el("div", "shots");
+        const base = `${location.protocol}//${location.hostname}:${snags.photo_port}`;
+        r.photos.forEach(name => {
+          const a = el("a");
+          a.href = `${base}/photo?boat=${encodeURIComponent(snags.boat || "")}` +
+                   `&name=${encodeURIComponent(name)}`;
+          a.target = "_blank"; a.rel = "noopener"; a.title = name;
+          const img = el("img");
+          img.src = a.href; img.alt = name; img.loading = "lazy";
+          /* The photographs live with the write service, not with this one. If it is not
+             running, say so rather than showing a broken frame — a missing picture that
+             looks like a missing picture is honest; one that looks like no picture was
+             ever taken is not. */
+          img.onerror = () => {
+            a.textContent = "";
+            a.append(el("span", "miss", `${name}\nneeds the snag service on :${snags.photo_port}`));
+          };
+          a.append(img);
+          shots.append(a);
+        });
+        rb.append(shots);
+      }
+      r.updates.forEach(u => {
+        const h = el("div", "empty");
+        h.append(statusCell("info", `Update · ${u.when}${u.by ? " · " + u.by : ""}`));
+        rb.append(h);
+        rb.append(code(u.body || ""));
+      });
+    } else {
+      rb.append(code(r.why || ""));
+    }
+    right.append(rb);
+    detail.append(right);
+  }
+
+  draw();
+}
+
+/* ── view: dashboards ────────────────────────────────────────────────────────────── */
+const BOARDS = [
+  { id: "helm", icon: ICON.overview, url: "/index.html", title: "Helm",
+    note: "The big-numeral panel: depth, wind, battery, the forecast and the chart. Built " +
+          "to be read in sunlight at arm's length, with a day, dusk and night palette." },
+  { id: "jobs", icon: ICON.tasks, url: "/jobs.html", title: "Jobs",
+    note: "The same two lists as the Tasks page, laid out for a phone in the cockpit on a " +
+          "Saturday morning rather than for a desk." },
+  { id: "weather", icon: ICON.boards, url: "/windy.html", title: "Wind & weather",
+    note: "The forecast on a live map, with the windows the boat's own limits allow." },
+  { id: "season", icon: ICON.docs, url: "/reports/season.html", title: "Season report",
+    note: "Generated by python3 -m openboat.season. Where the boat went, how long the " +
+          "engine ran, what it cost." },
+  { id: "engine", icon: ICON.boat, url: "/reports/engine.html", title: "Engine report",
+    note: "Generated by python3 -m openboat.engine_report. Temperatures, hours, and what " +
+          "the log can and cannot say." },
+  { id: "snag", icon: ICON.tasks, url: null, title: "File a snag",
+    note: "The phone page, on its own service and its own port — the one surface that " +
+          "writes. Scan the QR it prints, or open port 8752 on this machine." },
+];
+
+function viewBoards() {
+  if (state.stage) return stage(state.stage);
+  const v = el("div", "view plain");
+  const scroll = el("div", "scroll");
+  const grid = el("div", "apps");
+  BOARDS.forEach(b => {
+    const c = el("button", "app-card");
+    const ic = el("div", "ic"); ic.innerHTML = svg(b.icon); c.append(ic);
+    c.append(el("b", "", b.title));
+    c.append(el("p", "", b.note));
+    c.append(el("span", "go", b.url ? "OPEN ▸" : "SEPARATE SERVICE ▸"));
+    c.onclick = () => {
+      if (b.url) { state.stage = b; render(); }
+      else window.open(`${location.protocol}//${location.hostname}:8752/`, "_blank",
+                       "noopener");
+    };
+    grid.append(c);
+  });
+  scroll.append(grid);
+  v.append(scroll);
+  mount(v);
+}
+
+function stage(b) {
+  const v = el("div", "view solo");
+  const s = el("div", "stage");
+  const head = el("div", "head");
+  const back = el("button", "back");
+  back.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16">` +
+                   `<path d="M15 5l-7 7 7 7"/></svg>Dashboards`;
+  back.onclick = () => { state.stage = null; render(); };
+  head.append(back);
+  head.append(el("b", "", b.title));
+  head.append(el("span", "path", b.url));
+  const out = el("a", "", "OPEN IN A TAB ▸");
+  out.href = b.url; out.target = "_blank"; out.rel = "noopener";
+  head.append(out);
+  s.append(head);
+  const f = el("iframe");
+  f.src = b.url; f.title = b.title;
+  s.append(f);
+  v.append(s);
+  mount(v);
+}
+
+/* ── view: the boat ──────────────────────────────────────────────────────────────── */
+async function viewBoat() {
+  const v = el("div", "view plain");
+  const scroll = el("div", "scroll");
+  v.append(scroll);
+  mount(v);
+
+  const p = state.profile || (state.profile = await api("/api/profile"));
+  const papers = await api("/api/papers");
+  const ves = p.vessel || {};
+
+  const facts = el("div", "card");
+  facts.append(Object.assign(el("h2", "", "Measurements"),
+    { innerHTML: `Measurements<span class="side">VESSEL</span>` }));
+  const fb = el("div"); fb.style.padding = "4px 15px 12px";
+  fb.append(kv([
+    ["Name", ves.name],
+    ["Kind", ves.kind],
+    ["Length overall", ves.length_m ? ves.length_m + " m" : ""],
+    ["Beam", ves.beam_m ? ves.beam_m + " m" : ""],
+    ["Draft", ves.draft_m ? ves.draft_m + " m" : ""],
+    ["Air draft", ves.air_draft_m ? ves.air_draft_m + " m" : ""],
+    ["Displacement", ves.displacement_kg ? nf(ves.displacement_kg) + " kg" : ""],
+    ["Sounder to keel", ves.transducer_to_keel_m ? ves.transducer_to_keel_m + " m" : ""],
+    ["Engine", ves.engine_kw ? ves.engine_kw + " kW" : ""],
+    ["Timezone", p.timezone],
+    ["Profile", p.profile],
+  ]));
+  facts.append(fb);
+
+  /* The gaps, given the same weight as the facts. A boat that does not know its own draft
+     is the ordinary case, and a panel that only lists what is filled in reads as a
+     complete spec sheet — which is the lie this project is built to refuse. */
+  const gaps = el("div", "card");
+  gaps.innerHTML = `<h2>What is not recorded<span class="side">HONEST GAPS</span></h2>`;
+  const missing = [
+    ["Berth", p.berth ? `${p.berth.name || "recorded"}` : null],
+    ["Forecast point", p.forecast_point ? (p.forecast_point.name || "recorded") : null],
+    ["Draft", ves.draft_m],
+    ["Air draft", ves.air_draft_m],
+    ["Sounder height above the keel", ves.transducer_to_keel_m],
+    ["Displacement", ves.displacement_kg],
+  ].filter(([, val]) => !val).map(([k]) => k);
+
+  const ul = el("ul");
+  missing.forEach(m => {
+    const li = el("li");
+    li.append(statusCell("warn", m));
+    li.append(el("span", "s", "not set"));
+    ul.append(li);
+  });
+  (p.unsourced || []).forEach(u => {
+    const li = el("li");
+    li.append(statusCell("info", u));
+    li.append(el("span", "s", "a value with no source"));
+    ul.append(li);
+  });
+  if (!ul.children.length)
+    gaps.append(Object.assign(el("p"), { textContent:
+      "Nothing missing and nothing unsourced. Every measurement carries a source." }));
+  else gaps.append(ul);
+
+  const lim = el("div", "card");
+  lim.innerHTML = `<h2>Limits this boat will go out in<span class="side">WEATHER</span></h2>`;
+  const lb = el("div"); lb.style.padding = "4px 15px 12px";
+  const L = p.limits || {};
+  lb.append(kv([
+    ["Wind", L.max_wind_kn ? L.max_wind_kn + " kn" : ""],
+    ["Gust", L.max_gust_kn ? L.max_gust_kn + " kn" : ""],
+    ["Wave", L.max_wave_m ? L.max_wave_m + " m" : ""],
+    ["Rain", L.max_rain_mm ? L.max_rain_mm + " mm/h" : ""],
+    ["Daylight only", L.daylight === undefined ? "" : (L.daylight ? "yes" : "no")],
+  ]));
+  lim.append(lb);
+
+  const pap = el("div", "card");
+  pap.innerHTML = `<h2>Papers<span class="side">${
+    papers.expiring ? papers.expiring + " EXPIRING" : "SHIP'S DOCUMENTS"}</span></h2>`;
+  if (!(papers.papers || []).length) {
+    pap.append(Object.assign(el("p"), { textContent:
+      "No papers recorded. Registration, insurance, radio licence and the survey all have " +
+      "dates that matter and none of them are known here." }));
+  } else {
+    const pu = el("ul");
+    papers.papers.forEach(x => {
+      const li = el("li");
+      li.append(el("span", "t", x.name || x.title || x.kind || "(unnamed)"));
+      li.append(el("span", "s", x.expires ? `${x.expires} · ${ago(x.expires)}` : "no date"));
+      pu.append(li);
+    });
+    pap.append(pu);
+  }
+
+  const cols = el("div", "cols");
+  cols.append(facts, gaps, lim, pap);
+  scroll.append(cols);
+}
+
+/* ── view: overview ──────────────────────────────────────────────────────────────── */
+async function viewOverview() {
+  const v = el("div", "view plain");
+  const scroll = el("div", "scroll");
+  v.append(scroll);
+  mount(v);
+
+  const [p, docs, snags, maint] = await Promise.all([
+    state.profile ? Promise.resolve(state.profile) : api("/api/profile"),
+    api("/api/docs"), api("/api/snags"), api("/api/maintenance"),
+  ]);
+  state.profile = p; state.docs = docs;
+
+  const open  = snags.open_count || 0;
+  const due   = (maint.items || []).filter(m => m.verdict === "due").length;
+  const soon  = (maint.items || []).filter(m => m.verdict === "soon").length;
+  const unkn  = (maint.items || []).filter(m => m.verdict === "unknown").length;
+
+  const tiles = el("div", "tiles");
+  const tile = (n, label, note, cls) => {
+    const t = el("div", "tile");
+    const b = el("b", cls || (n ? "" : "z"), String(n));
+    t.append(b);
+    t.append(el("span", "", label));
+    if (note) t.append(el("em", "", note));
+    tiles.append(t);
+  };
+  tile(nf(docs.count), "DOCUMENTS",
+       `${nf(docs.passages)} passages` + (docs.missing ? ` · ${docs.missing} missing` : ""));
+  tile(nf(docs.gaps || 0), "PAGES NEEDING OCR",
+       docs.gaps ? "nothing can answer from them" : "every page is readable",
+       docs.gaps ? "q" : "");
+  tile(open, "OPEN SNAGS", `${(snags.snags || []).length} filed in all`, open ? "q" : "");
+  tile(due, "SERVICE DUE", soon ? `${soon} coming up` : "counted in running hours",
+       due ? "q" : "");
+  tile(unkn, "NEVER RECORDED", unkn ? "no service has ever been logged" : "all accounted for",
+       unkn ? "q" : "");
+
+  scroll.append(tiles);
+
+  const cols = el("div", "cols");
+
+  const owed = el("div", "card");
+  owed.innerHTML = `<h2>What the boat is owed<span class="side">TASKS</span></h2>`;
+  const items = [
+    ...(snags.snags || []).filter(s => s.open).map(s => ({
+      t: s.title, s: `${s.where || "snag"} · ${ago(s.when)}` })),
+    ...(maint.items || []).filter(m => m.verdict === "due" || m.verdict === "soon")
+      .map(m => ({ t: m.item, s: m.why })),
+  ];
+  if (!items.length) owed.append(Object.assign(el("p"),
+    { textContent: "Nothing open and nothing due. Either the boat is in good order or " +
+                   "nobody has written anything down." }));
+  else {
+    const ul = el("ul");
+    items.slice(0, 8).forEach(i => {
+      const li = el("li");
+      li.append(el("span", "t", i.t));
+      li.append(el("span", "s", i.s));
+      ul.append(li);
+    });
+    owed.append(ul);
+    if (items.length > 8) owed.append(Object.assign(el("p"),
+      { textContent: `and ${items.length - 8} more on the Tasks page.` }));
+  }
+
+  const prov = el("div", "card");
+  prov.innerHTML = `<h2>Where the numbers come from<span class="side">PROVENANCE</span></h2>`;
+  const pl = el("ul");
+  [["Engine hours", maint.engine_hours_source || "not counted"],
+   ["Documents", `${nf(docs.count)} file(s) named in the profile, re-read on every search`],
+   ["Snags", `parsed out of the boat's own markdown, ${(snags.snags || []).length} entr` +
+             `${(snags.snags || []).length === 1 ? "y" : "ies"}`],
+   ["Measurements", (p.unsourced || []).length
+      ? `${p.unsourced.length} value(s) carry no source: ${p.unsourced.join(", ")}`
+      : "every measurement carries a source"]]
+    .forEach(([k, s]) => {
+      const li = el("li");
+      li.append(el("span", "t", k));
+      li.append(el("span", "s", s));
+      pl.append(li);
+    });
+  prov.append(pl);
+
+  const rule = el("div", "card");
+  rule.innerHTML = `<h2>The rule this console follows<span class="side">READ-ONLY</span></h2>`;
+  rule.append(Object.assign(el("p"), { innerHTML:
+    "A silent wrong answer is worse than a crash.<br><br>" +
+    "Nothing on this page is generated prose. Every passage is quoted out of a file " +
+    "somebody wrote, with the line it came from, and a gap is shown as a gap rather than " +
+    "filled in from the page next to it.<br><br>" +
+    "Nothing here writes to the boat either. Snags are filed from the phone page on its " +
+    "own service and its own port; a service record is written at a keyboard by somebody " +
+    "who knows the work happened." }));
+
+  cols.append(owed, prov, rule);
+  scroll.append(cols);
+}
+
+/* ── go ──────────────────────────────────────────────────────────────────────────── */
+function render() {
+  ({ overview: viewOverview, docs: viewDocs, tasks: viewTasks,
+     boards: viewBoards, boat: viewBoat }[state.view] || viewOverview)();
+}
+
+(async function boot() {
+  const start = location.hash.slice(1);
+  if (start && VIEWS.some(v => v.id === start)) state.view = start;
+  drawNav();
+  $("#title").textContent = (VIEWS.find(v => v.id === state.view) || {}).title;
+  render();
+  try {
+    const p = await api("/api/profile");
+    state.profile = p;
+    $("#vname").textContent = (p.vessel && p.vessel.name) || "no profile";
+    $("#vver").textContent = "v" + (p.version || "?");
+  } catch (e) {
+    $("#vname").textContent = "the server is not answering";
+  }
+})();
+</script>
+</body>
+</html>
