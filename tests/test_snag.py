@@ -149,12 +149,72 @@ def test_the_gate_is_all_or_nothing_and_never_half_open() -> None:
             os.environ["OPENBOAT_SNAG_PEOPLE"] = before
 
 
+# --------------------------------------------------------------------------------------
+# One fault reads as one item, however many people wrote about it.
+#
+# An owner filed a symptom and then the cause of the same broken ladder, and the phone
+# showed two open items for one fault — so "5 open" overstated the boat. Appending stays
+# the rule (rewriting the first entry would lose *when* the symptom was seen versus when
+# the cause was found); what was missing was a way to say these are the same fault.
+# --------------------------------------------------------------------------------------
+def test_a_follow_up_folds_into_the_fault_it_continues() -> None:
+    from openboat import snag
+
+    with tempfile.TemporaryDirectory() as raw:
+        os.environ["OPENBOAT_BOATS"] = str(_boats_dir(Path(raw)))
+        try:
+            first = snag.record("second-boat", "Ladder will not attach", "transom", [],
+                                by="the owner")
+            rows = snag.read_snags("second-boat")
+            parent_when = rows[0]["when"]
+
+            snag.record("second-boat", "Cause found: the screw thread is stripped", "transom",
+                        [], by="the owner", follow_up_to=parent_when)
+            snag.record("second-boat", "An unrelated fault", "galley", [], by="the owner")
+
+            rows = snag.read_snags("second-boat")
+            check(len(rows) == 2, f"two faults, not three items (got {len(rows)})")
+            ladder = [r for r in rows if "Ladder" in r["title"]][0]
+            check(len(ladder["updates"]) == 1, "the follow-up is attached to its parent")
+            check("stripped" in ladder["updates"][0]["body"], "the update keeps its text")
+            check(all("Cause found" not in r["title"] for r in rows),
+                  "the follow-up does not appear as an item of its own")
+            check(sum(1 for r in rows if r["open"]) == 2,
+                  "the open count counts faults, not entries")
+
+            # A follow-up must not close its parent — only a hand edit does that.
+            target = Path(raw) / "second-boat" / "SNAGS.md"
+            text = target.read_text()
+            check(text.count("**Status:** open") == 3,
+                  "every appended entry still carries its own status line")
+            check(ladder["open"], "a fault with an update on it is still open")
+
+            # Entries filed inside the same second share a timestamp, and that must not
+            # break the link. A follow-up attaches to the nearest *earlier* entry with that
+            # timestamp, so the ambiguity resolves without inventing a more precise time
+            # than really happened — and without an entry ever adopting itself.
+            snag.record("second-boat", "Same second one", "", [], by="x")
+            same = [r for r in snag.read_snags("second-boat") if "Same second one" in r["title"]]
+            check(len(same) == 1, "the first of two same-second entries is found")
+            snag.record("second-boat", "Same second two", "", [], by="x",
+                        follow_up_to=same[0]["when"])
+            rows = snag.read_snags("second-boat")
+            host = [r for r in rows if "Same second one" in r["title"]]
+            check(len(host) == 1 and len(host[0]["updates"]) == 1,
+                  "a colliding timestamp still attaches the update to the right entry")
+            check(all("Same second two" not in r["title"] for r in rows),
+                  "and the update does not also stand on its own")
+        finally:
+            os.environ.pop("OPENBOAT_BOATS", None)
+
+
 if __name__ == "__main__":
     print(__doc__.splitlines()[0])
     print("-" * 78)
     test_snags_round_trip_and_stay_separate()
     test_a_note_cannot_forge_its_own_status_or_a_second_entry()
     test_the_gate_is_all_or_nothing_and_never_half_open()
+    test_a_follow_up_folds_into_the_fault_it_continues()
     print("-" * 78)
     failed = [what for ok, what in results if not ok]
     print(f"{len(results) - len(failed)}/{len(results)} checks pass"

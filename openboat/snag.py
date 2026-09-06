@@ -121,7 +121,7 @@ def _slug(text: str, limit: int = 40) -> str:
 
 
 def record(boat_key: str, note: str, where: str, images: list[bytes],
-           by: str = "") -> dict:
+           by: str = "", follow_up_to: str = "") -> dict:
     """Append one snag, with its photographs, to the boat's list. Returns what was written.
 
     `by` is who noticed it. On a boat shared between two people that is not bookkeeping: six
@@ -150,13 +150,24 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
             shots.append(f"photos/snags/{name}")
 
     who = " ".join(by.split())[:60]
+    parent = " ".join(follow_up_to.split())[:32]
     title = (note.splitlines()[0] if note else "photographed, no note")[:70]
     lines = [
         "",
-        f"## {now:%Y-%m-%d %H:%M} — {title}",
+        # Seconds, not minutes. Two snags filed in the same minute produced two entries
+        # with the same timestamp, and once entries can point at each other that ambiguity
+        # is a bug: a follow-up would attach to whichever of them was parsed first.
+        f"## {now:%Y-%m-%d %H:%M:%S} — {title}",
         "",
         f"**Status:** open",
     ]
+    if parent:
+        # Appending, never rewriting, stays the rule — the fault's history is the sequence
+        # of things people wrote about it, in the order they learned them, and rewriting the
+        # first entry would lose when the symptom was seen versus when the cause was found.
+        # What was missing was only a way to say *these are the same fault*, so that one
+        # fault reads as one item and the open count means what it says.
+        lines.append(f"**Follow-up to:** {parent}")
     if who:
         lines.append(f"**By:** {who}")
     if where.strip():
@@ -201,7 +212,7 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
 
 #: A heading line in a snag file: "## 2026-09-05 15:12 — the locker will not shut".
 HEADING = re.compile(r"^##\s+(?P<when>\d{4}-\d{2}-\d{2}[^—]*)—\s*(?P<title>.+?)\s*$")
-FIELD = re.compile(r"^\*\*(?P<key>Status|Where|Photos|By):\*\*\s*(?P<value>.*)$")
+FIELD = re.compile(r"^\*\*(?P<key>Status|Where|Photos|By|Follow-up to):\*\*\s*(?P<value>.*)$")
 
 
 def read_snags(boat_key: str) -> list[dict]:
@@ -239,7 +250,8 @@ def read_snags(boat_key: str) -> list[dict]:
             if current:
                 out.append(current)
             current = {"when": head["when"].strip(), "title": head["title"].strip(),
-                       "status": "open", "where": "", "by": "", "photos": [], "body": []}
+                       "status": "open", "where": "", "by": "", "follow-up to": "",
+                       "photos": [], "body": [], "updates": []}
             in_header = True
             continue
         if current is None:
@@ -264,8 +276,33 @@ def read_snags(boat_key: str) -> list[dict]:
     for entry in out:
         entry["body"] = "\n".join(entry["body"]).strip()
         entry["open"] = not entry["status"].lower().startswith(("fixed", "done", "closed"))
-    out.reverse()
-    return out
+        entry["follow_up_to"] = entry.pop("follow-up to", "")
+
+    # One fault, one item. A follow-up is attached to the entry it names and does not appear
+    # in the list in its own right — otherwise the same fault is counted twice and read
+    # twice, and "5 open" stops meaning five things are wrong. The status stays the parent's:
+    # a follow-up records what somebody learned, it does not close anything.
+    # Matched *backwards from the entry's own position*, not through a table keyed by time.
+    # A follow-up can only continue something already written, so its parent is the nearest
+    # earlier entry bearing that timestamp — which resolves the case of two entries filed
+    # inside the same second without inventing a more precise time than actually happened,
+    # and without an entry ever adopting itself.
+    top = []
+    for index, entry in enumerate(out):
+        parent = None
+        if entry["follow_up_to"]:
+            for candidate in reversed(out[:index]):
+                if candidate["when"] == entry["follow_up_to"]:
+                    parent = candidate
+                    break
+        if parent is not None:
+            parent["updates"].append(entry)
+        else:
+            top.append(entry)
+    for entry in top:
+        entry["updates"].sort(key=lambda e: e["when"])
+    top.reverse()
+    return top
 
 
 class Snag(SimpleHTTPRequestHandler):
@@ -397,7 +434,8 @@ class Snag(SimpleHTTPRequestHandler):
             # on an open LAN it comes from the page, where it is a courtesy, not a claim.
             written = record(str(body.get("boat", "")), str(body.get("note", "")),
                              str(body.get("where", "")), images,
-                             by=who or str(body.get("by", "")))
+                             by=who or str(body.get("by", "")),
+                             follow_up_to=str(body.get("follow_up_to", "")))
         except ValueError as exc:
             return self._json({"error": str(exc)}, status=400)
         except Exception as exc:                              # noqa: BLE001

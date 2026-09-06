@@ -68,6 +68,16 @@
     box-shadow:0 10px 34px rgba(0,0,0,.5)}
   .toast.bad{background:var(--danger);color:#fff}
   .count{font-variant-numeric:tabular-nums}
+  .following{background:rgba(77,163,255,.12);border:1px solid var(--accent);
+    border-radius:12px;padding:14px;margin-top:18px;font-size:14px}
+  .following strong{display:block;margin:6px 0 12px;color:var(--accent)}
+  .following button{margin-top:4px}
+  .updates{margin-top:12px;border-left:3px solid var(--line);padding-left:12px}
+  .update{margin-top:12px}
+  .update .meta{font-size:12px}
+  .update p{margin:6px 0 0;white-space:pre-wrap;font-size:15px}
+  .card-actions{margin-top:12px}
+  .card-actions button{width:auto;min-height:44px;padding:0 16px;font-size:14px}
   @media (prefers-color-scheme: light){
     :root{--bg:#f6f8fa;--panel:#fff;--line:#d5dde5;--ink:#111820;--dim:#5b6875;
           --accent:#0b64c8}
@@ -92,6 +102,11 @@
   </div>
 
   <section id="view-new">
+    <div id="following" class="following" hidden>
+      Adding an update to <strong id="followingTitle"></strong>
+      <button type="button" class="ghost" id="clearFollow">Make it a separate snag instead</button>
+    </div>
+
     <label for="shot">Photos</label>
     <input id="shot" type="file" accept="image/*" capture="environment" multiple hidden>
     <button class="ghost" id="pick">📷 &nbsp;Take or choose photos</button>
@@ -125,6 +140,14 @@ const api = path => KEY ? path + (path.includes("?") ? "&" : "?") + "k=" + encod
                         : path;
 const boatSel = $("#boat"), shotsEl = $("#shots"), listEl = $("#list"), whoEl = $("#who");
 let photos = [];   // data URLs, already resized
+let followUp = null;   // {when, title} when the next send is an update, not a new snag
+
+function setFollowUp(entry){
+  followUp = entry;
+  $("#following").hidden = !entry;
+  if (entry) $("#followingTitle").textContent = entry.title;
+}
+$("#clearFollow").onclick = () => setFollowUp(null);
 
 function toast(msg, bad){
   const el = document.createElement("div");
@@ -183,13 +206,15 @@ $("#send").onclick = async () => {
     const r = await fetch(api("/api/snag"), {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({boat: boatSel.value, note, where: $("#where").value,
-                            by: whoEl.value.trim(), photos})
+                            by: whoEl.value.trim(), photos,
+                            follow_up_to: followUp ? followUp.when : ""})
     });
     const out = await r.json();
     if (!r.ok) throw new Error(out.error || r.status);
     localStorage.setItem("openboat.snag.who", whoEl.value.trim());
     $("#note").value = ""; $("#where").value = ""; photos = []; drawShots();
-    toast("Logged to " + out.boat);
+    toast(followUp ? "Update added" : "Logged to " + out.boat);
+    setFollowUp(null);
     loadSnags();
   } catch (err){
     toast("Not sent — " + err.message, true);
@@ -241,6 +266,17 @@ async function loadSnags(){
     if (r.body){
       const p = document.createElement("p"); p.textContent = r.body; card.append(p);
     }
+    if (r.updates && r.updates.length){
+      const box = document.createElement("div"); box.className = "updates";
+      for (const u of r.updates){
+        const el = document.createElement("div"); el.className = "update";
+        const m = document.createElement("div"); m.className = "meta";
+        m.textContent = u.when + (u.by ? " · " + u.by : "");
+        const p = document.createElement("p"); p.textContent = u.body || u.title;
+        el.append(m, p); box.append(el);
+      }
+      card.append(box);
+    }
     if (r.photos && r.photos.length){
       const box = document.createElement("div"); box.className = "thumbs";
       for (const path of r.photos){
@@ -253,6 +289,13 @@ async function loadSnags(){
       }
       card.append(box);
     }
+    const actions = document.createElement("div"); actions.className = "card-actions";
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "ghost";
+    add.textContent = "+ Add an update to this";
+    add.onclick = () => { setFollowUp({when: r.when, title: r.title}); show("new");
+                          window.scrollTo({top: 0, behavior: "smooth"}); };
+    actions.append(add); card.append(actions);
     listEl.append(card);
   }
 }
