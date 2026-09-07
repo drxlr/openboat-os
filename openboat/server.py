@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import errno
 import json
+import os
 import sys
 import urllib.parse
 from datetime import datetime
@@ -41,7 +42,10 @@ WEB = Path(__file__).parent / "web"
 #: It binds 0.0.0.0 so a tablet at the helm and a phone at home can both reach it, and it
 #: has NO authentication of its own. That is only safe because the network boundary is
 #: somewhere else — a private overlay network, never a port forward. See docs/NETWORK.md.
-BIND = "0.0.0.0"
+# Every interface by default, because a phone on the boat's Wi-Fi is the point. Behind a
+# reverse proxy on a server, set OPENBOAT_BIND=127.0.0.1: an internet-facing box with no
+# firewall would otherwise hand the raw, unauthenticated service to anyone who finds the port.
+BIND = os.environ.get("OPENBOAT_BIND", "0.0.0.0")
 
 
 @lru_cache(maxsize=32)

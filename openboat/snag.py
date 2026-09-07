@@ -72,7 +72,10 @@ PORT = 8752
 #: Bound to every interface on purpose: the entire point is to reach it from a phone. That
 #: also means it is reachable by anything else on the network, so it belongs on a home or
 #: boat LAN and not on café wifi. It holds no credentials and serves no read API.
-BIND = "0.0.0.0"
+# Every interface by default, because a phone on the boat's Wi-Fi is the point. Behind a
+# reverse proxy on a server, set OPENBOAT_BIND=127.0.0.1: an internet-facing box with no
+# firewall would otherwise hand the raw, unauthenticated service to anyone who finds the port.
+BIND = os.environ.get("OPENBOAT_BIND", "0.0.0.0")
 
 #: A phone photo re-encoded at 1600 px is around 300 kB. Twelve of them is a generous snag.
 MAX_BODY = 24 * 1024 * 1024
