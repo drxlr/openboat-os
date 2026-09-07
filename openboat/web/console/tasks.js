@@ -26,9 +26,12 @@
    times before. Selection and hover are the shell's tint: this file paints no highlight of
    its own, and the one that reads as a slab of colour is the one nobody can read.
 
-   Nothing here writes, and nothing here pretends to. A snag is closed by a person editing
-   a file and a service is recorded by a command typed at a keyboard; both pages say so,
-   and say where. */
+   Nothing here writes to the dashboard behind this page, and nothing here rewrites anything
+   at all. What a person can do from a fault's page — move its status, hand it to somebody,
+   give somebody outside a link to it, take that link back — is in every case one follow-up
+   appended to the boat's own file through the snag service, by way of `snagPost()` in the
+   shell. A service is still recorded by a command typed at a keyboard, and that page says
+   so and says where. */
 
 /* Renders are asynchronous and the hash can change while one is in flight. Every entry
    point takes a ticket and drops its output if a newer one has been issued since. */
@@ -189,7 +192,7 @@ function tasksProse(text, index) {
    not running the tile says so in its own frame. A missing picture that looks like a
    missing picture is honest; one that looks like no picture was ever taken is not. */
 function tasksPhotoUrl(snags, name) {
-  const base = `${location.protocol}//${location.hostname}:${snags.photo_port}`;
+  const base = snagOrigin(snags);
   return `${base}/photo?boat=${encodeURIComponent(snags.boat || "")}` +
          `&name=${encodeURIComponent(name)}`;
 }
@@ -217,7 +220,7 @@ function tasksGallery(snags, names) {
       const miss = el("div",
         "d-flex flex-column justify-content-center text-center p-3 small text-body-secondary");
       miss.append(el("div", "text-break", shot.name));
-      miss.append(el("div", "mt-1", `needs the snag service on :${snags.photo_port}`));
+      miss.append(el("div", "mt-1", `needs the snag service at ${snagOrigin(snags)}`));
       frame.append(miss);
     };
     frame.append(img);
@@ -227,7 +230,7 @@ function tasksGallery(snags, names) {
     a.onclick = ev => {
       if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return;
       ev.preventDefault();
-      tasksLightbox(shots, i, snags.photo_port);
+      tasksLightbox(shots, i, snagOrigin(snags));
     };
     col.append(a);
     row.append(col);
@@ -242,7 +245,7 @@ function tasksGallery(snags, names) {
    the arrows are ours, captured so the page's own keys never see them. */
 let tasksLb = null;
 
-function tasksLightbox(shots, start, port) {
+function tasksLightbox(shots, start, where) {
   let i = start;
 
   const m = el("div", "modal fade");
@@ -303,7 +306,7 @@ function tasksLightbox(shots, start, port) {
       body.textContent = "";
       body.append(el("div", "text-body-secondary text-center p-4",
         `${s.name} is filed with this entry, and the service that holds it is not ` +
-        `answering on :${port}. The photograph exists; this page cannot reach it.`));
+        `answering at ${where}. The photograph exists; this page cannot reach it.`));
     };
     body.append(img);
   }
@@ -424,7 +427,7 @@ function tasksRows(snags, maint) {
   const out = [];
   ((snags && snags.snags) || []).forEach(s => out.push({
     kind: "snag", id: "snag:" + s.when, title: tasksTitle(s), where: s.where, when: s.when,
-    open: s.open, status: s.status, by: s.by, raw: s,
+    open: s.open, status: s.status, by: s.by, assigned: s.assigned || "", raw: s,
   }));
   ((maint && maint.items) || []).forEach(m => out.push({
     kind: "service", id: "service:" + m.item, title: m.description || m.item,
@@ -526,7 +529,7 @@ async function tasksList() {
   /* What the filter box searches. Stringifying the whole record searched the JSON's own
      key names too, so "body", "photos" and "true" each matched every row on the page. */
   all.forEach(r => {
-    r.hay = [r.title, r.where, r.by, r.status, r.why, r.verdict, r.kind,
+    r.hay = [r.title, r.where, r.by, r.assigned, r.status, r.why, r.verdict, r.kind,
              r.raw && r.raw.body, r.raw && r.raw.description, r.raw && r.raw.item,
              ...(((r.raw && r.raw.updates) || []).map(u => u && u.body))]
             .filter(Boolean).join(" \n ").toLowerCase();
@@ -539,9 +542,10 @@ async function tasksList() {
     return all.filter(r => tasksKeep(r, filter) && (!q || r.hay.includes(q)));
   }
 
-  /* Two columns, so the leading bar the shell paints on the first cell of a selected row
-     is there at every width — a third column narrow enough to hide on a phone would take
-     the bar with it. The source is a word in front of the title instead.
+  /* What it is, who has it, where it stands. The first column is never the one that hides
+     on a phone: the leading bar the shell paints on a selected row lives on the first cell,
+     and a first column narrow enough to disappear would take the bar with it. The source is
+     a word in front of the title rather than a column of its own.
 
      The title is an anchor inside a row that is also clickable: the whole row opens the
      entry, and the anchor is what makes the address copyable and the middle button work. */
@@ -561,6 +565,15 @@ async function tasksList() {
           : (r.why || "");
         if (sub) c.append(el("div", "small text-body-secondary mt-1", sub));
         return c;
+      } },
+    /* Who it is on. Low priority, so it is the first thing to go on a phone — on a
+       four-inch screen what the fault is and whether it is open are the two columns worth
+       the width, and the name is on the entry's own page anyway. */
+    { label: "Assigned", w: "9rem", prio: "low", get: r => {
+        if (r.kind !== "snag") return "";
+        return r.assigned
+          ? el("span", "text-break", r.assigned)
+          : el("span", "text-body-secondary", "—");
       } },
     { label: "Status", w: "9rem", cls: "text-end", get: r => {
         const c = el("div");
@@ -832,6 +845,384 @@ function tasksStatusModal(s, snags, to) {
   new bootstrap.Modal(m).show();
 }
 
+/* ── handing a fault to somebody ──────────────────────────────────────────────────── */
+
+/* A fault sitting on a list is nobody's. Writing a name against it is the smallest thing
+   that changes that, and like everything else here it is a follow-up appended to the boat's
+   file — the newest name anybody wrote is the one it is on.
+
+   The names people type are remembered in this browser, because on a boat the same three or
+   four names come round again and again and re-typing one is how it stops being written. */
+const TASKS_ASSIGNEE_KEY = "openboat.console.assignee";
+
+function tasksAssignees() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TASKS_ASSIGNEE_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter(x => typeof x === "string").slice(0, 12) : [];
+  } catch (e) { return []; }
+}
+function tasksRememberAssignee(name) {
+  if (!name) return;
+  try {
+    const kept = [name].concat(tasksAssignees().filter(x => x !== name)).slice(0, 12);
+    localStorage.setItem(TASKS_ASSIGNEE_KEY, JSON.stringify(kept));
+  } catch (e) { /* private window */ }
+}
+
+function tasksAssignControl(s, snags) {
+  const b = el("button", "btn btn-outline-secondary btn-sm",
+               s.assigned ? "Reassign" : "Assign");
+  b.type = "button";
+  b.onclick = () => tasksAssignModal(s, snags);
+  return b;
+}
+
+function tasksAssignModal(s, snags) {
+  const held = s.assigned || "";
+
+  const m = el("div", "modal fade");
+  m.tabIndex = -1;
+  const dlg = el("div", "modal-dialog modal-dialog-centered modal-fullscreen-sm-down");
+  const box = el("div", "modal-content");
+
+  const head = el("div", "modal-header");
+  head.append(el("h2", "modal-title h5 mb-0", held ? "Hand it to somebody else" : "Hand it to somebody"));
+  const x = el("button", "btn-close");
+  x.type = "button";
+  x.setAttribute("data-bs-dismiss", "modal");
+  x.setAttribute("aria-label", "Close");
+  head.append(x);
+
+  const body = el("div", "modal-body");
+  body.append(el("p", "small text-body-secondary",
+    "A name against the fault, appended to the boat's file as a follow-up. It is who is " +
+    "doing it, not who is accountable for it — nothing here notifies anybody."));
+
+  const errBox = el("div", "alert alert-danger d-none");
+  errBox.setAttribute("role", "alert");
+  body.append(errBox);
+
+  const whoWrap = el("div", "mb-3");
+  const whoLabel = el("label", "form-label", "Doing it");
+  const who = el("input", "form-control");
+  who.type = "text";
+  who.id = "t-assign-" + (s.when || "x").replace(/\W+/g, "");
+  who.value = held;
+  who.autocomplete = "off";
+  /* The names already used on this boat, offered rather than imposed: a datalist suggests
+     and still lets somebody type a name nobody has used before. */
+  const list = el("datalist");
+  list.id = who.id + "-names";
+  tasksAssignees().forEach(n => { const o = el("option"); o.value = n; list.append(o); });
+  who.setAttribute("list", list.id);
+  whoLabel.htmlFor = who.id;
+  whoWrap.append(whoLabel, who, list);
+  body.append(whoWrap);
+
+  const noteWrap = el("div", "mb-3");
+  const noteLabel = el("label", "form-label", "Note");
+  const note_ = el("textarea", "form-control");
+  note_.rows = 3;
+  note_.placeholder = "what they are meant to do — optional";
+  note_.id = who.id + "-note";
+  noteLabel.htmlFor = note_.id;
+  noteWrap.append(noteLabel, note_,
+    el("div", "form-text", "Optional. The name on its own is a whole entry."));
+  body.append(noteWrap);
+
+  const byWrap = el("div");
+  const byLabel = el("label", "form-label", "Your name");
+  const by = el("input", "form-control");
+  by.type = "text";
+  by.id = who.id + "-by";
+  by.value = tasksWho();
+  by.autocomplete = "name";
+  byLabel.htmlFor = by.id;
+  byWrap.append(byLabel, by);
+  body.append(byWrap);
+
+  const foot = el("div", "modal-footer");
+  const cancel = el("button", "btn btn-outline-secondary", "Cancel");
+  cancel.type = "button";
+  cancel.setAttribute("data-bs-dismiss", "modal");
+  const back = el("button", "btn btn-outline-secondary", "Hand it back");
+  back.type = "button";
+  const send = el("button", "btn btn-primary", "Assign");
+  send.type = "button";
+  foot.append(cancel);
+  if (held) foot.append(back);
+  foot.append(send);
+
+  box.append(head, body, foot);
+  dlg.append(box);
+  m.append(dlg);
+
+  const fail = line => { errBox.textContent = line; errBox.classList.remove("d-none"); };
+
+  /* `assigned` is sent as "-" to hand a fault back to nobody. An empty string would be a
+     field somebody could send by accident; the dash is a thing you have to mean. */
+  const file = async (to, label) => {
+    const name = to === "-" ? "" : String(to || "").trim();
+    if (to !== "-" && !name) { who.classList.add("is-invalid"); who.focus(); return; }
+    who.classList.remove("is-invalid");
+    errBox.classList.add("d-none");
+    send.disabled = back.disabled = cancel.disabled = true;
+    const mine = by.value.trim();
+    const r = await snagPost(snags, { follow_up_to: s.when, assigned: to === "-" ? "-" : name,
+                                      note: note_.value.trim(), by: mine });
+    if (r && r.ok) {
+      tasksRemember(mine);
+      if (to !== "-") tasksRememberAssignee(name);
+      state.index = null;
+      tasksFlash = label;
+      const inst = bootstrap.Modal.getInstance(m);
+      if (inst) inst.hide(); else m.remove();
+      tasksDetail("snag", s.when);
+      return;
+    }
+    send.disabled = back.disabled = cancel.disabled = false;
+    fail((r && r.error) || "the snag service did not say what went wrong");
+  };
+
+  send.onclick = () => file(who.value, `Assigned to ${who.value.trim()}.`);
+  back.onclick = () => file("-", "Handed back — this fault is on nobody.");
+
+  document.body.append(m);
+  m.addEventListener("hidden.bs.modal", () => m.remove());
+  m.addEventListener("shown.bs.modal", () => who.focus());
+  new bootstrap.Modal(m).show();
+}
+
+/* ── a link for the person who is actually fixing it ──────────────────────────────── */
+
+/* The person with the spanner has no account and should not need one. A share link opens
+   one fault — its note, its photographs, its history — and offers two answers back. It is
+   minted by the gate, which is the only component here that has a login to check a role
+   against, and it is recorded as a follow-up in the boat's own file so that who was given
+   a way in is readable by a person and can be taken back by one.
+
+   Served plainly there is no gate, no account and no `OB_USER`, so none of this appears. */
+function tasksMayShare() {
+  const me = window.OB_USER;
+  return !!me && (me.role === "owner" || me.role === "admin");
+}
+
+function tasksShareButton(s, snags) {
+  const b = el("button", "btn btn-outline-secondary btn-sm");
+  b.type = "button";
+  b.innerHTML = '<i class="bi bi-link-45deg me-1"></i>Share with the person fixing it';
+  b.onclick = () => tasksShareModal(s, snags);
+  return b;
+}
+
+function tasksShareModal(s, snags) {
+  const m = el("div", "modal fade");
+  m.tabIndex = -1;
+  const dlg = el("div", "modal-dialog modal-dialog-centered modal-fullscreen-sm-down");
+  const box = el("div", "modal-content");
+
+  const head = el("div", "modal-header");
+  head.append(el("h2", "modal-title h5 mb-0", "Share this fault"));
+  const x = el("button", "btn-close");
+  x.type = "button";
+  x.setAttribute("data-bs-dismiss", "modal");
+  x.setAttribute("aria-label", "Close");
+  head.append(x);
+
+  const body = el("div", "modal-body");
+  body.append(el("p", "small text-body-secondary",
+    "A link to this one fault, with its photographs, and a form for them to answer on. " +
+    "Whoever holds the link needs no account and can reach nothing else on the boat."));
+
+  const errBox = el("div", "alert alert-danger d-none");
+  errBox.setAttribute("role", "alert");
+  body.append(errBox);
+
+  const form = el("div");
+  const labWrap = el("div", "mb-3");
+  const labLabel = el("label", "form-label", "Who is it for");
+  const label = el("input", "form-control");
+  label.type = "text";
+  label.id = "t-share-label";
+  label.placeholder = "the name you will recognise it by";
+  label.autocomplete = "off";
+  labLabel.htmlFor = label.id;
+  labWrap.append(labLabel, label,
+    el("div", "form-text", "Written into the boat's file beside the link, so that six " +
+                           "weeks later it says who was given one."));
+  const dayWrap = el("div");
+  const dayLabel = el("label", "form-label", "Good for");
+  const days = el("select", "form-select");
+  days.id = "t-share-days";
+  [[7, "a week"], [30, "a month"], [90, "three months"]].forEach(([n, word]) => {
+    const o = el("option", "", `${n} days — ${word}`);
+    o.value = String(n);
+    if (n === 30) o.selected = true;
+    days.append(o);
+  });
+  dayLabel.htmlFor = days.id;
+  dayWrap.append(dayLabel, days);
+  form.append(labWrap, dayWrap);
+  body.append(form);
+
+  /* Where the finished link appears. Read-only rather than disabled: a disabled field
+     cannot be selected, and selecting the text is the fallback when the clipboard is not
+     available — which on an unencrypted origin it is not. */
+  const out = el("div", "d-none");
+  const outLabel = el("label", "form-label", "The link");
+  const group = el("div", "input-group");
+  const url = el("input", "form-control");
+  url.type = "text";
+  url.readOnly = true;
+  url.id = "t-share-url";
+  outLabel.htmlFor = url.id;
+  const copy = el("button", "btn btn-outline-secondary", "Copy");
+  copy.type = "button";
+  group.append(url, copy);
+  const wa = el("a", "btn btn-outline-secondary btn-sm mt-2");
+  wa.target = "_blank";
+  wa.rel = "noopener";
+  wa.innerHTML = '<i class="bi bi-whatsapp me-1"></i>Send it on WhatsApp';
+  const untilLine = el("div", "form-text");
+  const waWrap = el("div", "mt-2");
+  waWrap.append(wa);
+  out.append(outLabel, group, untilLine, waWrap);
+  body.append(out);
+
+  const foot = el("div", "modal-footer");
+  const cancel = el("button", "btn btn-outline-secondary", "Cancel");
+  cancel.type = "button";
+  cancel.setAttribute("data-bs-dismiss", "modal");
+  const send = el("button", "btn btn-primary", "Make the link");
+  send.type = "button";
+  const done = el("button", "btn btn-primary d-none", "Done");
+  done.type = "button";
+  done.setAttribute("data-bs-dismiss", "modal");
+  foot.append(cancel, send, done);
+
+  box.append(head, body, foot);
+  dlg.append(box);
+  m.append(dlg);
+
+  const fail = line => { errBox.textContent = line; errBox.classList.remove("d-none"); };
+
+  copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(url.value);
+      copy.textContent = "Copied";
+      setTimeout(() => { copy.textContent = "Copy"; }, 1600);
+    } catch (e) {
+      url.focus();
+      url.select();
+      copy.textContent = "Press ⌘C";
+    }
+  };
+
+  send.onclick = async () => {
+    errBox.classList.add("d-none");
+    send.disabled = cancel.disabled = true;
+    send.textContent = "Making it…";
+    const r = await snagPost(snags, { when: s.when, label: label.value.trim(),
+                                      days: Number(days.value) || 30 }, "/api/share");
+    if (r && r.url) {
+      state.index = null;
+      form.classList.add("d-none");
+      out.classList.remove("d-none");
+      url.value = r.url;
+      untilLine.textContent = `Stops working on ${String(r.until || "").slice(0, 10)}. ` +
+                              `It is listed on this page, and you can take it back there.`;
+      wa.href = "https://wa.me/?text=" +
+                encodeURIComponent(`${tasksTitle(s)}: ${r.url}`);
+      send.classList.add("d-none");
+      cancel.classList.add("d-none");
+      done.classList.remove("d-none");
+      /* The page behind the modal is now out of date — the new link belongs in the list
+         of links, which is drawn from the file. Redraw once this closes. */
+      m.addEventListener("hidden.bs.modal", () => tasksDetail("snag", s.when));
+      url.focus();
+      url.select();
+      return;
+    }
+    send.disabled = cancel.disabled = false;
+    send.textContent = "Make the link";
+    fail((r && r.error) || "the link could not be made — this needs the gate, and an owner");
+  };
+
+  document.body.append(m);
+  m.addEventListener("hidden.bs.modal", () => m.remove());
+  m.addEventListener("shown.bs.modal", () => label.focus());
+  new bootstrap.Modal(m).show();
+}
+
+/* Every link ever made for this fault, live or not. A revoked one stays on the list on
+   purpose: "this was shared and then taken back" is a thing worth being able to read. */
+function tasksSharePane(s, snags) {
+  const shares = s.shares || [];
+  if (!shares.length && !tasksMayShare()) return null;
+
+  const p = pane("Given to somebody outside", shares.length ? String(shares.length) : "NONE");
+  if (shares.length) {
+    const list = el("div", "list-group list-group-flush");
+    shares.forEach(g => {
+      const li = el("div", "list-group-item d-flex flex-wrap align-items-center gap-2 py-3");
+      const who = el("div", "flex-grow-1");
+      who.style.minWidth = "0";
+      who.append(el("div", "fw-medium text-break", g.label || "somebody"));
+      who.append(el("div", "small text-body-secondary text-break",
+                    (g.revoked ? "taken back" : `open until ${String(g.until || "").slice(0, 10)}`) +
+                    `  ·  link ${g.id}`));
+      li.append(who);
+      li.append(g.revoked ? statusCell("muted", "revoked") : statusCell("ok", "live"));
+      if (!g.revoked && tasksMayShare()) {
+        const off = el("button", "btn btn-outline-secondary btn-sm", "Revoke");
+        off.type = "button";
+        off.onclick = async () => {
+          off.disabled = true;
+          off.textContent = "Revoking…";
+          const r = await snagPost(snags, {
+            follow_up_to: s.when, unshare: g.id,
+            note: `Took back the link given to ${g.label || "somebody"}.`,
+            by: tasksWho() });
+          if (r && r.ok) {
+            state.index = null;
+            tasksFlash = "That link no longer opens anything.";
+            tasksDetail("snag", s.when);
+            return;
+          }
+          off.disabled = false;
+          off.textContent = "Revoke";
+          li.append(el("div", "w-100 small text-danger mt-2",
+                       (r && r.error) || "the snag service did not say what went wrong"));
+        };
+        li.append(off);
+      }
+      list.append(li);
+    });
+    p.append(list);
+  } else {
+    p.append(cardBody(el("p", "mb-0 text-body-secondary",
+      "Nobody outside has been given this fault. A link opens this one entry and nothing " +
+      "else, expires on its own, and can be taken back here.")));
+  }
+  return p;
+}
+
+/* The events one follow-up carries besides its words: who it was handed to, and a link
+   given or taken back. Returned as nodes so nothing is assembled out of a string. */
+function tasksEvents(u) {
+  const out = [];
+  const line = t => el("div", "small text-body-secondary mt-2", t);
+  if (u.assigned === "-") out.push(line("handed back to nobody"));
+  else if (u.assigned) out.push(line("assigned to " + u.assigned));
+  (u.share || []).forEach(raw => {
+    const bits = String(raw).split(" ");
+    out.push(line("shared with " + (bits.slice(2).join(" ") || "somebody") +
+                  " until " + String(bits[1] || "").slice(0, 10)));
+  });
+  (u.unshare || []).forEach(id => out.push(line("link " + id + " taken back")));
+  return out;
+}
+
 function tasksSnagPage(s, snags, docs) {
   const index = tasksLinkIndex(docs);
   const title = tasksTitle(s);
@@ -843,13 +1234,17 @@ function tasksSnagPage(s, snags, docs) {
      replaced the striker plate" and the half after the dash is the part worth reading. */
   const full = String(s.status || "").trim();
   const h1 = el("span", "text-break", title);
+  const actions = [tasksSnagBadge(s.status, s.open), tasksStatusControl(s, snags)];
+  if (s.open) actions.push(tasksAssignControl(s, snags));
+  if (s.open && tasksMayShare()) actions.push(tasksShareButton(s, snags));
   v.append(pageHead(h1, [
     s.when ? `filed ${s.when}` : null,
     s.when ? ago(s.when) : null,
     s.by ? `by ${s.by}` : null,
     s.where || null,
+    s.assigned ? `with ${s.assigned}` : null,
     full.split(/\s+/).length > 1 ? full : null,
-  ], [tasksSnagBadge(s.status, s.open), tasksStatusControl(s, snags)]));
+  ], actions));
 
   const written = pane("What was written", "NOTE");
   written.append(cardBody(tasksProse(s.body, index)));
@@ -880,6 +1275,9 @@ function tasksSnagPage(s, snags, docs) {
       if (tasksWord(u.status)) w.append(tasksSnagBadge(u.status));
       li.append(w);
       li.append(tasksProse(u.body, index));
+      /* What else this entry did, as events under its words. A follow-up whose whole
+         content is "it is Jo's now" has nothing to read otherwise. */
+      tasksEvents(u).forEach(line => li.append(line));
       if ((u.photos || []).length) {
         const g = tasksGallery(snags, u.photos);
         g.classList.add("mt-3");
@@ -894,6 +1292,9 @@ function tasksSnagPage(s, snags, docs) {
       "unverified, by whoever noticed it.")));
   }
   v.append(tl);
+
+  const given = tasksSharePane(s, snags);
+  if (given) v.append(given);
 
   const papers = pane("In the papers", "ASKED");
   const holder = el("div");

@@ -304,11 +304,13 @@ def test_the_console_page_holds_no_boat_facts():
     check(demo.vessel.name not in page,
           "no vessel name is written into the page, not even the demo boat's")
 
-    # The dashboard behind this page accepts no writes from it. The one POST the console
-    # makes goes to the snag service on its own port, through `snagPost()` in the shell —
-    # a status change is a follow-up appended to the boat's file, never a rewrite — and
-    # that is the only place a method may appear. A second POST, or one aimed at this
-    # server's own /api/, is how a read-only thing stops being one.
+    # The dashboard behind this page accepts no writes from it. Every POST the console
+    # makes goes to the snag service — its own port on a LAN, relayed at `<ROOT>/snag`
+    # behind the gate — through `snagPost()` in the shell, and that one function is the
+    # only place a method may appear. Callers choose the *route* on that service by
+    # passing `path`; they do not get to open a fetch of their own. A second POST
+    # anywhere, or one aimed at this server's own /api/, is how a read-only thing stops
+    # being one.
     posts = [m.start() for m in re.finditer(r"""method:\s*["']POST["']""", page)]
     check(len(posts) == 1, f"exactly one POST in the console, in snagPost() (found {len(posts)})")
     shell = CONSOLE.read_text(encoding="utf-8")

@@ -378,13 +378,19 @@
 // This file contains no boat facts. The name, the subtitle, the chart's home position and
 // the About card are all fetched from /api/profile, which reads boat.toml. That is what
 // lets this dashboard live in a public repository while describing your boat.
+/* Where this page is mounted, worked out from its own address rather than configured.
+   Served by the dashboard it is at `/index.html` (or `/`) and ROOT is ""; behind
+   `openboat.gate` it is at `/b/<key>/index.html` and ROOT is `/b/<key>`, one login in
+   front of several boats. Every absolute path below is built from it, so the same file
+   is the same page either way and there is no second copy to keep in step. */
+window.ROOT = location.pathname.replace(/\/[^/]*$/, "");
 window.OB_HOME = [0, 0];
 window.OB_BERTH_NAME = 'Berth';
 window.OB_PROFILE = null;
 (function () {
   var request = new XMLHttpRequest();
   try {
-    request.open('GET', '/api/profile', false);   // before first paint: the chart needs it
+    request.open('GET', ROOT + '/api/profile', false);   // before first paint: the chart needs it
     request.send(null);
     if (request.status === 200) {
       var p = JSON.parse(request.responseText);
@@ -599,7 +605,7 @@ const OS = {
 
   async pollBoat() {
     try {
-      const r = await fetch('/api/state');
+      const r = await fetch(ROOT + '/api/state');
       const s = await r.json();
       this.state.boat = s.online ? s : null;
       this.state.reason = s.reason;
@@ -611,8 +617,8 @@ const OS = {
   async pollWeather() {
     try {
       const [w, f] = await Promise.all([
-        fetch('/api/windows?days=7&min_hours=3').then(r => r.json()),
-        fetch('/api/forecast?days=3').then(r => r.json())]);
+        fetch(ROOT + '/api/windows?days=7&min_hours=3').then(r => r.json()),
+        fetch(ROOT + '/api/forecast?days=3').then(r => r.json())]);
       this.state.windows = w; this.state.forecast = f;
     } catch (e) {}
     this.paint();
@@ -1689,7 +1695,7 @@ async function route() {
   line = L.polyline(waypoints, {color:'#1E6B8C', weight:3, dashArray:'6 5'}).addTo(map);
   if (waypoints.length < 2) return;
   const q = waypoints.map((w, i) => `${w[0]},${w[1]},WP${i+1}`).join(';');
-  const r = await fetch(`/api/route?speed_kn=20&litres_per_hour=60&waypoints=${encodeURIComponent(q)}`)
+  const r = await fetch(ROOT + `/api/route?speed_kn=20&litres_per_hour=60&waypoints=${encodeURIComponent(q)}`)
     .then(x => x.json());
   if (r.error) { document.getElementById('rtotal').textContent = r.error; return; }
   document.getElementById('rtotal').textContent =
@@ -1727,8 +1733,8 @@ OS.app({
 });
 
 /* ── apps: the two generated reports, held in frame rather than linked ────────────── */
-[['season','Season','/reports/season.html','Ten years of ERA5 for this berth.'],
- ['engine','Engine log','/reports/engine.html','Hours and cooling drift.']]
+[['season','Season',ROOT + '/reports/season.html','Ten years of ERA5 for this berth.'],
+ ['engine','Engine log',ROOT + '/reports/engine.html','Hours and cooling drift.']]
 .forEach(([id, title, src, sub]) => OS.app({
   id, title,
   mount(el) {
@@ -1750,8 +1756,8 @@ OS.app({
   mount(el) {
     el.innerHTML = `<p class="quiet" style="margin:.1rem .2rem .6rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
       <span>What is due, counted in hours the engine actually ran, and what has been reported broken.</span>
-      <a href="/jobs.html" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;min-height:44px">Open on its own</a></p>
-      <iframe class="report" src="/jobs.html" title="Jobs" loading="lazy"></iframe>`;
+      <a href="${ROOT}/jobs.html" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;min-height:44px">Open on its own</a></p>
+      <iframe class="report" src="${ROOT}/jobs.html" title="Jobs" loading="lazy"></iframe>`;
   }
 });
 
@@ -1803,7 +1809,7 @@ OS.app({
       input.value = question;
       box.innerHTML = `<div class="card"><p class="quiet">Reading the boat's papers…</p></div>`;
       let d;
-      try { d = await fetch('/api/ask?q=' + encodeURIComponent(question) + '&limit=5').then(r => r.json()); }
+      try { d = await fetch(ROOT + '/api/ask?q=' + encodeURIComponent(question) + '&limit=5').then(r => r.json()); }
       catch (e) { box.innerHTML = `<div class="card"><p class="quiet">The server did not answer.</p></div>`; return; }
 
       if (d.error) { box.innerHTML = `<div class="card"><p class="quiet">${esc(d.error)}</p></div>`; return; }
@@ -1872,7 +1878,7 @@ docs = ["~/boat/survey.md", "~/boat/log.md"]</pre>
         const msg = box.querySelector('#logmsg');
         if (!what) { msg.textContent = 'Say what you looked at.'; return; }
         try {
-          const r = await fetch('/api/logbook', {method:'POST',
+          const r = await fetch(ROOT + '/api/logbook', {method:'POST',
             headers:{'Content-Type':'application/json'},
             body: JSON.stringify({what, found: box.querySelector('#lf').value,
                                   verdict: b.dataset.v, by:'dashboard'})}).then(x => x.json());
@@ -1897,8 +1903,8 @@ if ((window.OB_PROFILE && window.OB_PROFILE.chart || {}).windy_map_key) OS.app({
   mount(el) {
     el.innerHTML = `<p class="quiet" style="margin:.1rem .2rem .6rem;display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
       <span>Windy's animated layers with the OpenSeaMap seamarks on top. Needs the internet.</span>
-      <a href="/windy.html" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;min-height:44px">Open on its own</a></p>
-      <iframe class="report" src="/windy.html" title="Weather chart" loading="lazy"></iframe>`;
+      <a href="${ROOT}/windy.html" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;min-height:44px">Open on its own</a></p>
+      <iframe class="report" src="${ROOT}/windy.html" title="Weather chart" loading="lazy"></iframe>`;
   }
 });
 
@@ -1956,7 +1962,7 @@ OS.app({
       : '';
     if (!st._pathsFetch && (!st.paths || Date.now() - (st.pathsAt || 0) > 15000)) {
       OS.state._pathsFetch = true;
-      fetch('/api/paths').then(r => r.json()).then(data => {
+      fetch(ROOT + '/api/paths').then(r => r.json()).then(data => {
         OS.state.paths = data; OS.state.pathsAt = Date.now();
         if (OS.current === 'about') OS.paint();
       }).catch(() => {}).finally(() => { OS.state._pathsFetch = false; });

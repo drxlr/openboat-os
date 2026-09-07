@@ -48,12 +48,19 @@
 <div id="windy"></div>
 
 <script>
+/* Where this page is mounted, worked out from its own address rather than configured.
+   Served by the dashboard it is at `/windy.html` and ROOT is ""; behind
+   `openboat.gate` it is at `/b/<key>/windy.html` and ROOT is `/b/<key>`, one login in
+   front of several boats. Every absolute path below is built from it, so the same file
+   is the same page either way and there is no second copy to keep in step. */
+const ROOT = location.pathname.replace(/\/[^/]*$/, "");
+
 (async function () {
   const host = document.getElementById('windy');
   const fail = (html) => { host.innerHTML = '<div class="fail"><div>' + html + '</div></div>'; };
 
   let profile;
-  try { profile = await fetch('/api/profile').then(r => r.json()); }
+  try { profile = await fetch(ROOT + '/api/profile').then(r => r.json()); }
   catch (e) { return fail('The dashboard server did not answer, so there is no key and no position.'); }
 
   const chart = profile.chart || {};
@@ -92,7 +99,7 @@
     let shown = false;
     const track = async () => {
       try {
-        const st = await fetch('/api/state').then(r => r.json());
+        const st = await fetch(ROOT + '/api/state').then(r => r.json());
         if (st.online && st.lat != null) { boat.setLatLng([st.lat, st.lon]); if (!shown) { boat.addTo(map); shown = true; } }
         else if (shown) { map.removeLayer(boat); shown = false; }
       } catch (e) { /* the boat being unreachable is normal and not worth a console line */ }

@@ -45,7 +45,18 @@ const BOARDS = [
           "or open port 8752 on this machine." },
 ];
 
-const snagServiceUrl = () => `${location.protocol}//${location.hostname}:8752/`;
+/* Where a board actually lives. The list above holds the path this project gives each
+   page; ROOT is where this console is mounted — "" served plainly, `/b/<key>` behind the
+   gate — and the two together are the address. Written once here rather than at each of
+   the four places a board's URL is used, because a frame src and the "open in a tab" link
+   beside it pointing at different pages is exactly the bug nobody sees in a screenshot. */
+const boardUrl = b => b.url ? ROOT + b.url : null;
+
+/* The snag service is a separate process on its own port on a LAN, and behind the gate it
+   is relayed at `<ROOT>/snag/` with no port and no second origin — the same page, reached
+   through the same login. */
+const snagServiceUrl = () => ROOT ? ROOT + "/snag/"
+                                  : `${location.protocol}//${location.hostname}:8752/`;
 
 function viewBoards() {
   const staged = state.sub ? BOARDS.find(b => b.id === state.sub) : null;
@@ -91,7 +102,7 @@ function viewBoards() {
 
     if (b.url) {
       const out = el("a", "small link-body-emphasis text-decoration-none");
-      out.href = b.url;
+      out.href = boardUrl(b);
       out.target = "_blank";
       out.rel = "noopener";
       out.title = "Open in a new tab";
@@ -128,10 +139,10 @@ function boardStage(b) {
   head.append(back);
   head.append(crumbs([{ label: "Dashboards", href: href("boards") }, { label: b.title }]));
   head.append(el("span", "small text-body-secondary font-monospace d-none d-md-inline",
-                 b.url));
+                 boardUrl(b)));
 
   const out = el("a", "btn btn-sm btn-outline-secondary ms-auto");
-  out.href = b.url; out.target = "_blank"; out.rel = "noopener";
+  out.href = boardUrl(b); out.target = "_blank"; out.rel = "noopener";
   out.append(document.createTextNode("Open in a tab "));
   const oi = el("i", "bi bi-box-arrow-up-right");
   oi.setAttribute("aria-hidden", "true");
@@ -140,7 +151,7 @@ function boardStage(b) {
   page.append(head);
 
   const f = el("iframe", "w-100 border rounded ob-stage");
-  f.src = b.url; f.title = b.title;
+  f.src = boardUrl(b); f.title = b.title;
   page.append(f);
   mount(page);
 

@@ -130,11 +130,14 @@ def test_no_helm() -> None:
 def test_http_needs_a_token() -> None:
     import os
     saved = os.environ.pop("OPENBOAT_MCP_TOKEN", None)
+    named = os.environ.pop("OPENBOAT_MCP_TOKENS", None)
     try:
         check(mcp_http.main([]) == 2, "mcp_http refuses to start with no token set")
     finally:
         if saved:
             os.environ["OPENBOAT_MCP_TOKEN"] = saved
+        if named:
+            os.environ["OPENBOAT_MCP_TOKENS"] = named
 
     check(mcp_http.BIND == "127.0.0.1",
           "it binds to localhost; exposing it is a deliberate, separate act")
@@ -179,10 +182,15 @@ def test_every_tool_is_annotated() -> None:
     check(all(not t["annotations"].get("destructiveHint") for t in mcp_http.TOOLS),
           "no tool in the set is destructive")
 
-    OWN_FILES = ("logbook", "notes", "documents", "ledger")
+    OWN_FILES = ("logbook", "notes", "documents", "ledger", "intake")
     for name in writers:
         module = {"log_check": "logbook", "add_note": "notes",
-                  "add_document": "documents"}.get(name)
+                  "add_document": "documents",
+                  # The inbox is the companion's own folder too, and the reason it is safe
+                  # is the same: it is not the library. `openboat/intake.py` puts things in
+                  # `intake/`, which nothing searches or quotes, and only a named person
+                  # moves one of them into `documents/`.
+                  "add_link": "intake", "fetch_document": "intake"}.get(name)
         check(module in OWN_FILES,
               f"{name} writes to one of the companion's own files, not the boat's ({module})")
 
@@ -199,8 +207,12 @@ def test_every_tool_is_annotated() -> None:
         check(True, "an unclassified tool is refused rather than shipped")
 
     online = {t["name"] for t in mcp_http.TOOLS if t["annotations"].get("openWorldHint")}
-    check(online == {"marine_forecast", "passage_window", "ais_targets"},
+    check(online == {"marine_forecast", "passage_window", "ais_targets", "fetch_document"},
           f"only the tools that really reach the internet say so ({sorted(online)})")
+    fetch_doc = next(t for t in mcp_http.TOOLS if t["name"] == "fetch_document")
+    check(fetch_doc["annotations"]["readOnlyHint"] is False
+          and fetch_doc["annotations"]["openWorldHint"] is True,
+          "fetch_document declares BOTH that it writes and that it reaches the internet")
 
 
 # --------------------------------------------------------------------------------------
@@ -336,20 +348,7 @@ def test_logbook() -> None:
           "the log is opened for append and nothing else")
 
 
-if __name__ == "__main__":
-    print(__doc__.splitlines()[0])
-    print("-" * 78)
-    for case in (test_citations, test_crosses_languages, test_offline, test_no_helm,
-                 test_http_needs_a_token, test_chatgpt_contract,
-                 test_every_tool_is_annotated,
-                 test_notes_cannot_reach_the_documents,
-                 test_transcriptions_are_marked_as_such, test_logbook):
-        case()
-    print("-" * 78)
-    failed = [what for ok, what in results if not ok]
-    print(f"{len(results) - len(failed)}/{len(results)} checks pass"
-          + (f" — FAILED: {failed}" if failed else ""))
-    sys.exit(1 if failed else 0)
+
 
 
 # --------------------------------------------------------------------------------------
@@ -443,3 +442,130 @@ def test_snag_photo_is_image_content_and_refuses_paths() -> None:
                 os.environ["OPENBOAT_PROFILE"] = old_profile
             if old_boats is not None:
                 os.environ["OPENBOAT_BOATS"] = old_boats
+
+
+# --------------------------------------------------------------------------------------
+# 11. The intake inbox. An assistant is a submitter, never a librarian: it can put a link
+#     or a PDF into `intake/`, and only a named person moves one into the library. The
+#     danger this closes is the one `docs/COMPANION.md` names — a corpus a model both reads
+#     and writes is a prompt-injection amplifier, and a citation under a false claim is
+#     the worst thing this project can produce.
+# --------------------------------------------------------------------------------------
+def test_the_inbox_tools_are_offered_annotated_and_guarded() -> None:
+    import tempfile
+    from pathlib import Path
+    from openboat import intake, mcp
+
+    names = [t["name"] for t in mcp.TOOLS]
+    for name in ("add_link", "fetch_document", "boat_inbox"):
+        check(name in names, f"{name} is offered")
+    check(next(t for t in mcp.TOOLS if t["name"] == "boat_inbox")
+          ["annotations"]["readOnlyHint"] is True, "boat_inbox only reads")
+    for name in ("add_link", "fetch_document"):
+        hints = next(t for t in mcp.TOOLS if t["name"] == name)["annotations"]
+        check(hints["readOnlyHint"] is False and hints["destructiveHint"] is False,
+              f"{name} is a write and is not destructive")
+
+    # The tool descriptions carry the rule, because the model reads them and the owner
+    # reads whatever the model says next. "It is in your inbox" and "the boat now knows
+    # this" are different sentences and only one of them is true.
+    for name in ("add_link", "fetch_document"):
+        d = next(t for t in mcp.TOOLS if t["name"] == name)["description"]
+        check("NOT" in d and "documents" in d,
+              f"{name}'s description says plainly it is not one of the boat's documents")
+    check("never claim the boat now knows"
+          in next(t for t in mcp.TOOLS if t["name"] == "fetch_document")["description"],
+          "and tells the model what not to say to the owner")
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        (tmp / "boat.toml").write_text('[vessel]\nname = "Test Boat"\n')
+        old_profile = os.environ.get("OPENBOAT_PROFILE")
+        old_boats = os.environ.pop("OPENBOAT_BOATS", None)
+        os.environ["OPENBOAT_PROFILE"] = str(tmp / "boat.toml")
+        try:
+            # Through the tool, not through the module: this is the path a hosted model
+            # actually takes, and a guard the tool routes around is not a guard.
+            for url in ("https://127.0.0.1/manual.pdf", "https://10.0.0.1/manual.pdf",
+                        "http://example.invalid/manual.pdf"):
+                said = mcp.tool_fetch_document(url)
+                check(said.startswith("Not fetched:"),
+                      f"the tool refuses {url} ({said[:60]})")
+            check("empty" in mcp.tool_boat_inbox(),
+                  "a boat with nothing in its inbox says so rather than raising")
+            check(not (tmp / "documents").exists(),
+                  "and no refusal wrote anything into the library")
+        finally:
+            if old_profile is None:
+                os.environ.pop("OPENBOAT_PROFILE", None)
+            else:
+                os.environ["OPENBOAT_PROFILE"] = old_profile
+            if old_boats is not None:
+                os.environ["OPENBOAT_BOATS"] = old_boats
+
+
+def test_who_submitted_it_comes_from_the_token_that_was_offered() -> None:
+    """One token per assistant. Not permission — every one opens the same door — but
+    attribution, and it is written into the boat's own files as the submitter."""
+    import tempfile
+    from pathlib import Path
+    from openboat import intake, mcp, mcp_http
+
+    parsed = mcp_http.named_tokens("chatgpt=aaaaaaaaaaaaaaaaaaaa,claude=bbbbbbbbbbbbbbbbbbbb")
+    check(parsed == {"chatgpt": "aaaaaaaaaaaaaaaaaaaa", "claude": "bbbbbbbbbbbbbbbbbbbb"},
+          f"name=token pairs are parsed ({parsed})")
+    check(mcp_http.named_tokens("chatgpt=short") == {},
+          "a token under 16 characters is dropped, not accepted")
+    check(mcp_http.named_tokens("") == {}, "and an unset variable is no callers")
+    check("\n" not in "".join(mcp_http.named_tokens("bad name\nhere=cccccccccccccccccccc")),
+          "a name is reduced to safe characters before it is written into a boat's file")
+
+    src = (ROOT / "openboat" / "mcp_http.py").read_text()
+    check("compare_digest" in src and "found = name" in src,
+          "every token is compared in constant time and the loop does not short-circuit")
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        (tmp / "boat.toml").write_text('[vessel]\nname = "Test Boat"\n')
+        old_profile = os.environ.get("OPENBOAT_PROFILE")
+        old_boats = os.environ.pop("OPENBOAT_BOATS", None)
+        os.environ["OPENBOAT_PROFILE"] = str(tmp / "boat.toml")
+        token = mcp.CALLER.set("chatgpt")
+        try:
+            mcp.tool_add_link("https://manuals.example/pump", title="A bulletin",
+                              reason="the part in the photo")
+            waiting = intake.items("")
+            check(len(waiting) == 1 and waiting[0]["by"] == "chatgpt",
+                  f"the caller's name lands on what it submitted ({waiting})")
+            check("chatgpt" in mcp.tool_boat_inbox(),
+                  "and the inbox says who brought it")
+        finally:
+            mcp.CALLER.reset(token)
+            if old_profile is None:
+                os.environ.pop("OPENBOAT_PROFILE", None)
+            else:
+                os.environ["OPENBOAT_PROFILE"] = old_profile
+            if old_boats is not None:
+                os.environ["OPENBOAT_BOATS"] = old_boats
+    check(mcp.caller() == "assistant",
+          "and outside a request the caller is the single default name")
+
+
+if __name__ == "__main__":
+    print(__doc__.splitlines()[0])
+    print("-" * 78)
+    for case in (test_citations, test_crosses_languages, test_offline, test_no_helm,
+                 test_http_needs_a_token, test_chatgpt_contract,
+                 test_every_tool_is_annotated,
+                 test_notes_cannot_reach_the_documents,
+                 test_transcriptions_are_marked_as_such, test_logbook,
+                 test_tasks_and_engine_data_answer_on_a_bare_boat,
+                 test_snag_photo_is_image_content_and_refuses_paths,
+                 test_the_inbox_tools_are_offered_annotated_and_guarded,
+                 test_who_submitted_it_comes_from_the_token_that_was_offered):
+        case()
+    print("-" * 78)
+    failed = [what for ok, what in results if not ok]
+    print(f"{len(results) - len(failed)}/{len(results)} checks pass"
+          + (f" — FAILED: {failed}" if failed else ""))
+    sys.exit(1 if failed else 0)

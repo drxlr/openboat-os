@@ -52,6 +52,70 @@ at the moment of noticing, confirmed by nobody since. That is the correct episte
 for "the owner said so", and it is also exactly the kind of fact the boat's own library
 (`openboat.knowledge`) is built to hold: specific, dated, and honest about how sure it is.
 
+## Handing one to somebody
+
+A fault on a list is nobody's. From the console's task page, **Assign** writes a name
+against it — appended, like everything else, as a follow-up carrying one line:
+
+```
+**Assigned:** Jo at the yard
+```
+
+The newest name anybody wrote is the one it is on. A follow-up that says nothing about it
+changes nothing, and `-` hands it back to nobody. The name is who is *doing* it, not a
+notification: nothing here emails anybody, and nothing checks that the name belongs to a
+person who exists. The console remembers the names typed on this browser so the same three
+or four come round as suggestions.
+
+## Sharing a fault
+
+The person with the spanner usually has no account and should not need one. From the same
+page, **Share with the person fixing it** mints a link to *one fault*:
+
+```
+https://openboat.example.vercel.app/s/eyJib2F0Ijo…
+```
+
+Whoever opens it sees that fault — the note, the photographs, the follow-ups, who it is
+with — and gets one form back: *I have looked at it* or *It is fixed*, with a note and a
+name. That is the whole surface. No other fault, no other boat, no document, no position,
+and no second kind of write.
+
+The link is minted by the gate, because the gate is the only component here that has a
+login and therefore a role to check: `owner` and `admin` may hand one out and `crew` gets a
+404, the same 404 they get for a boat that is not theirs. It is good for a number of days
+you choose, up to ninety.
+
+**The grant is written into the boat's own file**, as a follow-up on the fault:
+
+```
+**Share:** 3f8a91c2 2026-10-07T18:00:00+03:00 Jo at the yard
+```
+
+and taking it back is one more line:
+
+```
+**Unshare:** 3f8a91c2
+```
+
+That is the whole revocation mechanism, and it is deliberate. The token itself is stateless
+— a signed statement of boat, fault, expiry and id — so checking one needs no table. But a
+link you cannot take back is not a link anybody should hand out, so the id has to be listed
+on the fault, un-revoked, or the link opens nothing however good its signature is. It also
+means *who was given a way in* is a thing a person can read, in the file the fault is in,
+in the same place they read everything else about it. The console lists every link ever
+made for a fault, live or taken back, with a Revoke button beside the live ones.
+
+Somebody holding a link can append follow-ups and nothing else, thirty times a day at most.
+Every one of them is filed as `Jo (via share link 3f8a91c2)` — what they said their name
+was, and which link they said it through, because a name typed into a form is a claim.
+
+The whole of it is `openboat/share.py`, and it hangs off the gate through the documented
+`MOUNTS` seam rather than by editing the gate's router. It reads and appends to the boat's
+own files in the gate's process, so the gate has to be started with `$OPENBOAT_BOATS` set
+the way the snag service is — without it every share route is an honest 404. See
+[docs/GATE.md](GATE.md).
+
 ## Why this is a separate service
 
 `openboat.server` — the dashboard — is read-only about the boat by construction, and holds
@@ -66,6 +130,25 @@ own single write route (`POST /api/snag`) and nothing else that touches disk. It
 started, stopped, or left off entirely without anything about the dashboard changing, and
 a reviewer auditing "what can write to this boat's files" only has one small file to read
 for this path — `openboat/snag.py` — rather than a dashboard grown a second job.
+
+## The other two things this service writes
+
+It started as one write route and it is now three families, and they are here together on
+purpose: this is the process a reviewer reads when they want to know what can change a
+boat's files.
+
+`POST /api/snag` files a fault or a follow-up, which is everything above. The other two are
+the inbox — `POST /api/intake/accept` and `POST /api/intake/reject`, with
+`GET /api/intake` and `GET /api/intake/file` to read it. An assistant reaching the boat over
+MCP can put a link or a PDF into `intake/`; nothing in there is searched or answered from,
+and accepting one is the step that moves it into the boat's library. Both POSTs require a
+name and refuse without one, a rejection requires a reason, and a PDF flagged as carrying
+active content is never served for download. The whole design, and why the person's name is
+the point of it, is in [docs/INTAKE.md](INTAKE.md).
+
+Accepting a document is the most consequential write in this project — it is the moment
+something an assistant found on the internet becomes one of the boat's own papers — so it
+belongs on the port a reviewer already has to read, not bolted onto the read-only dashboard.
 
 ## Multi-boat setups
 

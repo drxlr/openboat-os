@@ -247,12 +247,18 @@
 // read synchronously for the same reason index.html reads it that way: the palette below
 // needs the berth to work out where the sun is before the first paint, and a page that
 // flashed white at 23:00 would be the bug this palette exists to prevent.
+/* Where this page is mounted, worked out from its own address rather than configured.
+   Served by the dashboard it is at `/jobs.html` and ROOT is ""; behind
+   `openboat.gate` it is at `/b/<key>/jobs.html` and ROOT is `/b/<key>`, one login in
+   front of several boats. Every absolute path below is built from it, so the same file
+   is the same page either way and there is no second copy to keep in step. */
+window.ROOT = location.pathname.replace(/\/[^/]*$/, "");
 window.OB_HOME = [0, 0];
 window.OB_PROFILE = null;
 (function () {
   var request = new XMLHttpRequest();
   try {
-    request.open('GET', '/api/profile', false);
+    request.open('GET', ROOT + '/api/profile', false);
     request.send(null);
     if (request.status === 200) {
       var p = JSON.parse(request.responseText);
@@ -580,8 +586,8 @@ months = 12</pre>
 
 <div class="dock">
   <nav>
-    <a href="/#helm">Helm</a>
-    <a href="/jobs.html" class="here" aria-current="page">Jobs</a>
+    <a href="index.html#helm">Helm</a>
+    <a href="jobs.html" class="here" aria-current="page">Jobs</a>
   </nav>
   <button class="mode" id="mode" aria-label="Palette: tap for the next, hold for automatic"></button>
 </div>
@@ -717,7 +723,7 @@ document.addEventListener('alpine:init', () => {
 
     async loadMaintenance() {
       try {
-        const d = await this.read('/api/maintenance');
+        const d = await this.read(ROOT + '/api/maintenance');
         this.m = { loading: false, error: '', items: d.items || [],
                    running_hours: d.running_hours ?? null,
                    engine_hours_source: d.engine_hours_source ?? null };
@@ -729,7 +735,7 @@ document.addEventListener('alpine:init', () => {
 
     async loadSnags() {
       try {
-        const d = await this.read('/api/snags');
+        const d = await this.read(ROOT + '/api/snags');
         const snags = (d.snags || []).map(x => ({ photos: [], body: '', where: '', by: '',
                                                   status: 'open', ...x }));
         this.s = { loading: false, error: '', snags,
@@ -744,7 +750,7 @@ document.addEventListener('alpine:init', () => {
     // and a boat with no logbook yet should not be told about it in red.
     async loadLog() {
       try {
-        const d = await this.read('/api/logbook?limit=6');
+        const d = await this.read(ROOT + '/api/logbook?limit=6');
         this.log = { entries: d.entries || [], path: d.path || '' };
       } catch (e) { this.log = { entries: [], path: '' }; }
     },
@@ -893,7 +899,7 @@ document.addEventListener('alpine:init', () => {
       this.logMsgBad[id] = false;
       this.logMsg[id] = 'writing…';
       try {
-        const r = await fetch('/api/logbook', {
+        const r = await fetch(ROOT + '/api/logbook', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ what, found: '', verdict, by: 'jobs page',
                                  refs: [kind + ':' + what] }),

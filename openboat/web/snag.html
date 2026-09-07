@@ -136,8 +136,14 @@ const $ = s => document.querySelector(s);
    is refused, and it reports "No boats configured", which is a wrong diagnosis of a
    configuration that is perfectly correct. */
 const KEY = new URLSearchParams(location.search).get("k") || "";
-const api = path => KEY ? path + (path.includes("?") ? "&" : "?") + "k=" + encodeURIComponent(KEY)
-                        : path;
+/* Where this page is mounted, worked out from its own address rather than configured.
+   Served by the dashboard it is at the snag service's own root and ROOT is ""; behind
+   `openboat.gate` it is at `/b/<key>/snag/` and ROOT is `/b/<key>`, one login in
+   front of several boats. Every absolute path below is built from it, so the same file
+   is the same page either way and there is no second copy to keep in step. */
+const ROOT = location.pathname.replace(/\/[^/]*$/, "");
+const api = path => ROOT + (KEY ? path + (path.includes("?") ? "&" : "?")
+                                  + "k=" + encodeURIComponent(KEY) : path);
 const boatSel = $("#boat"), shotsEl = $("#shots"), listEl = $("#list"), whoEl = $("#who");
 let photos = [];   // data URLs, already resized
 let followUp = null;   // {when, title} when the next send is an update, not a new snag

@@ -23,7 +23,7 @@ import sys
 import urllib.parse
 from datetime import datetime
 from functools import lru_cache
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import time
 
@@ -456,7 +456,10 @@ def main(argv: list[str] | None = None) -> None:
     print(f"  profile: {boat_profile.path}  —  {boat_profile.vessel.name}", file=sys.stderr)
     print(f"  Signal K: {boat_profile.signalk_url}", file=sys.stderr)
     try:
-        HTTPServer((BIND, port), OpenBoat).serve_forever()
+        # Threading, because one stuck request must not take the whole dashboard down:
+        # a browser tab holding a half-sent request wedged a single-threaded server for
+        # three quarters of an hour once, and every other caller saw it as offline.
+        ThreadingHTTPServer((BIND, port), OpenBoat).serve_forever()
     except OSError as exc:
         if exc.errno != errno.EADDRINUSE:
             raise

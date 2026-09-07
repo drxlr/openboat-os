@@ -314,6 +314,14 @@ def load(boat=None) -> Library:
         p = Path(raw).expanduser()
         paths.append(p if p.is_absolute() else (base / p))
 
+    # Everything a person has accepted into `documents/` beside the profile, in addition to
+    # whatever `[knowledge] docs` names. The convention exists so that letting a document
+    # into the library never means editing the owner's profile: the profile is the owner's
+    # file, and a feature that rewrites it to add a line is a feature that can rewrite it to
+    # remove one. See `openboat/intake.py` — an assistant may put things in the *inbox*,
+    # which is not this folder and is never searched; a person moves them here.
+    paths += accepted(base, skip=paths)
+
     # The companion's own notes file, if it exists, is searched alongside the documents —
     # a note nobody can find again is a note nobody wrote. It is kept separate on disk and
     # marked as unverified in its own header; see `openboat/notes.py` for why the boat's
@@ -324,6 +332,38 @@ def load(boat=None) -> Library:
         if extra.exists() and extra not in paths:
             paths.append(extra)
     return Library(paths=paths)
+
+
+#: The folder beside a profile that a person may put documents into. Not configurable, on
+#: purpose: a fixed name is one an auditor can look for, and "which folder is the library
+#: reading today" is not a question anybody should have to answer.
+ACCEPTED_DIR = "documents"
+
+
+def accepted(base: Path, skip: list[Path] | None = None) -> list[Path]:
+    """The documents in `<profile folder>/documents`, in a stable order.
+
+    Text files join the library as they are. A PDF joins it **only when no markdown of the
+    same name sits beside it** — with one, the markdown is the readable version and listing
+    both would return the same manual twice, once as text and once as a passage saying it
+    cannot be read; without one, listing the PDF is how the gap gets stated out loud rather
+    than the paper being silently absent from a library somebody believes holds it.
+    """
+    folder = base / ACCEPTED_DIR
+    if not folder.is_dir():
+        return []
+    seen = set(skip or [])
+    out: list[Path] = []
+    for path in sorted(folder.rglob("*")):
+        if not path.is_file() or path in seen:
+            continue
+        suffix = path.suffix.lower()
+        if suffix in TEXT_TYPES and suffix:
+            out.append(path)
+        elif suffix == ".pdf" and not path.with_suffix(".md").exists():
+            out.append(path)
+        seen.add(path)
+    return out
 
 
 @dataclass

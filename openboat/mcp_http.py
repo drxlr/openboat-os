@@ -25,8 +25,10 @@ engine serial into a chat window ever again.
 
 ## What it will not do
 
-**No route to the helm.** The tool list is the read-only set plus `log_check`, which
-appends a line to a maintenance log. There is no import of `openboat.control` here and
+**No route to the helm.** The tool list is the read-only set plus the writers, each of
+which appends to a file of the companion's own — a maintenance log, a notes file, a
+transcription, or the boat's inbox, which is not the boat's documents. There is no import
+of `openboat.control` here and
 `tests/test_control_gate.py` fails the build if one appears. A hosted model with a
 connector to your boat must not be able to steer it, and the reason is not that the gate
 would refuse — it is that the gate should never be asked.
@@ -35,6 +37,17 @@ would refuse — it is that the gate should never be asked.
 papers, position and engine history behind a URL with no token is a boat's papers,
 position and engine history published. If the variable is missing the server refuses to
 start and says so, rather than starting helpfully and quietly.
+
+**One token per assistant, if you want to know who did what.**
+
+    export OPENBOAT_MCP_TOKENS="chatgpt=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))'),claude=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')"
+
+Each name gets its own token and the name behind the token that was offered becomes the
+caller's identity for that request. It is not a permission system — every token opens the
+same door — it is attribution, and it matters because of `openboat/intake.py`: an assistant
+can put a document into the boat's inbox, and "who brought this" is the first thing the
+person deciding whether to accept it will want to know. `OPENBOAT_MCP_TOKEN` still works
+exactly as it did, under the name `assistant`, and the two can be set together.
 
 **No exposing itself.** It binds to localhost. Reaching it from the internet is a tunnel
 you set up deliberately — see `docs/COMPANION.md` — because the moment a boat's server
@@ -46,6 +59,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import secrets
 import sys
 import threading
@@ -148,15 +162,57 @@ def handle(request: dict) -> dict | None:
 SESSIONS: dict[str, queue.Queue] = {}
 
 
+def named_tokens(raw: str = "") -> dict[str, str]:
+    """`"chatgpt=abc,claude=def"` → `{"chatgpt": "abc", "claude": "def"}`.
+
+    A name is reduced to letters, digits, hyphen and underscore, because it is written into
+    the boat's own files as the submitter of a document and a name arriving from an
+    environment variable should not be able to be a newline. A token under sixteen
+    characters is dropped rather than accepted, the same reasoning `openboat.snag` uses for
+    its own keys: a gate that accepts a four-character token is not a gate, and silently
+    accepting one is worse than refusing it loudly.
+    """
+    out: dict[str, str] = {}
+    for chunk in (raw or "").split(","):
+        name, _, token = chunk.partition("=")
+        clean = re.sub(r"[^A-Za-z0-9_-]", "", name.strip())[:32]
+        if clean and len(token.strip()) >= 16:
+            out[clean] = token.strip()
+    return out
+
+
 class Door(BaseHTTPRequestHandler):
+    #: The legacy single token. Its caller is named `assistant`.
     token = ""
+    #: name -> token, from `OPENBOAT_MCP_TOKENS`. Attribution, not permission: every one of
+    #: these opens exactly the same door as the one above.
+    tokens: dict[str, str] = {}
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
         sys.stderr.write(f"{self.address_string()} {fmt % args}\n")
 
-    def _authorised(self) -> bool:
-        """A Bearer header, or the token as the first path segment. Constant-time either way.
+    def _known(self) -> list[tuple[str, str]]:
+        """Every (name, token) pair this door accepts, the legacy single token included."""
+        pairs = [("assistant", self.token)] if self.token else []
+        return pairs + sorted(self.tokens.items())
+
+    def _match(self, offered: str) -> str | None:
+        """The name behind a token, or None. Constant-time, and every pair is compared.
+
+        Deliberately not short-circuiting on the first match: returning early would make the
+        time taken depend on which token was offered, which is the leak the constant-time
+        comparison is there to close in the first place.
+        """
+        found = None
+        for name, token in self._known():
+            if token and secrets.compare_digest(offered, token):
+                found = name
+        return found
+
+    def _who(self) -> str | None:
+        """Who is calling, or None if they may not. A Bearer header, or the token as the
+        first path segment.
 
         The header is the right way and the path is the way that works. A hosted assistant's
         connector setup often takes a URL and nothing else — no place to put a header — and
@@ -168,14 +224,17 @@ class Door(BaseHTTPRequestHandler):
         """
         offered = self.headers.get("Authorization", "")
         if offered.startswith("Bearer "):
-            return secrets.compare_digest(offered[len("Bearer "):], self.token)
+            return self._match(offered[len("Bearer "):])
         first = self.path.lstrip("/").split("/")[0].split("?")[0]
-        return bool(first) and secrets.compare_digest(first, self.token)
+        return self._match(first) if first else None
+
+    def _authorised(self) -> bool:
+        return self._who() is not None
 
     def _route(self) -> str:
         """The path with any leading token segment removed."""
         parts = [p for p in self.path.split("?")[0].split("/") if p]
-        if parts and secrets.compare_digest(parts[0], self.token):
+        if parts and self._match(parts[0]) is not None:
             parts = parts[1:]
         return "/" + "/".join(parts)
 
@@ -213,8 +272,11 @@ class Door(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-        # The token stays in the path so the POST is authorised the same way the GET was.
-        prefix = "/" + self.token if self.path.lstrip("/").startswith(self.token) else ""
+        # Whichever token this caller used stays in the path, so the POST is authorised the
+        # same way the GET was — and so that a client holding one of several tokens is not
+        # sent back with somebody else's.
+        first = self.path.lstrip("/").split("/")[0].split("?")[0]
+        prefix = "/" + first if first and self._match(first) is not None else ""
         try:
             self._event("endpoint", f"{prefix}/messages?sessionId={session}")
             while True:
@@ -237,7 +299,8 @@ class Door(BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def do_POST(self):
-        if not self._authorised():
+        who = self._who()
+        if who is None:
             return self._refuse()
         length = min(int(self.headers.get("Content-Length", 0)), 1_000_000)
         try:
@@ -246,7 +309,14 @@ class Door(BaseHTTPRequestHandler):
             return self._send({"jsonrpc": "2.0", "id": None,
                                "error": {"code": -32700, "message": "parse error"}})
 
-        response = handle(request)
+        # Who is calling, for the duration of this request only. A `ContextVar` set on the
+        # handler's own thread, because this is a threading server: a module attribute here
+        # would let one connection's identity end up stamped on another's write.
+        token = mcp.CALLER.set(who)
+        try:
+            response = handle(request)
+        finally:
+            mcp.CALLER.reset(token)
 
         # A POST that named a session belongs to the SSE transport: acknowledge it here and
         # put the answer on that session's stream. A POST without one is streamable HTTP,
@@ -282,17 +352,21 @@ class Door(BaseHTTPRequestHandler):
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     token = os.environ.get("OPENBOAT_MCP_TOKEN", "")
-    if not token:
+    named = named_tokens(os.environ.get("OPENBOAT_MCP_TOKENS", ""))
+    if not token and not named:
         print(
             "OPENBOAT_MCP_TOKEN is not set, so this server will not start.\n\n"
             "It serves your boat's papers, its position and its engine history. Behind a\n"
             "URL with no token, that is all of it published. Make one and keep it:\n\n"
             "  export OPENBOAT_MCP_TOKEN=\"$(python3 -c 'import secrets;"
-            "print(secrets.token_urlsafe(32))')\"\n",
+            "print(secrets.token_urlsafe(32))')\"\n\n"
+            "Or one per assistant, so the boat knows who brought which document:\n\n"
+            "  export OPENBOAT_MCP_TOKENS=\"chatgpt=<token>,claude=<token>\"\n",
             file=sys.stderr)
         return 2
 
     Door.token = token
+    Door.tokens = named
     port = int(argv[0]) if argv and argv[0].isdigit() else PORT
     # Threading, because an SSE stream blocks its handler for as long as the client is
     # connected, and the POSTs that carry the actual requests arrive on other connections
@@ -300,9 +374,12 @@ def main(argv: list[str] | None = None) -> int:
     server = ThreadingHTTPServer((BIND, port), Door)
     print(f"OpenBoat MCP: {len(TOOLS)} tools, bound to {BIND}:{port}\n"
           f"  header auth   Authorization: Bearer <token>  ->  /mcp  or  /sse/\n"
-          f"  URL auth      /{token}/sse/   (for a client that takes only a link)\n"
-          f"Localhost only. Put it behind a tunnel deliberately; treat the URL as the "
-          f"password.", file=sys.stderr)
+          f"  URL auth      /<token>/sse/   (for a client that takes only a link)\n"
+          + (f"  callers       assistant (OPENBOAT_MCP_TOKEN)\n" if token else "")
+          + "".join(f"  callers       {name} (OPENBOAT_MCP_TOKENS)\n"
+                    for name in sorted(named))
+          + f"Localhost only. Put it behind a tunnel deliberately; treat the URL as the "
+            f"password.", file=sys.stderr)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -156,6 +156,9 @@
     <a class="navbar-brand fw-semibold me-3" href="#overview"><i class="bi bi-compass me-1"></i>OpenBoat</a>
     <span id="title" class="navbar-text d-none d-md-inline text-body-secondary">Overview</span>
     <div class="ms-auto d-flex align-items-center gap-3">
+      <!-- Filled in only when this console is behind the gate, from its /me route. Served
+           plainly by the dashboard there is no account, no switcher and nothing here. -->
+      <div id="gate" class="d-none align-items-center gap-2"></div>
       <button class="btn btn-light border d-none d-sm-inline-flex align-items-center" id="findbtn" type="button">
         <i class="bi bi-search me-2"></i>Search <kbd class="ms-2">⌘K</kbd>
       </button>
@@ -177,7 +180,7 @@
       <div class="offcanvas-body d-flex flex-column p-3">
         <nav id="nav" class="nav nav-pills flex-column gap-1" aria-label="Pages"></nav>
         <div class="mt-auto pt-4 small text-body-secondary">
-          <div><i class="bi bi-lock me-1"></i>read-only</div>
+          <div id="who"><i class="bi bi-lock me-1"></i>read-only</div>
           <button class="btn btn-link btn-sm p-0 text-body-secondary" id="keysbtn" type="button">
             <kbd>?</kbd> for the keys
           </button>
@@ -202,6 +205,13 @@
    Nothing here writes. The console is a reader; the write surfaces are the snag service
    on its own port and a keyboard.                                                     */
 
+/* Where this console is mounted, worked out from its own address rather than configured.
+   Served plainly by the dashboard it is `/console.html` and ROOT is "". Behind the gate it
+   is `/b/<key>/` or `/b/<key>/console.html` and ROOT is `/b/<key>` — the same page, one
+   login and several boats in front of it. Every fetch and every service address below is
+   built from it, so nothing on this page has to know which of the two it is.            */
+const ROOT = location.pathname.replace(/\/[^/]*$/, "");
+
 const $  = (s, r = document) => r.querySelector(s);
 const el = (t, c, txt) => { const n = document.createElement(t);
                             if (c) n.className = c;
@@ -216,7 +226,7 @@ const el = (t, c, txt) => { const n = document.createElement(t);
 async function api(path) {
   let r;
   try {
-    r = await fetch(path, { headers: { Accept: "application/json" } });
+    r = await fetch(ROOT + path, { headers: { Accept: "application/json" } });
   } catch (e) {
     return { error: "the server is not answering", offline: true };
   }
@@ -267,6 +277,7 @@ const VIEWS = [
   { id: "overview",  label: "Overview",   title: "Overview" },
   { id: "docs",      label: "Documents",  title: "Documents" },
   { id: "tasks",     label: "Tasks",      title: "Tasks" },
+  { id: "inbox",     label: "Inbox",      title: "Inbox" },
   { id: "boards",    label: "Dashboards", title: "Dashboards" },
   { id: "boat",      label: "Boat",       title: "The boat" },
 ];
@@ -279,7 +290,7 @@ const state = { view: "overview", sub: null, params: {}, q: "", docs: null, hits
 
 /* ── chrome ──────────────────────────────────────────────────────────────────────── */
 const BI = { overview: "bi-speedometer2", docs: "bi-journal-text", tasks: "bi-check2-square",
-             boards: "bi-grid-1x2", boat: "bi-life-preserver" };
+             inbox: "bi-inbox", boards: "bi-grid-1x2", boat: "bi-life-preserver" };
 
 function drawNav() {
   const nav = $("#nav");
@@ -624,12 +635,21 @@ function mount(node) { const m = $("#main"); m.textContent = ""; m.append(node);
    anybody wrote about the fault. Every write goes through here, so there is exactly one
    place that knows the service's address, and the console's own `/api/` is never a
    target. `snags` is the object `/api/snags` returned (it carries the boat key and the
-   service's port); `body` is {follow_up_to, status, note, by}.                        */
+   service's port); `body` is {follow_up_to, status, note, by}. `path` names the route on
+   that service and defaults to the snag write — the one other caller is the intake view,
+   which accepts an item, and it goes through here for the same reason.
+
+   Behind the gate there is no second port and no second origin: the service is relayed at
+   `<ROOT>/snag`, which is what `snagOrigin` returns there. The gate then forces the boat
+   and the sender's name onto the request from the session, so what this page puts in the
+   body is a suggestion the server overrules rather than a claim it believes.           */
 function snagOrigin(snags) {
-  return `${location.protocol}//${location.hostname}:${snags.photo_port}`;
+  return ROOT ? ROOT + "/snag"
+              : `${location.protocol}//${location.hostname}:${snags.photo_port}`;
 }
-async function snagPost(snags, body) {
-  const url = snagOrigin(snags) + "/api/snag?who=" + encodeURIComponent(body.by || "");
+async function snagPost(snags, body, path) {
+  const url = snagOrigin(snags) + (path || "/api/snag")
+            + "?who=" + encodeURIComponent(body.by || "");
   let r;
   try {
     r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
@@ -687,7 +707,8 @@ async function taskIndex() {
    fires while you are typing into something, and Esc always closes what is open.
    The sheets are Bootstrap modals, built once and thrown away on close.            */
 
-const CHORD = { o: "overview", d: "docs", t: "tasks", s: "boards", b: "boat" };
+const CHORD = { o: "overview", d: "docs", t: "tasks", i: "inbox", s: "boards",
+                b: "boat" };
 let chordAt = 0;
 
 const typingIn = t => !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA"
@@ -738,6 +759,7 @@ function openKeys() {
    ["g o",       "Overview"],
    ["g d",       "Documents"],
    ["g t",       "Tasks"],
+   ["g i",       "Inbox"],
    ["g s",       "Dashboards"],
    ["g b",       "Boat"],
    ["?",         "this card"],
@@ -891,18 +913,77 @@ document.addEventListener("keydown", e => {
 </script>
 <script src="console/docs.js"></script>
 <script src="console/tasks.js"></script>
+<script src="console/inbox.js"></script>
 <script src="console/boards.js"></script>
 <script src="console/boat.js"></script>
 <script src="console/overview.js"></script>
 <script>
 /* ── go ──────────────────────────────────────────────────────────────────────────── */
+/* A view is a function, looked up by name. `inbox` is written beside this file rather
+   than in it, so the map is built from what actually loaded: a script that is not there
+   yet — or that failed to parse — leaves the page on the overview instead of leaving it
+   blank, which is the difference between a missing page and a broken console.        */
 function render() {
-  ({ overview: viewOverview, docs: viewDocs, tasks: viewTasks,
-     boards: viewBoards, boat: viewBoat }[state.view] || viewOverview)();
+  const views = { overview: viewOverview, docs: viewDocs, tasks: viewTasks,
+                  boards: viewBoards, boat: viewBoat,
+                  inbox: typeof viewInbox === "function" ? viewInbox : undefined };
+  (views[state.view] || viewOverview)();
+}
+
+/* Who is reading this, when anybody had to say. Only asked for when ROOT is non-empty,
+   because served plainly there is no gate, no account and no route to ask — and a 404 on
+   every load would be a lie about what this page is. What comes back is put in the navbar
+   and on `window.OB_USER`, so a view can ask who is signed in without asking again.    */
+async function whoami() {
+  if (!ROOT) return null;
+  const me = await api("/me");
+  if (!me || me.error) return null;
+  window.OB_USER = me;
+
+  const box = $("#gate");
+  box.textContent = "";
+  box.className = "d-flex align-items-center gap-2";
+
+  const boats = me.boats || [];
+  if (boats.length > 1) {
+    /* More than one boat and the switcher is the only way between them: each entry is the
+       same page on another boat, carrying the hash across so switching from a document on
+       one boat lands on the same view of the other rather than back at the overview. */
+    const drop = el("div", "dropdown");
+    const btn = el("button", "btn btn-light border btn-sm dropdown-toggle");
+    btn.type = "button";
+    btn.setAttribute("data-bs-toggle", "dropdown");
+    const here = boats.find(b => b.key === me.boat);
+    btn.textContent = (here && here.name) || me.boat || "Boats";
+    const menu = el("ul", "dropdown-menu dropdown-menu-end");
+    for (const b of boats) {
+      const li = el("li");
+      const a = el("a", "dropdown-item" + (b.key === me.boat ? " active" : ""), b.name || b.key);
+      a.href = "/b/" + encodeURIComponent(b.key) + "/" + location.hash;
+      li.append(a);
+      menu.append(li);
+    }
+    drop.append(btn, menu);
+    box.append(drop);
+  }
+
+  const name = el("span", "text-body-secondary small text-truncate d-none d-md-inline",
+                  me.name || me.email || "");
+  name.style.maxWidth = "14rem";
+  const out = el("a", "btn btn-link btn-sm text-body-secondary p-0", "Sign out");
+  out.href = "/logout";
+  box.append(name, out);
+
+  const who = $("#who");
+  who.textContent = "";
+  who.append(el("i", "bi bi-person me-1"));
+  who.append(document.createTextNode(me.name || me.email || ""));
+  return me;
 }
 
 (async function boot() {
   apply();
+  whoami();
   const p = await api("/api/profile");
   if (p.error) {
     $("#vname").textContent = p.error;

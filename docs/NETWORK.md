@@ -32,6 +32,14 @@ Why this and not the alternatives:
 Set an ACL so the boat can be *read* from home but the boat cannot reach back into your
 house. It is a small computer in a locker on a public pontoon; treat it as one.
 
+**The one exception, and it is a narrow one.** An overlay network is something everybody
+who needs the boat has to install, and the yard, a delivery skipper or a partner with a
+phone will not. [The gate](GATE.md) is the answer to that: one process with a password on
+it, a tunnel that reaches *it* and nothing else, and the boat's own services still
+unauthenticated on localhost behind it. What must not happen is a tunnel pointed at
+`openboat.server` or `openboat.snag` directly — that is a boat's papers on the open
+internet, and nothing in either of them would stop it.
+
 ## Connectivity at the berth
 
 | | Cost | Reliability | Good for |

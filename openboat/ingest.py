@@ -161,15 +161,25 @@ def extract(path: Path, backend: str | None = None) -> Extraction:
     raise RuntimeError(f"could not read {path.name} — " + "; ".join(problems))
 
 
-def to_markdown(found: Extraction, title: str | None = None) -> str:
+def to_markdown(found: Extraction, title: str | None = None,
+                provenance: str = "") -> str:
     """One markdown document, one section per page.
 
     The heading carries the document's name as well as the page number. That is not
     decoration: with twenty manuals in one library, a passage headed "Page 14" is unusable,
     and the retrieval scores headings above bodies — so the name of the manual has to be in
     the heading of every passage for a question naming the manual to find it.
+
+    `provenance` is one sentence saying where the paper came from and who let it into the
+    library, and it is repeated under **every** page rather than only in the header. That
+    looks like duplication and is not: a passage is what a model actually reads, retrieval
+    hands back one page at a time, and a warning that lives only in a header the search
+    never returns is a warning nobody sees. A manual an assistant fetched off the internet
+    and a survey the owner paid for must not read identically at the point of quotation.
+    See `openboat/intake.py`.
     """
     name = title or found.source.stem.replace("_", " ").replace("-", " ")
+    said = " ".join(str(provenance or "").split())
     head = [
         f"# {name}",
         "",
@@ -185,10 +195,15 @@ def to_markdown(found: Extraction, title: str | None = None) -> str:
            if found.scanned else ""),
         "",
     ]
+    if said:
+        head[4:4] = [f"> **Where this came from:** {said}", ">"]
     body = []
     for number, text in enumerate(found.pages, start=1):
         body.append(f"## {name} — page {number}")
         body.append("")
+        if said:
+            body.append(f"> {said}")
+            body.append("")
         body.append(text.strip() or NO_TEXT)
         body.append("")
     return "\n".join(head + body)

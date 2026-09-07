@@ -170,6 +170,20 @@ what was done is refused. Reopening a fault that somebody closed is done the way
 closed: by hand, in the file. A service is still recorded by somebody at a keyboard who
 knows the work actually happened, and a fault is still filed from the phone page.
 
+## Somebody else reading it
+
+Served by `openboat.server` the console has no account, no name and no login: it is a page
+on a private network, and the network is the boundary. Put [the gate](GATE.md) in front and
+the same page — the same file, unmodified — is served at `/b/<key>/` behind a password,
+with a boat switcher, the reader's name and a sign-out link in the navbar.
+
+It works that out from its own address rather than from configuration. `ROOT` is `""` when
+the page is at `/console.html` and `/b/<key>` when it is not; every fetch is built from it,
+and so is the snag service's address — which behind the gate is not a second port on
+another origin but `/b/<key>/snag`, relayed by the gate with the boat key and the sender's
+name forced on from the session. There is nothing to configure and no second copy of the
+page.
+
 ## Reading the disk
 
 `/api/doc` and `/paper` both turn a query parameter into a file read, and this server binds

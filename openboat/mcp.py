@@ -6,11 +6,14 @@ session, on any machine, can ask about the boat, the weather and the passage:
 
     claude mcp add openboat -- python3 -m openboat.mcp
 
-Twelve tools. Eleven are read-only; the ninth, `log_check`, appends a line to the owner's
-maintenance log and can do nothing else. Nothing here sends, pays, books or steers, and
-that is a property of the design rather than a feature not yet written — there is no route
-from this module into `openboat/control/`, and `tests/test_control_gate.py` fails the build
-if one appears. See `docs/DISCLAIMER.md`.
+Most of the tools read. Five write, and each writes to a file of the companion's own:
+`log_check` and `add_note` append a line to the maintenance log or the notes; `add_document`
+records a transcription; `add_link` and `fetch_document` put something into the boat's
+*inbox*, which is not the boat's documents and is never searched or quoted — a person moves
+things from there into the library, and `docs/INTAKE.md` says why that step exists. Nothing
+here sends, pays, books or steers, and that is a property of the design rather than a
+feature not yet written — there is no route from this module into `openboat/control/`, and
+`tests/test_control_gate.py` fails the build if one appears. See `docs/DISCLAIMER.md`.
 
 `boat_docs` is the one that changes what an assistant can be. Without it a model answers
 about the make and model in general; with it, it answers about *this* hull — the riser that
@@ -30,6 +33,7 @@ reach it is an ordinary answer given in a sentence, not an error.
 from __future__ import annotations
 
 import base64
+import contextvars
 import json
 import re
 import shutil
@@ -39,7 +43,7 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 
-from . import boat, documents, knowledge, ledger, logbook, notes, papers, windows
+from . import boat, documents, intake, knowledge, ledger, logbook, notes, papers, windows
 from . import engine_health, engine_hours, maintenance, snag
 from .engine import DEFAULT_DB, connect as connect_engine_data
 from .marine import forecast
@@ -55,6 +59,22 @@ def _compass(degrees) -> str:
     return points[int((degrees % 360) / 22.5 + 0.5) % 16]
 
 PROTOCOL = "2025-06-18"
+
+#: Which assistant is on the other end of this request.
+#:
+#: Over a pipe there is exactly one and it is whoever launched the process. Over HTTP there
+#: can be several — `OPENBOAT_MCP_TOKENS` gives each its own token — and the name behind the
+#: token is set here for the duration of the request. It matters because everything an
+#: assistant puts into the boat's inbox is stamped with it, and "who brought this document"
+#: is the first question a person deciding whether to accept it will ask.
+#:
+#: A `ContextVar` rather than a global: `mcp_http` serves on a thread per connection, and a
+#: plain module attribute would have one request's caller name land on another's write.
+CALLER: contextvars.ContextVar[str] = contextvars.ContextVar("caller", default="assistant")
+
+
+def caller() -> str:
+    return CALLER.get() or "assistant"
 
 #: MCP tool annotations. Without them a client has to assume the worst, and ChatGPT does
 #: exactly that — it labelled every one of these PUBLIC WRITE, OPEN WORLD and DESTRUCTIVE,
@@ -74,6 +94,12 @@ READ_ONLY_ONLINE = {**READ_ONLY, "openWorldHint": True}
 APPEND_ONLY = {"readOnlyHint": False, "destructiveHint": False,
                "idempotentHint": False, "openWorldHint": False}
 
+#: A write that also reaches the open internet: `fetch_document` opens a connection to a URL
+#: somebody handed it. Both halves have to be declared — a client told only "it writes"
+#: cannot warn that the boat is about to talk to a stranger, and one told only "it is
+#: online" will treat it as a search.
+APPEND_ONLY_ONLINE = {**APPEND_ONLY, "openWorldHint": True}
+
 ANNOTATIONS = {
     "boat_docs": READ_ONLY, "boat_specs": READ_ONLY, "checks": READ_ONLY,
     "boat_papers": READ_ONLY, "boat_costs": READ_ONLY, "boat_state": READ_ONLY,
@@ -87,6 +113,9 @@ ANNOTATIONS = {
     "boat_tasks": READ_ONLY,
     "engine_data": READ_ONLY,
     "snag_photo": READ_ONLY,
+    "add_link": APPEND_ONLY,
+    "fetch_document": APPEND_ONLY_ONLINE,
+    "boat_inbox": READ_ONLY,
 }
 
 
@@ -363,6 +392,68 @@ TOOLS = [
             "type": "object",
             "properties": {"limit": {"type": "integer"}},
         },
+    },
+    {
+        "name": "add_link",
+        "description": "Suggest a web page the owner might want — a manual on the "
+                       "manufacturer's site, a service bulletin, a parts diagram. The link "
+                       "is written into the boat's INBOX and is NOT opened, now or ever, by "
+                       "anything here. It is not one of the boat's documents and nothing "
+                       "will answer from it until the owner reads it and accepts it in the "
+                       "console. Say plainly to the owner that you have put a suggestion in "
+                       "their inbox rather than implying the boat now knows what is on the "
+                       "page. Use this for anything that is not a PDF.",
+        "inputSchema": {"type": "object", "properties": {
+            "url": {"type": "string", "description": "the http(s) address"},
+            "title": {"type": "string", "description": "what it is, in a few words"},
+            "reason": {"type": "string",
+                       "description": "why this boat wants it — the owner reads this when "
+                                      "deciding"},
+            "boat": {"type": "string",
+                     "description": "boat key when this machine serves several boats; omit "
+                                    "for the boat this server was started on"},
+        }, "required": ["url"]},
+    },
+    {
+        "name": "fetch_document",
+        "description": "Download one PDF into the boat's INBOX for the owner to look at — "
+                       "a manual, a datasheet, a service bulletin. This reaches the "
+                       "internet from the owner's own machine.\n\n"
+                       "WHAT IT IS NOT: the file does NOT become one of the boat's "
+                       "documents. Nothing searches it, quotes it or answers from it while "
+                       "it sits in the inbox. A person opens it, reads it and accepts it in "
+                       "the console, and only then does the library pick it up. Tell the "
+                       "owner exactly that, and never claim the boat now knows what the "
+                       "document says.\n\n"
+                       "Refused, in a sentence saying which: anything that is not https, "
+                       "any address that is not on the public internet, more than three "
+                       "redirects, more than 25 MB, and anything whose body is not a PDF — "
+                       "for those use add_link. A PDF carrying JavaScript, an embedded file "
+                       "or an open action is kept and labelled, and the owner is shown the "
+                       "labels.",
+        "inputSchema": {"type": "object", "properties": {
+            "url": {"type": "string", "description": "an https URL ending in a PDF"},
+            "title": {"type": "string", "description": "what the document is"},
+            "reason": {"type": "string",
+                       "description": "why this boat wants it — the owner reads this when "
+                                      "deciding"},
+            "boat": {"type": "string", "description": "boat key, as for add_link"},
+        }, "required": ["url"]},
+    },
+    {
+        "name": "boat_inbox",
+        "description": "What is waiting in the boat's inbox: links and PDFs an assistant "
+                       "has put there, who put each one and why, whether a PDF carries "
+                       "active content, and what the owner has already accepted or "
+                       "rejected — with the reason they gave. Read it before suggesting "
+                       "something again: an item the owner rejected should not be "
+                       "re-submitted, and saying 'you turned this down in March because it "
+                       "was the wrong engine variant' is more use than fetching it twice. "
+                       "Read-only; accepting and rejecting is done by a person in the "
+                       "console.",
+        "inputSchema": {"type": "object", "properties": {
+            "boat": {"type": "string", "description": "boat key, as for add_link"},
+        }},
     },
 ]
 
@@ -706,6 +797,80 @@ def tool_snag_photo(boat="", name="", when=""):
     return {"content": content}
 
 
+# --- the inbox: an assistant submits, a person decides -----------------------------------
+
+INBOX_SAID = ("\n\nThis is in the boat's INBOX. It is NOT one of the boat's documents: "
+              "nothing searches it, quotes it or answers from it until the owner reads it "
+              "and accepts it in the console. Say that to the owner rather than implying "
+              "the boat now knows what it says.")
+
+
+def tool_add_link(url, title="", reason="", boat=""):
+    try:
+        entry = intake.add_link(url, title=title, reason=reason, by=caller(), boat=boat)
+    except intake.Refused as exc:
+        return f"Not recorded: {exc}"
+    return (f"Recorded as {entry['id']}: {entry['title'] or entry['url']}\n"
+            f"by {entry['by']} at {entry['when']}\n"
+            f"The link was NOT opened — nothing here fetched or read that page." + INBOX_SAID)
+
+
+def tool_fetch_document(url, title="", reason="", boat=""):
+    try:
+        entry = intake.fetch_document(url, title=title, reason=reason, by=caller(),
+                                      boat=boat)
+    except intake.Refused as exc:
+        return f"Not fetched: {exc}"
+    if entry.get("duplicate"):
+        return (f"That is byte-for-byte the document already in the inbox as "
+                f"{entry['id']}, brought by {entry.get('by') or 'somebody'} on "
+                f"{(entry.get('fetched') or '')[:10]}, status {entry.get('status')}. "
+                f"Nothing was written twice.")
+    flags = entry.get("flags") or []
+    lines = [f"Fetched into the inbox as {entry['id']}.",
+             f"  from      {entry['url']}",
+             f"  size      {entry['bytes']} bytes, {entry['content_type']}",
+             f"  sha256    {entry['sha256']}",
+             f"  by        {entry['by']} at {entry['fetched']}"]
+    if flags:
+        lines.append("  ⚠ ACTIVE CONTENT: this PDF contains " + ", ".join(flags)
+                     + ". It is kept and labelled, not opened. Tell the owner.")
+    return "\n".join(lines) + INBOX_SAID
+
+
+def tool_boat_inbox(boat=""):
+    try:
+        found = intake.items(boat)
+    except intake.Refused as exc:
+        return str(exc)
+    if not found:
+        return ("This boat's inbox is empty. Nothing has been suggested or fetched for it "
+                "yet.")
+    waiting = [e for e in found if e["status"] == "inbox"]
+    out = [f"{len(waiting)} waiting of {len(found)} in the inbox. Nothing here is one of "
+           f"the boat's documents.", ""]
+    for e in found:
+        head = (f"  [{e['status']}] {e['kind']} {e['id']}  "
+                f"{e['title'] or e['url'] or '(untitled)'}")
+        out.append(head)
+        out.append(f"      by {e['by'] or '?'} at {e['when'] or '?'}"
+                   + (f"  ({e['bytes']} bytes)" if e.get("bytes") else ""))
+        if e.get("url") and e["title"]:
+            out.append(f"      {e['url']}")
+        if e.get("reason"):
+            out.append(f"      reason: {e['reason']}")
+        if e.get("flags"):
+            out.append("      ⚠ active content: " + ", ".join(e["flags"]))
+        if e["status"] == "rejected":
+            out.append(f"      rejected by {e.get('decided_by') or 'the owner'}"
+                       f"{' — ' + e['decided_why'] if e.get('decided_why') else ''}. "
+                       f"Do not submit it again.")
+        elif e["status"] == "accepted":
+            out.append(f"      accepted by {e.get('decided_by') or 'the owner'}"
+                       f"{' — now ' + e['document'] if e.get('document') else ''}")
+    return "\n".join(out)
+
+
 def tool_engine_data(days=None):
     if not DEFAULT_DB.exists():
         return (f"No engine log at {DEFAULT_DB}. Nothing has been measured; start one with "
@@ -764,6 +929,9 @@ HANDLERS = {
     "boat_tasks": lambda **kw: tool_boat_tasks(**kw),
     "engine_data": lambda **kw: tool_engine_data(**kw),
     "snag_photo": lambda **kw: tool_snag_photo(**kw),
+    "add_link": lambda **kw: tool_add_link(**kw),
+    "fetch_document": lambda **kw: tool_fetch_document(**kw),
+    "boat_inbox": lambda **kw: tool_boat_inbox(**kw),
     "marine_forecast": tool_marine_forecast,
     "passage_window": tool_passage_window,
     "plan_route": tool_plan_route,

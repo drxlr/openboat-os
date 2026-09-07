@@ -153,6 +153,23 @@ companion.
 When a note turns out to be real, you move it into the proper document by hand. That takes
 ten seconds, and it is the moment a person decides it is true.
 
+## Can it bring me documents?
+
+Yes, into an **inbox**, and that is a different thing from the library. An assistant can put
+a link or a PDF into `intake/` beside your profile — the manual it found on the
+manufacturer's site, the bulletin for the part in your photograph — and nothing in there is
+searched, quoted or answered from. You read it on the console's Inbox page and accept it,
+and *then* it joins the library, carrying a sentence in every passage saying which assistant
+fetched it, from where, and that you let it in. Rejecting one deletes the file and keeps the
+record, so the same address is not fetched again without somebody noticing.
+
+The split is the same one as above, for the same reason: an assistant is a submitter, never
+a librarian. The fetch is also the only thing in this project that opens a connection
+somewhere a model chose, so it is https-only, checks every address a name resolves to and
+every redirect, refuses anything that is not on the public internet, caps the download, and
+labels a PDF that carries JavaScript or an embedded file rather than hiding it. All of it,
+and why each piece is there, is in [docs/INTAKE.md](INTAKE.md).
+
 ## Connecting an assistant
 
 **Locally, over a pipe** — for a model on the same machine:
@@ -162,7 +179,9 @@ claude mcp add openboat -- python3 -m openboat.mcp
 ```
 
 **Over the network** — for a hosted assistant such as the ChatGPT app, whose connectors
-reach out to a URL:
+reach out to a URL. `OPENBOAT_MCP_TOKENS="chatgpt=…,claude=…"` gives each assistant its own
+token so the boat can say which one brought which document; the single-token form below
+still works and its caller is named `assistant`:
 
 ```bash
 export OPENBOAT_MCP_TOKEN="$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')"
@@ -179,9 +198,11 @@ OpenAI's connector documentation asks that a server implement two read-only tool
 
 ### What the assistant can and cannot do
 
-Fourteen tools. Twelve read. The two that write — `log_check` and `add_note` — append
-a line to your maintenance log or your notes file, and can do nothing else: no edit, no
-delete, nothing that reaches your documents.
+Most of the tools read. The ones that write reach a file of the companion's own and nothing
+else: `log_check` and `add_note` append a line to your maintenance log or your notes,
+`add_document` records a transcription, and `add_link` and `fetch_document` put something in
+the inbox described above. No edit, no delete, and nothing that reaches your documents —
+that step needs a person, and their name goes into the document.
 
 **There is no route to the helm.** `openboat/control/` is not imported here, and
 `tests/test_control_gate.py` parses this module's syntax tree and fails the build if an

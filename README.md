@@ -46,7 +46,21 @@ is the only requirement.
   answer citing its file and line with the PDF one click away, the tasks, the dashboards, and
   a page that lists what is *not* recorded with the same weight as what is. Read-only, and it
   holds no boat facts of its own. See [docs/CONSOLE.md](docs/CONSOLE.md).
-- **Five read-only tools for an AI assistant**, over MCP. Ask Claude when the next four-hour
+- **A front door, when somebody else needs to see the boat.** One login in front of any
+  number of boats, invite links instead of passwords anybody types, and a fixed public
+  address that survives the tunnel changing. The boat's own services stay unauthenticated
+  on localhost, where they belong. See [docs/GATE.md](docs/GATE.md).
+- **A link for the person actually holding the spanner.** Hand one fault to somebody with
+  no account — they see it, its photographs and its history on their phone, and answer
+  *looked at it* or *fixed it*. The grant is written into the boat's own file, so who was
+  given a way in is readable by a person and taken back the same way. See
+  [docs/SNAGS.md](docs/SNAGS.md).
+- **An inbox an assistant can put paper into, and only a person takes it out of.** A model
+  can fetch the manual it found and drop it in; nothing searches or quotes it until somebody
+  reads it and accepts it, and every passage then says which assistant brought it, from
+  where, and who let it in. A corpus a model both reads and writes is a prompt-injection
+  amplifier, and this is the seam that breaks the loop. See [docs/INTAKE.md](docs/INTAKE.md).
+- **Read-only tools for an AI assistant**, over MCP. Ask Claude when the next four-hour
   window is and it answers from live data.
 
 ## Give it to an AI
@@ -57,11 +71,14 @@ claude mcp add openboat -- python3 -m openboat.mcp
 
 `marine_forecast`, `passage_window`, `plan_route`, `boat_state`, `ais_targets`,
 `boat_docs`, `boat_specs`, `boat_papers`, `boat_costs`, `boat_files`, `checks`,
-`boat_tasks` (the snags with their status, and the service due) and `engine_data`
-(hours, coverage and the health findings). All read-only; three append-only tools
-(`log_check`, `add_note`, `add_document`) write to their own files and nothing else.
-The assistant can plan, explain and remember; it cannot steer, switch or send. That boundary
-is the design — see [DISCLAIMER.md](DISCLAIMER.md).
+`snag_photo`, `boat_inbox`, `boat_tasks` (the snags with their status, and the service due)
+and `engine_data` (hours, coverage and the health findings). All read-only; five
+append-only tools write to their own files and nothing else — `log_check`, `add_note` and
+`add_document`, plus `add_link` and `fetch_document`, which put a suggestion or a PDF into
+the boat's **inbox**, which is not the boat's documents and is never searched or quoted
+until a person accepts it. The assistant can plan, explain, remember and suggest; it cannot
+steer, switch, send, or put anything into the library on its own. That boundary is the
+design — see [DISCLAIMER.md](DISCLAIMER.md) and [docs/INTAKE.md](docs/INTAKE.md).
 
 ## Connect it to your boat
 
@@ -151,8 +168,9 @@ that flushes the engine's raw-water circuit and records it here.
 | `profiles/` | The demo boat, and the schema your own profile follows |
 | `signalk/` | Signal K in Docker, plus an NMEA simulator so everything is testable with no boat |
 | `arduino/` | Analogue engine senders → NMEA → Signal K. ⚠️ Never tested against a real engine |
-| `scripts/` | The private-content check and its git hook |
-| `docs/` | [Hardware](docs/HARDWARE.md) · [Network](docs/NETWORK.md) · [Forecast](docs/FORECAST.md) · [Charts](docs/CHARTS.md) · [Companion](docs/COMPANION.md) · [Snags](docs/SNAGS.md) · [Jobs](docs/JOBS.md) · [Console](docs/CONSOLE.md) · [Private and public](docs/PRIVATE-AND-PUBLIC.md) |
+| `scripts/` | The private-content check, its git hook, and the tunnel that publishes the gate |
+| `deploy/` | The Vercel relay: a fixed public address in front of the gate's tunnel |
+| `docs/` | [Hardware](docs/HARDWARE.md) · [Network](docs/NETWORK.md) · [Forecast](docs/FORECAST.md) · [Charts](docs/CHARTS.md) · [Companion](docs/COMPANION.md) · [Intake](docs/INTAKE.md) · [Snags](docs/SNAGS.md) · [Jobs](docs/JOBS.md) · [Console](docs/CONSOLE.md) · [Gate](docs/GATE.md) · [Private and public](docs/PRIVATE-AND-PUBLIC.md) |
 
 ## Contributing
 
