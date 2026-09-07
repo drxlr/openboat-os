@@ -390,8 +390,8 @@ one token there opens every boat the process knows. To hand a boat's owner an as
 address that reaches **their boat only**, run a second `openboat.mcp_http` on that boat's
 profile alone (no `OPENBOAT_BOATS`, its own `OPENBOAT_MCP_TOKEN`) and tell the gate:
 
-    OPENBOAT_MCP_ORIGINS=cmsea=http://127.0.0.1:8746
-    OPENBOAT_MCP_CONNECT=cmsea=https://your.public.host/mcp/cmsea/<that token>/mcp
+    OPENBOAT_MCP_ORIGINS=beta=http://127.0.0.1:8746
+    OPENBOAT_MCP_CONNECT=beta=https://your.public.host/mcp/beta/<that token>/mcp
 
 `/mcp/<key>/<token>/mcp` then reaches that process with the key stripped, and the console's
 **MCP connect** page (`/b/<key>/mcp-connect`) shows the configured address to an `owner` or

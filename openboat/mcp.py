@@ -586,8 +586,8 @@ def tool_boat_specs(boat=""):
     if missing:
         lines.append("\nNot recorded, and therefore not known: " + ", ".join(missing)
                      + ". Do not supply these from the make and model.")
-    # A boat with no berth recorded has `berth = None`, not an empty table — and CMSea
-    # is exactly that, so this tool raised instead of answering.
+    # A boat with no berth recorded has `berth = None`, not an empty table — and a second
+    # boat on this machine was exactly that, so this tool raised instead of answering.
     berth = boat_profile.as_dict().get("berth") or {}
     if berth.get("name"):
         lines.append(f"\nBerth: {berth['name']} ({berth['lat']:.4f}, {berth['lon']:.4f})")
