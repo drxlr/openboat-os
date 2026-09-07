@@ -920,3 +920,43 @@ def test_the_share_mounts_are_installed_when_run_as_a_module(tmp_path):
               "the share mount answers /s/ on a gate started with -m, not the gate's own 404")
     finally:
         proc.kill(); proc.wait()
+
+
+def test_an_assistant_address_is_per_boat_and_only_for_its_owner() -> None:
+    """One MCP process per boat is what scopes a token to a boat, and the gate reaches
+    the right one from the first path segment. The address itself — the token — is handed
+    out by `/b/<key>/mcp-connect` to an owner or admin of that boat and to nobody else."""
+    from openboat import gate
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        FakeMcp.seen.clear()
+        with Running(FakeBoat) as boat, Running(FakeSnag) as snags, \
+             Running(FakeMcp) as shared, Running(FakeMcp) as beta_only, \
+             a_gate(tmp, boat.origin, snags.origin,
+                    OPENBOAT_MCP_ORIGIN=shared.origin,
+                    OPENBOAT_MCP_ORIGINS=f"beta={beta_only.origin}",
+                    OPENBOAT_MCP_CONNECT="alpha=https://x.example/mcp/T1/mcp,"
+                                         "beta=https://x.example/mcp/beta/T2/mcp"), \
+             Running(gate.Gate) as served:
+            base = served.origin
+            nobody = Client(base)
+            status, body = nobody.json("/mcp/beta/T2/mcp", data=b'{"id":1}')
+            check(status == 200 and body["path"] == "/T2/mcp",
+                  f"/mcp/<key>/… reaches that boat's own MCP with the key stripped ({body})")
+            check(FakeMcp.seen[-1][0] == "/T2/mcp", "and the token segment is intact")
+            status, body = nobody.json("/mcp/T1/mcp", data=b'{"id":2}')
+            check(status == 200 and body["path"] == "/T1/mcp",
+                  "a path without a boat key still goes to the default MCP")
+
+            owner = invite_and_set(gate, base, "own@example.org", "Own", ["beta"], role="owner")
+            status, body = owner.json("/b/beta/mcp-connect")
+            check(status == 200 and body["url"] == "https://x.example/mcp/beta/T2/mcp",
+                  f"an owner gets their boat's address ({status} {body})")
+            status, _ = owner.json("/b/alpha/mcp-connect")
+            check(status == 404, "and not another boat's, even though one is configured")
+
+            crew = invite_and_set(gate, base, "crew@example.org", "Crew", ["beta"], role="crew")
+            status, body = crew.json("/b/beta/mcp-connect")
+            check(status == 404 and "url" not in (body or {}),
+                  f"crew get a 404 with no address in it ({status} {body})")

@@ -31,6 +31,7 @@
      columns). Everything else on the page is a stock Bootstrap component, on purpose: the
      console is read by somebody in a bad mood in February, and a stock component is one
      they have used a thousand times before.                                            */
+  :root { --ob-nav-h: 57px; }
   :root, [data-bs-theme="light"] {
     --bs-body-font-size: 1.0625rem;
     --bs-body-line-height: 1.6;
@@ -73,17 +74,44 @@
     box-shadow: 0 0 0 .25rem rgba(var(--bs-link-color-rgb), .25); }
 
   /* the frame */
-  #sidebar { min-height: calc(100vh - 57px); }
+  #sidebar { min-height: calc(100vh - var(--ob-nav-h)); }
   @media (min-width: 992px) {
-    #sidebar { position: sticky; top: 57px; height: calc(100vh - 57px); overflow-y: auto; }
+    #sidebar { position: sticky; top: var(--ob-nav-h); height: calc(100vh - var(--ob-nav-h));
+               overflow-y: auto; }
   }
   #sidebar .nav-link { color: var(--bs-body-color); padding: .55rem .9rem; border-radius: .5rem; }
   #sidebar .nav-link:hover { background: var(--bs-tertiary-bg); }
   #sidebar .nav-link.active { color: #fff; }
   #sidebar .nav-link .bi { width: 1.5rem; display: inline-block; }
-  main { max-width: 1240px; }
   h1, h2, h3, h4 { letter-spacing: -.01em; }
   .card { --bs-card-border-color: var(--bs-border-color-translucent); }
+
+  /* The bar reads left to right as one sentence: whose console, which boat, which page.
+     Everything about the reader — their name, their boats, the way out — is behind the
+     one control on the right, because an account is not a thing you look at, it is a
+     thing you occasionally open. The boat's name was previously printed twice, once in
+     the switcher and once at the far right, which is what made the row look assembled
+     rather than designed. */
+  nav.navbar { min-height: var(--ob-nav-h); --bs-navbar-padding-y: 0; }
+  .ob-brand { font-size: 1.05rem; letter-spacing: -.01em; }
+  .ob-brand .bi { font-size: 1.15rem; color: var(--ob-sea); }
+  .ob-rule { width: 1px; height: 1.4rem; background: var(--bs-border-color);
+             flex: 0 0 auto; }
+  .ob-boat { font-weight: 600; }
+  .ob-boat.dropdown-toggle { --bs-btn-padding-x: .5rem; --bs-btn-padding-y: .15rem;
+                             --bs-btn-font-weight: 600; }
+  .ob-crumb { font-size: .7rem; color: var(--bs-secondary-color); opacity: .7; }
+  .ob-view { color: var(--bs-secondary-color); }
+  nav.navbar kbd { background: var(--bs-tertiary-bg); color: var(--bs-secondary-color);
+                   border: 1px solid var(--bs-border-color); border-radius: .25rem;
+                   padding: 0 .3rem; font-size: .7rem; box-shadow: none; }
+  .ob-me { --bs-btn-padding-x: .4rem; --bs-btn-padding-y: .2rem; }
+  .ob-me::after { margin-left: .1rem; opacity: .6; }
+  .ob-face { width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--ob-sea);
+             color: #fff; font-size: .72rem; font-weight: 600; line-height: 1;
+             display: inline-flex; align-items: center; justify-content: center;
+             flex: 0 0 auto; }
+  [data-bs-theme="dark"] .ob-face { color: var(--ob-on-sea); }
   .card-header { background: transparent; font-weight: 600; }
   .card-header .side { font-weight: 400; font-size: .8rem; text-transform: uppercase;
                        letter-spacing: .04em; color: var(--bs-secondary-color); }
@@ -153,18 +181,24 @@
             data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-label="Menu">
       <i class="bi bi-list"></i>
     </button>
-    <a class="navbar-brand fw-semibold me-3" href="#overview"><i class="bi bi-compass me-1"></i>OpenBoat</a>
-    <span id="title" class="navbar-text d-none d-md-inline text-body-secondary">Overview</span>
-    <div class="ms-auto d-flex align-items-center gap-3">
-      <!-- Filled in only when this console is behind the gate, from its /me route. Served
-           plainly by the dashboard there is no account, no switcher and nothing here. -->
-      <div id="gate" class="d-none align-items-center gap-2"></div>
-      <button class="btn btn-light border d-none d-sm-inline-flex align-items-center" id="findbtn" type="button">
+    <a class="navbar-brand ob-brand fw-semibold d-flex align-items-center gap-2 me-1 py-0"
+       href="#overview"><i class="bi bi-compass"></i>OpenBoat</a>
+    <span class="ob-rule mx-2 d-none d-sm-block"></span>
+    <!-- The boat: a plain name with one boat, a switcher with several. -->
+    <div id="boatbox" class="d-flex align-items-center text-truncate" style="max-width: 40vw">
+      <span id="vname" class="ob-boat text-truncate">…</span>
+    </div>
+    <i class="bi bi-chevron-right ob-crumb mx-2 d-none d-md-inline"></i>
+    <span id="title" class="ob-view d-none d-md-inline text-truncate">Overview</span>
+
+    <div class="ms-auto d-flex align-items-center gap-2">
+      <button class="btn btn-light border btn-sm d-none d-sm-inline-flex align-items-center"
+              id="findbtn" type="button">
         <i class="bi bi-search me-2"></i>Search <kbd class="ms-2">⌘K</kbd>
       </button>
-      <span class="text-body-secondary text-truncate" style="max-width: 40vw">
-        <span id="vname">…</span> <small id="vver" class="d-none d-md-inline opacity-75"></small>
-      </span>
+      <!-- Filled in only when this console is behind the gate, from its /me route. Served
+           plainly by the dashboard there is no account, no switcher and nothing here. -->
+      <div id="gate" class="d-none align-items-center"></div>
     </div>
   </div>
 </nav>
@@ -184,6 +218,7 @@
           <button class="btn btn-link btn-sm p-0 text-body-secondary" id="keysbtn" type="button">
             <kbd>?</kbd> for the keys
           </button>
+          <div id="vver" class="mt-2 opacity-75"></div>
         </div>
       </div>
     </aside>
@@ -280,6 +315,7 @@ const VIEWS = [
   { id: "inbox",     label: "Inbox",      title: "Inbox" },
   { id: "boards",    label: "Dashboards", title: "Dashboards" },
   { id: "boat",      label: "Boat",       title: "The boat" },
+  { id: "connect",   label: "MCP connect", title: "Connect an assistant" },
 ];
 
 const state = { view: "overview", sub: null, params: {}, q: "", docs: null, hits: null,
@@ -290,7 +326,8 @@ const state = { view: "overview", sub: null, params: {}, q: "", docs: null, hits
 
 /* ── chrome ──────────────────────────────────────────────────────────────────────── */
 const BI = { overview: "bi-speedometer2", docs: "bi-journal-text", tasks: "bi-check2-square",
-             inbox: "bi-inbox", boards: "bi-grid-1x2", boat: "bi-life-preserver" };
+             inbox: "bi-inbox", boards: "bi-grid-1x2", boat: "bi-life-preserver",
+             connect: "bi-plug" };
 
 function drawNav() {
   const nav = $("#nav");
@@ -916,6 +953,7 @@ document.addEventListener("keydown", e => {
 <script src="console/inbox.js"></script>
 <script src="console/boards.js"></script>
 <script src="console/boat.js"></script>
+<script src="console/connect.js"></script>
 <script src="console/overview.js"></script>
 <script>
 /* ── go ──────────────────────────────────────────────────────────────────────────── */
@@ -925,7 +963,7 @@ document.addEventListener("keydown", e => {
    blank, which is the difference between a missing page and a broken console.        */
 function render() {
   const views = { overview: viewOverview, docs: viewDocs, tasks: viewTasks,
-                  boards: viewBoards, boat: viewBoat,
+                  boards: viewBoards, boat: viewBoat, connect: viewConnect,
                   inbox: typeof viewInbox === "function" ? viewInbox : undefined };
   (views[state.view] || viewOverview)();
 }
@@ -940,22 +978,22 @@ async function whoami() {
   if (!me || me.error) return null;
   window.OB_USER = me;
 
-  const box = $("#gate");
-  box.textContent = "";
-  box.className = "d-flex align-items-center gap-2";
-
   const boats = me.boats || [];
   if (boats.length > 1) {
     /* More than one boat and the switcher is the only way between them: each entry is the
        same page on another boat, carrying the hash across so switching from a document on
-       one boat lands on the same view of the other rather than back at the overview. */
+       one boat lands on the same view of the other rather than back at the overview. It
+       sits where the boat's name sits, because that is what it changes — putting it over
+       on the account side made the bar say the boat's name twice and mean it once. */
+    const boatbox = $("#boatbox");
+    boatbox.textContent = "";
     const drop = el("div", "dropdown");
-    const btn = el("button", "btn btn-light border btn-sm dropdown-toggle");
+    const btn = el("button", "btn btn-light border btn-sm dropdown-toggle ob-boat text-truncate");
     btn.type = "button";
     btn.setAttribute("data-bs-toggle", "dropdown");
     const here = boats.find(b => b.key === me.boat);
     btn.textContent = (here && here.name) || me.boat || "Boats";
-    const menu = el("ul", "dropdown-menu dropdown-menu-end");
+    const menu = el("ul", "dropdown-menu");
     for (const b of boats) {
       const li = el("li");
       const a = el("a", "dropdown-item" + (b.key === me.boat ? " active" : ""), b.name || b.key);
@@ -964,15 +1002,49 @@ async function whoami() {
       menu.append(li);
     }
     drop.append(btn, menu);
-    box.append(drop);
+    boatbox.append(drop);
   }
 
-  const name = el("span", "text-body-secondary small text-truncate d-none d-md-inline",
-                  me.name || me.email || "");
-  name.style.maxWidth = "14rem";
-  const out = el("a", "btn btn-link btn-sm text-body-secondary p-0", "Sign out");
+  /* The account, behind one control. A name and a way out are the whole of it, and
+     neither is worth a permanent line across the top of every page. */
+  const box = $("#gate");
+  box.textContent = "";
+  box.className = "d-flex align-items-center";
+
+  const label = me.name || me.email || "";
+  const drop = el("div", "dropdown");
+  const btn = el("button", "btn btn-light border btn-sm ob-me dropdown-toggle d-flex align-items-center gap-2");
+  btn.type = "button";
+  btn.setAttribute("data-bs-toggle", "dropdown");
+  btn.setAttribute("aria-label", label ? "Account: " + label : "Account");
+  const face = el("span", "ob-face", (label.trim()[0] || "?").toUpperCase());
+  const first = el("span", "d-none d-md-inline small text-truncate", label.split(/\s+/)[0] || "");
+  first.style.maxWidth = "9rem";
+  btn.append(face, first);
+
+  const menu = el("ul", "dropdown-menu dropdown-menu-end");
+  const head = el("li");
+  const hd = el("div", "px-3 py-2");
+  hd.append(el("div", "fw-semibold text-truncate", me.name || me.email || "Signed in"));
+  if (me.name && me.email) hd.append(el("div", "small text-body-secondary text-truncate", me.email));
+  head.append(hd);
+  const hr = el("li"); hr.append(el("hr", "dropdown-divider"));
+
+  const keys = el("li");
+  const kb = el("button", "dropdown-item", "Keyboard shortcuts");
+  kb.type = "button";
+  kb.onclick = openKeys;
+  keys.append(kb);
+
+  const hr2 = el("li"); hr2.append(el("hr", "dropdown-divider"));
+  const outli = el("li");
+  const out = el("a", "dropdown-item", "Sign out");
   out.href = "/logout";
-  box.append(name, out);
+  outli.append(out);
+
+  menu.append(head, hr, keys, hr2, outli);
+  drop.append(btn, menu);
+  box.append(drop);
 
   const who = $("#who");
   who.textContent = "";
@@ -986,12 +1058,17 @@ async function whoami() {
   whoami();
   const p = await api("/api/profile");
   if (p.error) {
-    $("#vname").textContent = p.error;
+    const vn = $("#vname");
+    if (vn) vn.textContent = p.error;
     return;
   }
   state.profile = p;
-  $("#vname").textContent = (p.vessel && p.vessel.name) || "no profile";
-  $("#vver").textContent = "v" + (p.version || "?");
+  /* Both may already be gone: `whoami` replaces the name with a switcher when there is
+     more than one boat, and it does not wait for this. */
+  const vn = $("#vname");
+  if (vn) vn.textContent = (p.vessel && p.vessel.name) || "no profile";
+  const vv = $("#vver");
+  if (vv) vv.textContent = "v" + (p.version || "?");
 })();
 </script>
 </body>

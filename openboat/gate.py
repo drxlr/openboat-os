@@ -186,6 +186,34 @@ def mcp_origin() -> str:
     return os.environ.get("OPENBOAT_MCP_ORIGIN", "http://127.0.0.1:8748").rstrip("/")
 
 
+def _pairs(name: str) -> dict[str, str]:
+    """`{key: value}` from a `key=value,key=value` environment variable."""
+    out: dict[str, str] = {}
+    for chunk in os.environ.get(name, "").split(","):
+        key, _, value = chunk.partition("=")
+        if key.strip() and value.strip():
+            out[key.strip()] = value.strip()
+    return out
+
+
+def mcp_origins() -> dict[str, str]:
+    """`{key: origin}` from `$OPENBOAT_MCP_ORIGINS` — one MCP process per boat.
+
+    A token opens whatever the MCP process behind it can read, and one process that reads
+    every boat means one token for every boat. Running a second process on one boat's
+    profile alone is what scopes a token to that boat, with no scoping code at all: the
+    process cannot name what it was never pointed at. `/mcp/<key>/…` reaches that one.
+    """
+    return {k: v.rstrip("/") for k, v in _pairs("OPENBOAT_MCP_ORIGINS").items()}
+
+
+def mcp_connect() -> dict[str, str]:
+    """`{key: url}` from `$OPENBOAT_MCP_CONNECT`: the address an owner pastes into an
+    assistant to reach that boat. The URL carries the token, so this is handed out only
+    to an `owner` or `admin` of that boat, never to crew, and never written to a log."""
+    return _pairs("OPENBOAT_MCP_CONNECT")
+
+
 def users_path() -> Path:
     raw = os.environ.get("OPENBOAT_USERS", "").strip()
     if not raw:
@@ -761,6 +789,16 @@ class Gate(BaseHTTPRequestHandler):
             return self.static(tail, WEB)
         if tail == "me":
             return self.me(user, key)
+        if tail == "mcp-connect":
+            # The one place the assistant address is readable, and only by somebody who
+            # may hand the boat to an assistant: crew get the same 404 as for a boat that
+            # is not theirs, because "there is an address and you may not have it" is
+            # already more than they need to know.
+            if (user.get("role") or "crew") not in ("owner", "admin"):
+                return self.not_found(True)
+            names = boat_names()
+            return self.send_json({"boat": key, "name": names.get(key, key),
+                                   "url": mcp_connect().get(key) or None})
         if tail.startswith("console/"):
             return self.static(tail[len("console/"):], WEB / "console")
         if tail.startswith("vendor/"):
@@ -888,7 +926,13 @@ class Gate(BaseHTTPRequestHandler):
             if self.headers.get(name):
                 headers[name] = self.headers[name]
 
-        url = mcp_origin() + (rest or "/")
+        origin = mcp_origin()
+        first = rest.lstrip("/").split("/", 1)[0]
+        scoped = mcp_origins()
+        if first and first in scoped:
+            origin = scoped[first]
+            rest = rest.lstrip("/")[len(first):]
+        url = origin + (rest or "/")
         try:
             status, upstream, payload = _request("POST", url, headers, body)
         except (OSError, http.client.HTTPException):

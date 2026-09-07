@@ -319,3 +319,18 @@ before you start it, and check it again after you change a port.
 Nothing here touches `openboat/control/`. The gate has no route into it, cannot arm a helm
 and cannot send a command; control stays exactly where [README.md](../README.md) says it
 is, behind three deliberate acts by somebody standing on the boat.
+
+## Connecting an assistant, per boat
+
+`/mcp/…` relays to one MCP process, and one process reads whatever it was pointed at — so
+one token there opens every boat the process knows. To hand a boat's owner an assistant
+address that reaches **their boat only**, run a second `openboat.mcp_http` on that boat's
+profile alone (no `OPENBOAT_BOATS`, its own `OPENBOAT_MCP_TOKEN`) and tell the gate:
+
+    OPENBOAT_MCP_ORIGINS=cmsea=http://127.0.0.1:8746
+    OPENBOAT_MCP_CONNECT=cmsea=https://your.public.host/mcp/cmsea/<that token>/mcp
+
+`/mcp/<key>/<token>/mcp` then reaches that process with the key stripped, and the console's
+**MCP connect** page (`/b/<key>/mcp-connect`) shows the configured address to an `owner` or
+`admin` of the boat — never to `crew`, who get the same 404 as for a boat that is not
+theirs. The address is the credential: it is not logged, and it is not in `/me`.
