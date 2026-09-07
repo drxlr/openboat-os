@@ -117,6 +117,60 @@ A boat somebody may not see returns **404, not 403**. Which boats a gate serves 
 stranger's business, and a status code that distinguishes "no such boat" from "not your
 boat" hands out that list to anybody with a keyboard.
 
+## Your account
+
+The console has an **Account** page, at `#account`, reached from the name in the sidebar.
+Everything on it is about the person rather than the boat — the boat key in the address is
+only where the console lives — and every route behind it is `/b/<key>/account/…`, so it
+takes the same two checks as every other path there: signed in, and a boat you may see.
+
+Anybody signed in can:
+
+- **Change their display name.** One to sixty characters. It is the name that goes on every
+  fault they file, because the gate writes it onto every snag from the session.
+- **Change their password.** The current one is verified first, ten wrong ones in fifteen
+  minutes and that account's password route stops answering — the same count in the same
+  window as the login form, because this is the other route that verifies a password. The
+  answer sets a fresh cookie, so the browser that did it stays signed in.
+- **Sign out everywhere else.** Every user record carries a `session_gen`, an integer that
+  goes into the session cookie when it is issued and is checked against the record on every
+  request. Bumping it ends every other session at once: another browser, an old laptop, a
+  phone in a locker that is switched off. There is no table of sessions to keep and nothing
+  to expire — the cookie is checked on the next click, whenever that is. A record with no
+  `session_gen` and a cookie with no `gen` are both nought, so nothing issued before this
+  existed stops working.
+
+**Changing a password does not sign the other devices out.** They are two buttons because
+they are two intentions, and somebody tidying up a password should not be surprised by a
+phone that has forgotten them. If a password is being changed *because* it leaked, press
+both.
+
+An `admin` also gets **People** on the same page, and `owner` and `crew` get a **404** from
+every route behind it — not a 403, for the reason every other refusal here is a 404.
+
+| | |
+|---|---|
+| The list | Everybody with a login: name, email, role, boats, whether a password is set or the invite is still outstanding, and when the record was made. No hash leaves the process, not even to an admin |
+| Invite | Email, name, role and boats. It creates the record with **no password** and hands back the link — the same link `python3 -m openboat.gate invite` prints, from the same function — with Copy and a WhatsApp button beside it |
+| Re-issue | A fresh link for somebody who has not set a password yet. Refused for somebody who has: that would be a password reset one person can perform on another's account from a browser. The command line can still do it, standing at the machine |
+| Boats | Which boats one person may see. Only keys this gate is configured with; an unknown one is refused rather than quietly dropped |
+| Revoke | Removes the login. An admin cannot revoke themselves — the last door locked with the key on the inside is a shell on the machine to fix |
+
+Every change re-reads the users file, alters one record and writes the whole thing back with
+the same atomic writer the command line uses, stamping `updated_by` and `updated_at`. The
+file is shared with a terminal, so a stale list saved back over it would undo a `revoke`
+somebody typed thirty seconds ago.
+
+**Every write here is a JSON POST and has to say so**, or it is a **415**. `SameSite=Lax`
+already keeps the session cookie off a cross-site POST; the content type is the second lock.
+A cross-site form can send `application/x-www-form-urlencoded`, `multipart/form-data` or
+`text/plain` and nothing else, so a route that accepts only `application/json` cannot be
+driven by one — which still holds on a browser that is loose about Lax. Bodies are capped at
+64 kB and parsed strictly; anything that is not a JSON object is a 400.
+
+Served plainly off a boat's own machine, with no gate in front, the Account page says so and
+stops. There is nobody signed in there and nothing to change.
+
 ## Sharing one fault with somebody who has no login
 
 `owner` and `admin` can hand out a link to a **single fault**: the yard, a friend's
@@ -168,6 +222,9 @@ page. The full description is in [docs/SNAGS.md](SNAGS.md).
 | `GET /me`, `GET /b/<key>/me` | Who you are and which boats you have, as JSON |
 | `GET /b/<key>/` | The console, for that boat |
 | `GET /b/<key>/index.html`, `/jobs.html`, `/windy.html` | The pages the console holds in a frame, served from this package |
+| `GET /b/<key>/account/users` | Everybody with a login, for an `admin`. Anybody else: 404 |
+| `POST /b/<key>/account/name`, `/password`, `/logout-all` | Your own record. JSON only, or 415 |
+| `POST /b/<key>/account/invite`, `/reissue`, `/revoke`, `/boats` | The people page, for an `admin`. Anybody else: 404 |
 | `GET /b/<key>/api/…`, `/paper`, `/reports/…` | Relayed to that boat's dashboard |
 | `POST /b/<key>/api/logbook` | The only write a boat's own server accepts, and the only one relayed. The allow-list is that one route spelled out |
 | `GET/POST/OPTIONS /b/<key>/snag/…` | Relayed to the snag service, with the boat and the name forced |
@@ -224,7 +281,13 @@ single boat whose page it is. The snag service knows every boat on the machine a
 name them all, and the phone page inside the frame asks it for a list.
 
 Behind the gate the navbar also grows a boat switcher, the reader's name and a sign-out
-link, from `/me`. Served plainly there is no account to show and none appears.
+link, from `/me`, and the name in the sidebar becomes the way in to the Account page above.
+Served plainly there is no account to show and none appears.
+
+The console makes writes through exactly two functions in its shell, and a test pins that
+there is no third: `snagPost()`, which reaches the snag service, and `gatePost()`, which
+reaches these account routes. No view opens a fetch of its own, and nothing on the page ever
+posts to a boat's own `/api/`.
 
 ## Extending it
 

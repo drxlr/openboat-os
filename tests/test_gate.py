@@ -853,6 +853,304 @@ def test_the_relay_knows_when_the_boat_is_not_connected() -> None:
           "and the 502 page is a page saying the boat is not answering")
 
 
+def _json(client, path, payload, kind="application/json"):
+    """A JSON POST the way the console makes one. The content type is part of the test:
+    the account routes refuse anything else, so it cannot be left to a default."""
+    return client.json(path, data=json.dumps(payload).encode(),
+                       headers={"Content-Type": kind})
+
+
+def test_a_person_can_change_their_own_name_and_password() -> None:
+    """The two things on the account page that only need the person themselves."""
+    from openboat import gate
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        with Running(FakeBoat) as boat, Running(FakeSnag) as snags, \
+             a_gate(tmp, boat.origin, snags.origin), Running(gate.Gate) as served:
+            base = served.origin
+            crew = invite_and_set(gate, base, "crew@example.org", "A Crew", ["alpha"])
+
+            status, body = _json(crew, "/b/alpha/account/name", {"name": "A Renamed Crew"})
+            check(status == 200 and body.get("ok"), f"a person can change their name ({status})")
+            check(gate.find_user("crew@example.org")["name"] == "A Renamed Crew",
+                  "and the users file has it")
+            check(gate.find_user("crew@example.org").get("updated_at", "").startswith("20"),
+                  "the record is stamped with when and by whom")
+
+            status, body = _json(crew, "/b/alpha/account/name", {"name": "   "})
+            check(status == 400, f"an empty name is refused ({status})")
+            status, body = _json(crew, "/b/alpha/account/name", {"name": "x" * 61})
+            check(status == 400, f"and so is one over sixty characters ({status})")
+
+            # A form POST cannot carry `application/json`, which is why it is required.
+            status, body = crew.json("/b/alpha/account/name", data={"name": "By A Form"})
+            check(status == 415,
+                  f"a POST that is not JSON gets a 415, not a change ({status})")
+            check(gate.find_user("crew@example.org")["name"] == "A Renamed Crew",
+                  "and nothing was written by it")
+
+            status, body = _json(crew, "/b/alpha/account/password",
+                                 {"current": "not it", "password": "a new long one"})
+            check(status == 400 and "current password" in (body or {}).get("error", ""),
+                  f"a wrong current password changes nothing ({status} {body})")
+
+            status, body = _json(crew, "/b/alpha/account/password",
+                                 {"current": PASSWORD, "password": "short"})
+            check(status == 400, f"nor does a new one under ten characters ({status})")
+
+            before = gate.find_user("crew@example.org")["hash"]
+            status, body = _json(crew, "/b/alpha/account/password",
+                                 {"current": PASSWORD, "password": "a new long password"})
+            check(status == 200 and body.get("ok"),
+                  f"the right current password changes it ({status} {body})")
+            after = gate.find_user("crew@example.org")["hash"]
+            check(after != before and after.startswith("pbkdf2_sha256$600000$"),
+                  "the stored hash is a new one, hashed the same way")
+            check("a new long password" not in (tmp / "users.json").read_text(),
+                  "and the new password itself is nowhere in the file")
+
+            status, _ = crew.json("/b/alpha/me")
+            check(status == 200, f"the cookie the answer set still works ({status})")
+
+            old = Client(base)
+            status, _, _ = old.open("/login", data={"email": "crew@example.org",
+                                                    "password": PASSWORD})
+            check(status == 401, f"the old password no longer signs anybody in ({status})")
+            fresh = Client(base)
+            status, _, _ = fresh.open("/login", data={"email": "crew@example.org",
+                                                      "password": "a new long password"})
+            check(status == 303 and bool(fresh.cookie),
+                  f"and the new one does ({status})")
+
+
+def test_signing_out_everywhere_else() -> None:
+    """One number on the record, and every cookie carrying the old one stops being a
+    session — except the one on the browser that asked, which is re-issued in the answer."""
+    from openboat import gate
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        with Running(FakeBoat) as boat, Running(FakeSnag) as snags, \
+             a_gate(tmp, boat.origin, snags.origin), Running(gate.Gate) as served:
+            base = served.origin
+            here = invite_and_set(gate, base, "crew@example.org", "A Crew", ["alpha"])
+
+            elsewhere = Client(base)
+            elsewhere.open("/login", data={"email": "crew@example.org",
+                                           "password": PASSWORD})
+            status, _ = elsewhere.json("/b/alpha/me")
+            check(status == 200, f"a second browser is signed in too ({status})")
+
+            status, body = _json(here, "/b/alpha/account/logout-all", {})
+            check(status == 200 and body.get("session_gen") == 1,
+                  f"signing out everywhere else bumps the generation ({status} {body})")
+
+            status, _ = elsewhere.json("/b/alpha/me")
+            check(status == 401, f"the other browser's cookie is not a session any more "
+                                 f"({status})")
+            status, _ = here.json("/b/alpha/me")
+            check(status == 200, f"and the one that asked is still signed in ({status})")
+
+            # Every cookie issued before this field existed carries no `gen` at all, and
+            # a record written before it carries no `session_gen`. Both are 0.
+            legacy = Client(base)
+            legacy.cookie = (gate.SESSION_COOKIE + "="
+                             + gate.sign("session", {"email": "own@example.org"},
+                                         gate.SESSION_DAYS))
+            with quiet():
+                gate.cmd_invite(["own@example.org", "--name", "Own", "--boat", "alpha"])
+            users = gate.load_users()
+            for record in users:
+                record.pop("session_gen", None)
+            gate.save_users(users)
+            status, _ = legacy.json("/me")
+            check(status == 200,
+                  f"a cookie from before this existed still works ({status})")
+
+
+def test_only_an_admin_reaches_the_people_routes() -> None:
+    """Owners and crew do not get a 403 on them. They get the same 404 as for a boat that
+    is not theirs, because a 403 is a statement that the page is there."""
+    from openboat import gate
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        with Running(FakeBoat) as boat, Running(FakeSnag) as snags, \
+             a_gate(tmp, boat.origin, snags.origin), Running(gate.Gate) as served:
+            base = served.origin
+            crew = invite_and_set(gate, base, "crew@example.org", "A Crew", ["alpha"])
+            owner = invite_and_set(gate, base, "own@example.org", "An Owner", ["alpha"],
+                                   role="owner")
+
+            for who, label in ((crew, "crew"), (owner, "an owner")):
+                status, body = who.json("/b/alpha/account/users")
+                check(status == 404 and "users" not in (body or {}),
+                      f"{label} gets a 404 from the people list, with nobody in it "
+                      f"({status})")
+                status, _ = _json(who, "/b/alpha/account/users", {})
+                check(status == 404,
+                      f"{label} does not even learn that it is a GET route ({status})")
+                for route, payload in (("invite", {"email": "x@example.org"}),
+                                       ("reissue", {"email": "crew@example.org"}),
+                                       ("revoke", {"email": "crew@example.org"}),
+                                       ("boats", {"email": "crew@example.org",
+                                                  "boats": ["beta"]})):
+                    status, _ = _json(who, f"/b/alpha/account/{route}", payload)
+                    check(status == 404, f"{label} gets a 404 from account/{route} "
+                                         f"({status})")
+
+            check(gate.find_user("crew@example.org") is not None
+                  and gate.find_user("crew@example.org")["boats"] == ["alpha"],
+                  "and none of it changed anything")
+
+            # Their own account still works — this is about the people page, not the page.
+            status, body = _json(crew, "/b/alpha/account/name", {"name": "Still A Crew"})
+            check(status == 200, f"crew can still change their own name ({status})")
+
+
+def test_an_admin_invites_reissues_revokes_and_moves_boats() -> None:
+    """The people page, through the routes the console actually calls. The invite link it
+    hands back is the one `python3 -m openboat.gate invite` prints, from the same function,
+    and a person can set a password on it."""
+    from openboat import gate
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        with Running(FakeBoat) as boat, Running(FakeSnag) as snags, \
+             a_gate(tmp, boat.origin, snags.origin), Running(gate.Gate) as served:
+            base = served.origin
+            boss = invite_and_set(gate, base, "boss@example.org", "The Admin", [],
+                                  role="admin")
+
+            status, body = _json(boss, "/b/alpha/account/invite",
+                                 {"email": "NEW@example.org", "name": "A New Hand",
+                                  "role": "crew", "boats": ["alpha"]})
+            check(status == 200 and body.get("url", "").startswith(
+                      "http://127.0.0.1:8749/invite/"),
+                  f"an admin gets an invite link back ({status} {body})")
+            record = gate.find_user("new@example.org")
+            check(record is not None and record["hash"] == "" and record["boats"] == ["alpha"],
+                  "the person exists, with the boat and no password of their own")
+            check(record and record.get("invited_by") == "boss@example.org",
+                  f"and the record says who invited them "
+                  f"({(record or {}).get('invited_by')!r})")
+
+            # The link is a real one: opening it sets a password and signs the person in.
+            newcomer = Client(base)
+            token = body["url"].rsplit("/", 1)[-1]
+            status, headers, _ = newcomer.open(f"/invite/{token}",
+                                               data={"password": PASSWORD,
+                                                     "again": PASSWORD})
+            check(status == 303 and headers.get("Location", "").startswith("/b/alpha/"),
+                  f"the link from the page sets a password and signs them in ({status})")
+            status, me = newcomer.json("/b/alpha/me")
+            check(status == 200 and me["name"] == "A New Hand",
+                  f"and they are who the admin said they were ({me})")
+
+            status, body = _json(boss, "/b/alpha/account/reissue",
+                                 {"email": "new@example.org"})
+            check(status == 400,
+                  f"a link cannot be re-issued for somebody who has a password ({status})")
+
+            with quiet():
+                gate.cmd_invite(["waiting@example.org", "--name", "Not Yet",
+                                 "--boat", "alpha"])
+            status, body = _json(boss, "/b/alpha/account/reissue",
+                                 {"email": "waiting@example.org"})
+            check(status == 200 and "/invite/" in body.get("url", ""),
+                  f"but it can for somebody who has not set one ({status})")
+            status, body = _json(boss, "/b/alpha/account/reissue",
+                                 {"email": "nobody@example.org"})
+            check(status == 404, f"and there is nobody to re-issue for ({status})")
+
+            status, body = _json(boss, "/b/alpha/account/users", {})
+            check(status == 405, f"the people list is a GET, not a POST ({status})")
+            status, listed = boss.json("/b/alpha/account/users")
+            emails = [u["email"] for u in (listed or {}).get("users", [])]
+            check(status == 200 and "new@example.org" in emails,
+                  f"the people list names everybody ({emails})")
+            check(all("hash" not in u for u in listed["users"]),
+                  "and hands out no hash, not even to an admin")
+            check([b["key"] for b in listed["boats"]] == ["alpha", "beta"],
+                  f"with the boats this gate is configured with ({listed['boats']})")
+            waiting = next(u for u in listed["users"] if u["email"] == "waiting@example.org")
+            check(waiting["password"] is False,
+                  "and says who has not set a password yet")
+
+            status, body = _json(boss, "/b/alpha/account/boats",
+                                 {"email": "new@example.org", "boats": ["alpha", "beta"]})
+            check(status == 200 and gate.find_user("new@example.org")["boats"]
+                  == ["alpha", "beta"], f"an admin moves somebody's boats ({status} {body})")
+            status, body = _json(boss, "/b/alpha/account/boats",
+                                 {"email": "new@example.org", "boats": ["gamma"]})
+            check(status == 400 and gate.find_user("new@example.org")["boats"]
+                  == ["alpha", "beta"],
+                  f"a boat this gate does not serve is refused, and nothing is saved "
+                  f"({status})")
+
+            status, body = _json(boss, "/b/alpha/account/invite",
+                                 {"email": "someone@example.org", "role": "captain"})
+            check(status == 400 and gate.find_user("someone@example.org") is None,
+                  f"a role that does not exist creates nobody ({status})")
+            status, body = _json(boss, "/b/alpha/account/invite", {"email": "not an email"})
+            check(status == 400, f"nor does something that is not an address ({status})")
+
+            status, body = _json(boss, "/b/alpha/account/revoke",
+                                 {"email": "boss@example.org"})
+            check(status == 400 and gate.find_user("boss@example.org") is not None,
+                  f"an admin cannot revoke themselves ({status} {body})")
+
+            status, body = _json(boss, "/b/alpha/account/revoke",
+                                 {"email": "new@example.org"})
+            check(status == 200 and gate.find_user("new@example.org") is None,
+                  f"but can revoke somebody else ({status})")
+            status, _ = newcomer.json("/b/alpha/me")
+            check(status == 401,
+                  f"whose still-valid cookie stops working at once ({status})")
+
+
+def test_the_account_routes_are_behind_the_login_and_the_boat() -> None:
+    """They live under `/b/<key>/`, so both checks that path already has still apply."""
+    from openboat import gate
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        with Running(FakeBoat) as boat, Running(FakeSnag) as snags, \
+             a_gate(tmp, boat.origin, snags.origin), Running(gate.Gate) as served:
+            base = served.origin
+            crew = invite_and_set(gate, base, "crew@example.org", "A Crew", ["alpha"])
+
+            out = Client(base)
+            status, body = _json(out, "/b/alpha/account/name", {"name": "Nobody"})
+            check(status == 401 and (body or {}).get("error"),
+                  f"signed out, an account POST is JSON and a 401, not a login page "
+                  f"({status})")
+
+            status, _ = _json(crew, "/b/beta/account/name", {"name": "Elsewhere"})
+            check(status == 404,
+                  f"and a boat they may not see is a 404 even for their own account "
+                  f"({status})")
+            check(gate.find_user("crew@example.org")["name"] == "A Crew",
+                  "neither of which changed anything")
+
+            status, _ = _json(crew, "/b/alpha/account/nonsense", {})
+            check(status == 404, f"an account route that does not exist is a 404 ({status})")
+
+            status, _, _ = crew.open("/b/alpha/account/name", method="DELETE",
+                                     headers={"Content-Type": "application/json"})
+            check(status == 405, f"and a method that is not a POST is a 405 ({status})")
+
+            big = json.dumps({"name": "x" * (gate.ACCOUNT_MAX_BODY + 10)}).encode()
+            status, _ = crew.json("/b/alpha/account/name", data=big,
+                                  headers={"Content-Type": "application/json"})
+            check(status == 413, f"a body over the cap is refused unread ({status})")
+
+            status, _ = crew.json("/b/alpha/account/name", data=b"{not json",
+                                  headers={"Content-Type": "application/json"})
+            check(status == 400, f"and one that is not JSON at all is a 400 ({status})")
+
+
 def test_the_gate_and_the_relay_hold_no_boat_facts() -> None:
     """Both live in a public repository. Neither may name a boat, a person or a place."""
     from openboat.profile import load
@@ -884,6 +1182,11 @@ if __name__ == "__main__":
                  test_the_relay_reconstructs_the_path,
                  test_the_relay_carries_every_cookie,
                  test_the_relay_knows_when_the_boat_is_not_connected,
+                 test_a_person_can_change_their_own_name_and_password,
+                 test_signing_out_everywhere_else,
+                 test_only_an_admin_reaches_the_people_routes,
+                 test_an_admin_invites_reissues_revokes_and_moves_boats,
+                 test_the_account_routes_are_behind_the_login_and_the_boat,
                  test_the_gate_and_the_relay_hold_no_boat_facts):
         case()
     print("-" * 78)

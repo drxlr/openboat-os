@@ -305,19 +305,21 @@ def test_the_console_page_holds_no_boat_facts():
           "no vessel name is written into the page, not even the demo boat's")
 
     # The dashboard behind this page accepts no writes from it. Every POST the console
-    # makes goes to the snag service — its own port on a LAN, relayed at `<ROOT>/snag`
-    # behind the gate — through `snagPost()` in the shell, and that one function is the
-    # only place a method may appear. Callers choose the *route* on that service by
-    # passing `path`; they do not get to open a fetch of their own. A second POST
-    # anywhere, or one aimed at this server's own /api/, is how a read-only thing stops
-    # being one.
+    # makes goes to one of exactly two shell functions, and both are in this file rather
+    # than in a view: `snagPost()` reaches the snag service — its own port on a LAN,
+    # relayed at `<ROOT>/snag` behind the gate — and `gatePost()` reaches the gate's own
+    # account routes at `<ROOT>/account/…`. Callers choose the *route*, by passing `path`
+    # or a path; they do not get to open a fetch of their own. A third POST anywhere, or
+    # one aimed at this server's own /api/, is how a read-only thing stops being one.
     posts = [m.start() for m in re.finditer(r"""method:\s*["']POST["']""", page)]
-    check(len(posts) == 1, f"exactly one POST in the console, in snagPost() (found {len(posts)})")
+    check(len(posts) == 2,
+          f"exactly two POSTs in the console, in snagPost() and gatePost() (found {len(posts)})")
     shell = CONSOLE.read_text(encoding="utf-8")
-    fn = shell.find("async function snagPost(")
-    end = shell.find("\n}\n", fn)
-    check(fn > 0 and shell.find('method: "POST"', fn, end) > 0,
-          "and it lives inside snagPost()")
+    for name in ("snagPost", "gatePost"):
+        fn = shell.find(f"async function {name}(")
+        end = shell.find("\n}\n", fn)
+        check(fn > 0 and shell.find('method: "POST"', fn, end) > 0,
+              f"and one of them lives inside {name}()")
     check(not re.search(r"""fetch\(\s*["'`]/api/[^)]*method""", page),
           "nothing posts to the dashboard's own /api/")
 

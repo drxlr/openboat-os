@@ -185,8 +185,8 @@
        href="#overview"><i class="bi bi-compass"></i>OpenBoat</a>
     <span class="ob-rule mx-2 d-none d-sm-block"></span>
     <!-- The boat: a plain name with one boat, a switcher with several. -->
-    <div id="boatbox" class="d-flex align-items-center text-truncate" style="max-width: 40vw">
-      <span id="vname" class="ob-boat text-truncate">…</span>
+    <div id="boatbox" class="d-flex align-items-center" style="min-width: 0">
+      <span id="vname" class="ob-boat text-truncate" style="max-width: 34vw">…</span>
     </div>
     <i class="bi bi-chevron-right ob-crumb mx-2 d-none d-md-inline"></i>
     <span id="title" class="ob-view d-none d-md-inline text-truncate">Overview</span>
@@ -316,6 +316,7 @@ const VIEWS = [
   { id: "boards",    label: "Dashboards", title: "Dashboards" },
   { id: "boat",      label: "Boat",       title: "The boat" },
   { id: "connect",   label: "MCP connect", title: "Connect an assistant" },
+  { id: "account",   label: "Account",    title: "Your account" },
 ];
 
 const state = { view: "overview", sub: null, params: {}, q: "", docs: null, hits: null,
@@ -327,7 +328,7 @@ const state = { view: "overview", sub: null, params: {}, q: "", docs: null, hits
 /* ── chrome ──────────────────────────────────────────────────────────────────────── */
 const BI = { overview: "bi-speedometer2", docs: "bi-journal-text", tasks: "bi-check2-square",
              inbox: "bi-inbox", boards: "bi-grid-1x2", boat: "bi-life-preserver",
-             connect: "bi-plug" };
+             connect: "bi-plug", account: "bi-person-gear" };
 
 function drawNav() {
   const nav = $("#nav");
@@ -700,6 +701,33 @@ async function snagPost(snags, body, path) {
   return j;
 }
 
+/* ── the other write, and this one is to the gate ─────────────────────────────────
+   The account page changes a name, a password, who may see which boat. None of that is
+   a boat fact and none of it goes anywhere near a boat's own server: it is the gate's
+   own users file, reached at `<ROOT>/account/…`, and it exists only behind the login —
+   served plainly there is no ROOT, no account and nothing to post to.
+
+   Same shape as `api()` and `snagPost()`: it never throws, and `.error` is a sentence.
+   `Content-Type: application/json` is not decoration — the gate refuses anything else
+   with a 415, because a cross-site form cannot send that header and so cannot drive
+   these routes even on a browser that is loose about SameSite. */
+async function gatePost(path, body) {
+  let r;
+  try {
+    r = await fetch(ROOT + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+  } catch (e) {
+    return { error: "the gate is not answering" };
+  }
+  const j = await r.json().catch(() => null);
+  if (!j || typeof j !== "object") return { error: `the gate answered ${r.status}` };
+  if (!r.ok && !j.error) j.error = `the gate answered ${r.status}`;
+  return j;
+}
+
 function sentence(text, max) {
   const s = String(text ?? "").replace(/\s+/g, " ").trim();
   if (!s) return "";
@@ -954,6 +982,7 @@ document.addEventListener("keydown", e => {
 <script src="console/boards.js"></script>
 <script src="console/boat.js"></script>
 <script src="console/connect.js"></script>
+<script src="console/account.js"></script>
 <script src="console/overview.js"></script>
 <script>
 /* ── go ──────────────────────────────────────────────────────────────────────────── */
@@ -964,7 +993,8 @@ document.addEventListener("keydown", e => {
 function render() {
   const views = { overview: viewOverview, docs: viewDocs, tasks: viewTasks,
                   boards: viewBoards, boat: viewBoat, connect: viewConnect,
-                  inbox: typeof viewInbox === "function" ? viewInbox : undefined };
+                  inbox: typeof viewInbox === "function" ? viewInbox : undefined,
+                  account: typeof viewAccount === "function" ? viewAccount : undefined };
   (views[state.view] || viewOverview)();
 }
 
@@ -989,6 +1019,7 @@ async function whoami() {
     boatbox.textContent = "";
     const drop = el("div", "dropdown");
     const btn = el("button", "btn btn-light border btn-sm dropdown-toggle ob-boat text-truncate");
+    btn.style.maxWidth = "34vw";
     btn.type = "button";
     btn.setAttribute("data-bs-toggle", "dropdown");
     const here = boats.find(b => b.key === me.boat);
@@ -1046,10 +1077,16 @@ async function whoami() {
   drop.append(btn, menu);
   box.append(drop);
 
+  /* The name in the sidebar is the way in to the account page. It is where a reader
+     already looks to check who they are signed in as, and "that is me" and "change
+     something about me" are one thought. */
   const who = $("#who");
   who.textContent = "";
-  who.append(el("i", "bi bi-person me-1"));
-  who.append(document.createTextNode(me.name || me.email || ""));
+  const mine = el("a", "link-body-emphasis text-decoration-none d-inline-flex align-items-center");
+  mine.href = "#account";
+  mine.append(el("i", "bi bi-person me-1"));
+  mine.append(document.createTextNode(me.name || me.email || ""));
+  who.append(mine);
   return me;
 }
 

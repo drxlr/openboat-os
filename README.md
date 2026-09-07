@@ -50,6 +50,10 @@ is the only requirement.
   number of boats, invite links instead of passwords anybody types, and a fixed public
   address that survives the tunnel changing. The boat's own services stay unauthenticated
   on localhost, where they belong. See [docs/GATE.md](docs/GATE.md).
+- **An account page, so a login is not a thing only a terminal can change.** Your own name
+  and password, one button that signs out every other device, and — for an admin — invite,
+  re-issue, revoke and which boats each person sees, without going near the machine. See
+  [docs/GATE.md](docs/GATE.md).
 - **A link for the person actually holding the spanner.** Hand one fault to somebody with
   no account — they see it, its photographs and its history on their phone, and answer
   *looked at it* or *fixed it*. The grant is written into the boat's own file, so who was

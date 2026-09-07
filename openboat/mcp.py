@@ -159,8 +159,14 @@ TOOLS = [
                        "came from. A field that is absent is absent on purpose: nobody has "
                        "measured it, and this project would rather say so than guess. "
                        "Never fill such a gap from the make and model; say it is not "
-                       "recorded.",
-        "inputSchema": {"type": "object", "properties": {}},
+                       "recorded. Answers about the boat this companion is pinned to "
+                       "unless `boat` names another one on the same machine; the answer "
+                       "always says which boat it describes.",
+        "inputSchema": {"type": "object", "properties": {
+            "boat": {"type": "string", "description":
+                     "Key of another boat on this machine, e.g. 'demo-boat'. Omit for the "
+                     "boat this companion is pinned to."},
+        }},
     },
     {
         "name": "log_check",
@@ -547,8 +553,28 @@ def tool_boat_docs(query, limit=5):
     return "\n".join(out)
 
 
-def tool_boat_specs():
+def tool_boat_specs(boat=""):
+    """The pinned boat's measured facts, or another boat's when asked by key.
+
+    Reading a second boat's specifications is not the same permission as reading its
+    documents, its faults or its logbook, and this tool grants only the first: a profile
+    is a hull's dimensions, not anybody's business. What it must never do is answer about
+    one hull while sounding like it answered about another, so the name leads every reply
+    and an unknown key is refused with the list rather than quietly falling back to the
+    boat this companion happens to be pinned to.
+    """
     boat_profile = load()
+    key = (boat or "").strip()
+    if key:
+        known = snag.boats()
+        keys = [b["key"] for b in known]
+        if key not in keys:
+            return (f"No boat {key!r} here. Boats this machine knows: "
+                    f"{', '.join(keys) or 'none'}.")
+        here = boat_profile.path.resolve() if boat_profile.path else None
+        other = Path(next(b["profile"] for b in known if b["key"] == key))
+        if not (here and other.resolve() == here):
+            boat_profile = load(other)
     vessel = boat_profile.as_dict()["vessel"]
     lines = [f"{vessel.get('name') or 'the boat'} — {vessel.get('kind') or 'vessel'}"]
     for key, value in vessel.items():
@@ -560,9 +586,20 @@ def tool_boat_specs():
     if missing:
         lines.append("\nNot recorded, and therefore not known: " + ", ".join(missing)
                      + ". Do not supply these from the make and model.")
-    berth = boat_profile.as_dict()["berth"]
+    # A boat with no berth recorded has `berth = None`, not an empty table — and CMSea
+    # is exactly that, so this tool raised instead of answering.
+    berth = boat_profile.as_dict().get("berth") or {}
     if berth.get("name"):
         lines.append(f"\nBerth: {berth['name']} ({berth['lat']:.4f}, {berth['lon']:.4f})")
+    # A machine with more than one hull on it: name the others, once, so a question about
+    # "the other boat" is answered with a key to ask for rather than with a guess.
+    here = boat_profile.path.resolve() if boat_profile.path else None
+    others = [b for b in snag.boats()
+              if not (here and Path(b["profile"]).resolve() == here)]
+    if others:
+        lines.append("\nAlso on this machine: "
+                     + ", ".join(f"{b['name']} ({b['key']})" for b in others)
+                     + " — pass boat=<key> for its specifications.")
     return "\n".join(lines)
 
 

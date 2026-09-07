@@ -82,7 +82,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 __all__ = ["MOUNTS", "Gate", "main", "load_users", "save_users", "hash_password",
-           "verify_password", "sign", "unsign", "boat_origins"]
+           "verify_password", "sign", "unsign", "boat_origins", "invite_user",
+           "invite_link"]
 
 PORT = 8749
 WEB = Path(__file__).parent / "web"
@@ -104,6 +105,9 @@ ROLES = ("admin", "owner", "crew")
 #: 24 MB and this sits just under it, because a request that is going to be refused should
 #: be refused before it is relayed rather than after.
 MAX_BODY = 20 * 1024 * 1024
+#: An account change is a name, a password or a list of boat keys. Nothing here is a
+#: photograph, so the cap is the size of a mistake rather than the size of an upload.
+ACCOUNT_MAX_BODY = 64 * 1024
 #: What may come back from a boat. Generous — a scanned survey is a large PDF — but finite,
 #: because a relay that reads an unbounded body is a way to run this machine out of memory.
 MAX_RESPONSE = 64 * 1024 * 1024
@@ -161,6 +165,15 @@ _names_cache: tuple[float, dict[str, str]] = (0.0, {})
 
 class GateError(Exception):
     """Something is missing from the environment. Reported as a sentence, never a traceback."""
+
+
+def _int(value) -> int:
+    """An integer, or 0 for anything that is not one. Used on the session generation,
+    which arrives inside a cookie payload and must never be able to raise from there."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def boat_origins() -> dict[str, str]:
@@ -334,6 +347,48 @@ def unsign(kind: str, token: str) -> dict | None:
 
 def _mac(kind: str, blob: str) -> str:
     return hmac.new(session_secret(), f"{kind}.{blob}".encode(), hashlib.sha256).hexdigest()
+
+
+# ── inviting somebody ──────────────────────────────────────────────────────────────────
+
+def invite_user(email: str, name: str = "", role: str = "crew",
+                boats: list[str] | None = None, by: str = "") -> dict:
+    """Add or update a user with **no password of their own**, and hand the record back.
+
+    The one place a user record is created, called by the `invite` command and by the
+    People page behind the login. Two places that each built their own record would drift,
+    and the first sign of the drift would be a field one of them checks and the other
+    never wrote.
+    """
+    email = str(email).strip().lower()
+    users = load_users()
+    existing = next((u for u in users if str(u.get("email", "")).lower() == email), None)
+    if existing is None:
+        existing = {"email": email, "name": name or email, "role": role,
+                    "boats": list(boats or []), "hash": "", "session_gen": 0,
+                    "created": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "invited_by": by}
+        users.append(existing)
+    else:
+        if name:
+            existing["name"] = name
+        existing["role"] = role
+        if boats:
+            existing["boats"] = sorted(set(existing.get("boats") or []) | set(boats))
+    existing["updated_by"] = by
+    existing["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    save_users(users)
+    return existing
+
+
+def invite_link(email: str) -> str:
+    """The link `invite` prints, and the same one the People page shows.
+
+    One function so the two are the same link. A second way of building it is a second
+    thing that can be seven days here and thirty there, or signed as the wrong kind.
+    """
+    token = sign("invite", {"email": str(email).strip().lower()}, INVITE_DAYS)
+    return f"{public_url()}/invite/{token}"
 
 
 # ── the boats a person may see ─────────────────────────────────────────────────────────
@@ -563,14 +618,25 @@ class Gate(BaseHTTPRequestHandler):
     def user(self) -> dict | None:
         """Whoever this request's cookie says it is, if that person still exists.
 
-        Two checks, and the second is the one that matters: a valid signature proves the
-        cookie was issued here, and the lookup proves the account is still on the file. A
-        revoked user holds a perfectly valid cookie and gets nothing.
+        Three checks, and the first is the one that does the least: a valid signature only
+        proves the cookie was issued here. The lookup proves the account is still on the
+        file, so a revoked user holds a perfectly valid cookie and gets nothing. And the
+        generation proves this particular cookie has not been signed out from somewhere
+        else — `account/logout-all` bumps the number on the record, and every cookie
+        carrying the old one stops being a session on its next click.
+
+        A record with no `session_gen` and a cookie with no `gen` are both 0, so every
+        cookie issued before this existed keeps working.
         """
         payload = unsign("session", self.cookies().get(SESSION_COOKIE, ""))
         if not payload:
             return None
-        return find_user(str(payload.get("email", "")))
+        record = find_user(str(payload.get("email", "")))
+        if not record:
+            return None
+        if _int(payload.get("gen")) != _int(record.get("session_gen")):
+            return None
+        return record
 
     def boats_for(self, user):
         return boats_for(user)
@@ -625,7 +691,8 @@ class Gate(BaseHTTPRequestHandler):
         # Whether a refusal should be a JSON object or a page. A fetch that gets a login
         # page back renders it into the console as a parse error; a browser that gets JSON
         # back where it asked for a page shows the reader a brace.
-        api = "/api/" in route or "/snag/" in route or route.endswith("/me")
+        api = ("/api/" in route or "/snag/" in route or "/account/" in route
+               or route.endswith("/me"))
 
         wanted = gate_secret()
         if wanted and not hmac.compare_digest(self.headers.get("X-OpenBoat-Gate", ""), wanted):
@@ -706,7 +773,8 @@ class Gate(BaseHTTPRequestHandler):
         return self._log_in(user, nxt)
 
     def _log_in(self, user: dict, nxt: str = ""):
-        token = sign("session", {"email": str(user["email"]).lower()}, SESSION_DAYS)
+        token = sign("session", {"email": str(user["email"]).lower(),
+                                 "gen": _int(user.get("session_gen"))}, SESSION_DAYS)
         # Only a path on this gate is ever followed. `next` arrives from a query string,
         # and a redirect that follows one to wherever it points is an open redirect with a
         # login form in front of it — a phishing page that genuinely lives on your domain.
@@ -799,6 +867,8 @@ class Gate(BaseHTTPRequestHandler):
             names = boat_names()
             return self.send_json({"boat": key, "name": names.get(key, key),
                                    "url": mcp_connect().get(key) or None})
+        if tail == "account" or tail.startswith("account/"):
+            return self.account(user, key, tail[len("account"):])
         if tail.startswith("console/"):
             return self.static(tail[len("console/"):], WEB / "console")
         if tail.startswith("vendor/"):
@@ -816,6 +886,269 @@ class Gate(BaseHTTPRequestHandler):
         if tail.startswith("api/") or tail.startswith("paper") or tail.startswith("reports/"):
             return self.boat_relay(key, "/" + tail, query)
         return self.not_found(api)
+
+
+    # ── the account ───────────────────────────────────────────────────────────────────
+    def account(self, user, key: str, what: str):
+        """`/b/<key>/account/…` — a person's own record, and the people page for an admin.
+
+        The boat key in the address is only where the console lives; nothing under here is
+        about that boat. Reaching it still needs a boat this person may see, exactly like
+        every other path under `/b/<key>/`, because that is the check the session is for.
+
+        **Every write is a JSON POST and has to say so.** `SameSite=Lax` already keeps this
+        cookie off a cross-site POST, so the content type is a second lock rather than the
+        only one: a cross-site form can send `application/x-www-form-urlencoded`,
+        `multipart/form-data` or `text/plain` and nothing else, so a route that accepts
+        only `application/json` cannot be driven by one — which still holds on a browser
+        old enough, or configured loosely enough, not to enforce Lax. It is a 415 and not
+        a 400 because the content type is the thing that is wrong.
+
+        The body is read before the type is checked. An unread body on a keep-alive
+        connection is the next request as far as the parser is concerned.
+        """
+        what = what.strip("/")
+        if self.command in ("GET", "HEAD"):
+            if what == "users":
+                return self.account_users(user)
+            return self.not_found(True)
+        if self.command != "POST":
+            return self.send_json({"error": "method not allowed"}, status=405)
+
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            length = -1
+        if length < 0 or length > ACCOUNT_MAX_BODY:
+            return self.send_json({"error": "too much data"}, status=413)
+        raw = self.rfile.read(length) if length > 0 else b""
+
+        kind = (self.headers.get("Content-Type") or "").partition(";")[0].strip().lower()
+        if kind != "application/json":
+            return self.send_json({"error": "send this as application/json"}, status=415)
+
+        try:
+            payload = json.loads(raw or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            payload = None
+        if not isinstance(payload, dict):
+            return self.send_json({"error": "that is not an account change"}, status=400)
+
+        routes = {"name": self.account_name, "password": self.account_password,
+                  "invite": self.account_invite, "reissue": self.account_reissue,
+                  "revoke": self.account_revoke, "boats": self.account_boats}
+        if what == "users":
+            # The one route here that is a read. Answering an admin's POST to it with the
+            # plain 404 would say it does not exist, and it does — but only for an admin:
+            # everybody else keeps the 404, which is the whole point of that answer.
+            if not self._admin(user):
+                return self.not_found(True)
+            return self.send_json({"error": "method not allowed"}, status=405,
+                                  extra=(("Allow", "GET"),))
+        if what == "logout-all":
+            return self.account_logout_all(user)
+        if what in routes:
+            return routes[what](user, payload)
+        return self.not_found(True)
+
+    def _admin(self, user) -> bool:
+        """The people page is an admin's. An owner and a crew member get the same 404 as
+        for a boat that is not theirs — a 403 would tell them the page is there."""
+        return (user.get("role") or "crew") == "admin"
+
+    def _boat_keys(self, raw):
+        """`(keys, bad)` — the configured keys in `raw`, in configured order, and whether
+        it held one this gate has never heard of. A key that is not configured is refused
+        rather than dropped: silently saving four of five boats is a worse answer than no."""
+        if raw is None:
+            return [], False
+        if not isinstance(raw, list):
+            return [], True
+        configured = boat_origins()
+        wanted = {str(k) for k in raw}
+        return ([k for k in configured if k in wanted],
+                any(k not in configured for k in wanted))
+
+    def _save_user(self, email: str, change, by: str) -> dict | None:
+        """Re-read the file, change one record, stamp it, write the whole thing back.
+
+        Re-read rather than edited in place because the record this request is holding was
+        loaded at the top of it and the file is shared with the command line: `revoke` in
+        a terminal between the two would otherwise be undone by saving a stale list.
+        """
+        wanted = str(email).strip().lower()
+        users = load_users()
+        found = None
+        for record in users:
+            if str(record.get("email", "")).strip().lower() == wanted:
+                change(record)
+                record["updated_by"] = by
+                record["updated_at"] = (datetime.now(timezone.utc)
+                                        .replace(microsecond=0).isoformat())
+                found = record
+        if found is None:
+            return None
+        save_users(users)
+        return found
+
+    def _signed_in(self, email: str, gen: int):
+        """A fresh cookie for this browser, on an answer that is not a redirect."""
+        token = sign("session", {"email": str(email).lower(), "gen": gen}, SESSION_DAYS)
+        return (("Set-Cookie", self._cookie(token, SESSION_DAYS)),)
+
+    # ── your own record ───────────────────────────────────────────────────────────────
+    def account_name(self, user, payload):
+        name = str(payload.get("name") or "").strip()
+        if not 1 <= len(name) <= 60:
+            return self.send_json({"error": "a name is between 1 and 60 characters"},
+                                  status=400)
+        me = str(user.get("email") or "")
+        record = self._save_user(me, lambda r: r.__setitem__("name", name), me)
+        if not record:
+            return self.not_found(True)
+        return self.send_json({"ok": True, "name": name})
+
+    def account_password(self, user, payload):
+        """The current one, verified; the new one, hashed; a fresh cookie for this browser.
+
+        It does **not** sign the other devices out — "Sign out everywhere else" is its own
+        button, because the two are different intentions and a person changing a password
+        for tidiness should not be surprised by a phone that has forgotten them.
+        """
+        email = str(user.get("email") or "").lower()
+        current = str(payload.get("current") or "")
+        fresh = str(payload.get("password") or "")
+        # Checked before the current one, and deliberately not counted as a failure: it is
+        # a person mistyping their own new password, not somebody guessing the old one.
+        if len(fresh) < 10:
+            return self.send_json({"error": "ten characters or more, please"}, status=400)
+
+        # The same count in the same window as the login form, and for the same reason:
+        # this route verifies a password, so it is a place to guess one.
+        bucket = "password:" + email
+        recent = [t for t in _failures.get(bucket, []) if time.time() - t < FAILURE_WINDOW]
+        _failures[bucket] = recent
+        if len(recent) >= MAX_FAILURES:
+            return self.send_json({"error": "too many attempts — try again shortly"},
+                                  status=429)
+        if not user.get("hash") or not verify_password(current, user["hash"]):
+            _failures.setdefault(bucket, []).append(time.time())
+            return self.send_json({"error": "that is not the current password"}, status=400)
+        _failures.pop(bucket, None)
+
+        stored = hash_password(fresh)
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        record = self._save_user(email, lambda r: r.update({"hash": stored,
+                                                            "password_set": today}), email)
+        if not record:
+            return self.not_found(True)
+        return self.send_json({"ok": True},
+                              extra=self._signed_in(email, _int(record.get("session_gen"))))
+
+    def account_logout_all(self, user):
+        """One number up, and every cookie carrying the old one stops being a session.
+
+        No table of sessions to keep, nothing to expire, and it works on a phone that is
+        switched off in a locker: the cookie is checked against the record on the next
+        click, and the next click is whenever it happens.
+        """
+        email = str(user.get("email") or "").lower()
+        record = self._save_user(email, lambda r: r.__setitem__(
+            "session_gen", _int(r.get("session_gen")) + 1), email)
+        if not record:
+            return self.not_found(True)
+        gen = _int(record.get("session_gen"))
+        return self.send_json({"ok": True, "session_gen": gen},
+                              extra=self._signed_in(email, gen))
+
+    # ── the people page, for an admin ─────────────────────────────────────────────────
+    def account_users(self, user):
+        if not self._admin(user):
+            return self.not_found(True)
+        names = boat_names()
+        people = [{
+            "email": record.get("email"),
+            "name": record.get("name") or record.get("email"),
+            "role": record.get("role") or "crew",
+            "boats": [str(k) for k in (record.get("boats") or [])],
+            # Whether a password exists, never anything about what it is. The hash does
+            # not leave this process, not even to an admin's own browser.
+            "password": bool(record.get("hash")),
+            "created": record.get("created") or "",
+            "updated_at": record.get("updated_at") or "",
+        } for record in sorted(load_users(), key=lambda u: str(u.get("email", "")))]
+        return self.send_json({"you": str(user.get("email") or "").lower(),
+                               "roles": list(ROLES),
+                               "boats": [{"key": k, "name": names.get(k, k)}
+                                         for k in boat_origins()],
+                               "users": people})
+
+    def account_invite(self, user, payload):
+        if not self._admin(user):
+            return self.not_found(True)
+        email = str(payload.get("email") or "").strip().lower()
+        name = str(payload.get("name") or "").strip()
+        role = str(payload.get("role") or "crew").strip()
+        keys, bad = self._boat_keys(payload.get("boats"))
+        if "@" not in email or len(email) > 254 or " " in email:
+            return self.send_json({"error": "that does not look like an email address"},
+                                  status=400)
+        if len(name) > 60:
+            return self.send_json({"error": "a name is 60 characters at most"}, status=400)
+        if role not in ROLES:
+            return self.send_json({"error": "a role is one of " + ", ".join(ROLES)},
+                                  status=400)
+        if bad:
+            return self.send_json({"error": "this gate serves no such boat"}, status=400)
+        record = invite_user(email, name, role, keys, by=str(user.get("email") or ""))
+        return self.send_json({"ok": True, "email": email,
+                               "name": record.get("name") or email,
+                               "url": invite_link(email), "days": INVITE_DAYS})
+
+    def account_reissue(self, user, payload):
+        if not self._admin(user):
+            return self.not_found(True)
+        email = str(payload.get("email") or "").strip().lower()
+        record = find_user(email)
+        if not record:
+            return self.send_json({"error": "no such person here"}, status=404)
+        if record.get("hash"):
+            # A fresh link for somebody who already has a password is a password reset one
+            # admin can perform on another person's account from a browser. The command
+            # line can still do it, standing at the machine.
+            return self.send_json({"error": "that account already has a password"},
+                                  status=400)
+        return self.send_json({"ok": True, "email": email, "url": invite_link(email),
+                               "days": INVITE_DAYS})
+
+    def account_revoke(self, user, payload):
+        if not self._admin(user):
+            return self.not_found(True)
+        email = str(payload.get("email") or "").strip().lower()
+        if email == str(user.get("email") or "").lower():
+            # An admin who removes their own account has locked the last door with the key
+            # on the inside, and the fix is a shell on the machine.
+            return self.send_json({"error": "you cannot revoke your own account here"},
+                                  status=400)
+        users = load_users()
+        left = [u for u in users if str(u.get("email", "")).strip().lower() != email]
+        if len(left) == len(users):
+            return self.send_json({"error": "no such person here"}, status=404)
+        save_users(left)
+        return self.send_json({"ok": True, "email": email})
+
+    def account_boats(self, user, payload):
+        if not self._admin(user):
+            return self.not_found(True)
+        email = str(payload.get("email") or "").strip().lower()
+        keys, bad = self._boat_keys(payload.get("boats"))
+        if bad:
+            return self.send_json({"error": "this gate serves no such boat"}, status=400)
+        record = self._save_user(email, lambda r: r.__setitem__("boats", keys),
+                                 str(user.get("email") or ""))
+        if not record:
+            return self.send_json({"error": "no such person here"}, status=404)
+        return self.send_json({"ok": True, "email": email, "boats": keys})
 
     # ── static files ──────────────────────────────────────────────────────────────────
     def static(self, name: str, root: Path):
@@ -1016,22 +1349,8 @@ def cmd_invite(argv: list[str]) -> int:
         print(f"--role must be one of {', '.join(ROLES)}", file=sys.stderr)
         return 2
 
-    users = load_users()
-    existing = next((u for u in users if str(u.get("email", "")).lower() == email), None)
-    if existing is None:
-        existing = {"email": email, "name": name or email, "role": role, "boats": keys,
-                    "hash": "", "created": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                    "invited_by": os.environ.get("USER", "")}
-        users.append(existing)
-    else:
-        if name:
-            existing["name"] = name
-        existing["role"] = role
-        if keys:
-            existing["boats"] = sorted(set(existing.get("boats") or []) | set(keys))
-    save_users(users)
-
-    link = f"{public_url()}/invite/{sign('invite', {'email': email}, INVITE_DAYS)}"
+    existing = invite_user(email, name, role, keys, by=os.environ.get("USER", ""))
+    link = invite_link(email)
     print(f"{existing['name']} <{email}> — {existing['role']}, "
           f"boats: {', '.join(existing.get('boats') or []) or '(none)'}")
     print(f"\n  {link}\n")
