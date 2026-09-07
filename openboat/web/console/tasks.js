@@ -493,6 +493,7 @@ async function tasksList() {
   const filter = TASKS_CHIPS.some(([id]) => id === state.params.f) ? state.params.f : "all";
 
   const v = el("div");
+  if (tasksFlash) { v.append(note("ok", tasksFlash)); tasksFlash = null; }
 
   /* The chips are anchors, not buttons, because a filtered list is a place you can send
      somebody: the filter is in the address and a copied link arrives narrowed.
@@ -521,10 +522,16 @@ async function tasksList() {
   card.append(wrap);
   const tail = el("div");
 
+  /* Filing a fault is an anchor to `#tasks/new`, so the form has an address: a phone can
+     bookmark it, and a link in a message opens the page with the form already up. */
+  const file = el("a", "btn btn-primary text-nowrap");
+  file.href = href("tasks", "new");
+  file.innerHTML = '<i class="bi bi-camera me-1"></i>File a snag';
   v.append(toolbar("Filter what this boat owes…",
-                   () => { state.sel = null; draw(); }, [chips]));
+                   () => { state.sel = null; draw(); }, [chips, file]));
   v.append(card, tail);
   mount(v);
+  if (state.sub === "new") setTimeout(() => tasksNewSnagModal(snags), 0);
 
   /* What the filter box searches. Stringifying the whole record searched the JSON's own
      key names too, so "body", "photos" and "true" each matched every row on the page. */
@@ -575,7 +582,7 @@ async function tasksList() {
           ? el("span", "text-break", r.assigned)
           : el("span", "text-body-secondary", "—");
       } },
-    { label: "Status", w: "9rem", cls: "text-end", get: r => {
+    { label: "Status", w: "6.5rem", cls: "text-end", get: r => {
         const c = el("div");
         c.append(tasksBadge(r));
         c.append(el("div", "small text-body-secondary mt-1",
@@ -875,6 +882,175 @@ function tasksAssignControl(s, snags) {
   b.type = "button";
   b.onclick = () => tasksAssignModal(s, snags);
   return b;
+}
+
+/* ── filing a fault from here ─────────────────────────────────────────────────────
+   The same write the phone page makes, from inside the console: a note, where on the
+   boat, photographs shrunk in the browser, and a name. It goes through `snagPost()`, so
+   behind the gate the boat and the name are the session's, not the form's.            */
+
+/* A phone photo is ~4 MB and boat wifi is bad; 1600 px on the long edge still shows a
+   cracked fitting clearly, and it is the difference between filing from the end of a
+   pontoon and spinning forever. */
+function tasksShrink(file, max = 1600, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("cannot read " + file.name)); };
+    img.src = url;
+  });
+}
+
+const TASKS_MAX_PHOTOS = 8;
+
+function tasksNewSnagModal(snags) {
+  if (!snags || snags.error) {
+    mount(note("error", "The snag service could not be read, so nothing can be filed: " +
+                        ((snags && snags.error) || "no answer") + "."));
+    return;
+  }
+  const photos = [];
+  const m = el("div", "modal fade");
+  m.tabIndex = -1;
+  const dlg = el("div", "modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down");
+  const box = el("div", "modal-content");
+
+  const head = el("div", "modal-header");
+  head.append(el("h2", "modal-title h5 mb-0", "File a snag"));
+  const x = el("button", "btn-close");
+  x.type = "button";
+  x.setAttribute("data-bs-dismiss", "modal");
+  x.setAttribute("aria-label", "Close");
+  head.append(x);
+
+  const body = el("div", "modal-body");
+  body.append(el("p", "small text-body-secondary",
+    "What you saw, where, and a photograph if you have one. It is appended to the boat's " +
+    "file as an open fault with your name and the time on it; nothing already written changes."));
+  const errBox = el("div", "alert alert-danger d-none");
+  errBox.setAttribute("role", "alert");
+  body.append(errBox);
+
+  const id = "t-new-" + Date.now();
+  const field = (label, ctrl, help) => {
+    const w = el("div", "mb-3");
+    const l = el("label", "form-label", label);
+    l.htmlFor = ctrl.id;
+    w.append(l, ctrl);
+    if (help) w.append(el("div", "form-text", help));
+    return w;
+  };
+
+  const noteEl = el("textarea", "form-control form-control-lg");
+  noteEl.id = id + "-note"; noteEl.rows = 4; noteEl.required = true;
+  noteEl.placeholder = "what is wrong, as you would say it to the person fixing it";
+  body.append(field("What you found", noteEl, "The first sentence becomes the fault's title."));
+
+  const whereEl = el("input", "form-control");
+  whereEl.id = id + "-where"; whereEl.type = "text"; whereEl.autocomplete = "off";
+  whereEl.placeholder = "engine bay, port locker, transom…";
+  body.append(field("Where on the boat", whereEl));
+
+  /* Photographs: the picker is a hidden file input so the visible control can be one
+     large button, and `capture` asks a phone for the camera rather than the gallery. */
+  const shots = el("div", "d-flex flex-wrap gap-2 mb-2");
+  const pick = el("input");
+  pick.type = "file"; pick.accept = "image/*"; pick.multiple = true; pick.hidden = true;
+  pick.setAttribute("capture", "environment");
+  pick.id = id + "-pick";
+  const pickBtn = el("button", "btn btn-outline-primary w-100");
+  pickBtn.type = "button";
+  pickBtn.innerHTML = '<i class="bi bi-camera me-2"></i>Add a photograph';
+  const drawShots = () => {
+    shots.textContent = "";
+    photos.forEach((src, i) => {
+      const fig = el("div", "position-relative");
+      const img = el("img", "rounded border");
+      img.src = src; img.alt = ""; img.style.width = "96px"; img.style.height = "96px";
+      img.style.objectFit = "cover";
+      const del = el("button", "btn btn-sm btn-light border position-absolute top-0 end-0 m-1 py-0 px-1");
+      del.type = "button"; del.textContent = "×"; del.setAttribute("aria-label", "Remove photo");
+      del.onclick = () => { photos.splice(i, 1); drawShots(); };
+      fig.append(img, del);
+      shots.append(fig);
+    });
+    pickBtn.disabled = photos.length >= TASKS_MAX_PHOTOS;
+    pickBtn.innerHTML = '<i class="bi bi-camera me-2"></i>' +
+      (photos.length ? `Add another (${photos.length} of ${TASKS_MAX_PHOTOS})` : "Add a photograph");
+  };
+  pickBtn.onclick = () => pick.click();
+  pick.onchange = async e => {
+    errBox.classList.add("d-none");
+    for (const f of Array.from(e.target.files || [])) {
+      if (photos.length >= TASKS_MAX_PHOTOS) break;
+      try { photos.push(await tasksShrink(f)); }
+      catch (err) { errBox.textContent = String(err.message || err); errBox.classList.remove("d-none"); }
+    }
+    pick.value = "";
+    drawShots();
+  };
+  const photoWrap = el("div", "mb-3");
+  photoWrap.append(el("label", "form-label", "Photographs"), shots, pick, pickBtn,
+                   el("div", "form-text", "Shrunk in the browser before sending. Up to eight."));
+  body.append(photoWrap);
+
+  const byEl = el("input", "form-control");
+  byEl.id = id + "-by"; byEl.type = "text"; byEl.autocomplete = "name";
+  byEl.value = (window.OB_USER && window.OB_USER.name) || tasksWho();
+  if (window.OB_USER) byEl.readOnly = true;
+  body.append(field("Your name", byEl, window.OB_USER ? "From your login." : ""));
+
+  const foot = el("div", "modal-footer");
+  const cancel = el("button", "btn btn-outline-secondary", "Cancel");
+  cancel.type = "button"; cancel.setAttribute("data-bs-dismiss", "modal");
+  const send = el("button", "btn btn-primary", "File it");
+  send.type = "button";
+  foot.append(cancel, send);
+  box.append(head, body, foot);
+  dlg.append(box);
+  m.append(dlg);
+
+  const fail = line => { errBox.textContent = line; errBox.classList.remove("d-none"); };
+  send.onclick = async () => {
+    const text = noteEl.value.trim();
+    if (!text) { noteEl.classList.add("is-invalid"); noteEl.focus(); return; }
+    noteEl.classList.remove("is-invalid");
+    errBox.classList.add("d-none");
+    send.disabled = cancel.disabled = true;
+    send.textContent = "Filing…";
+    const mine = byEl.value.trim();
+    const r = await snagPost(snags, { note: text, where: whereEl.value.trim(), photos, by: mine });
+    if (r && r.ok) {
+      tasksRemember(mine);
+      state.index = null;
+      tasksFlash = `Filed: ${tasksFirst(text, 80)}` +
+                   (photos.length ? ` (${photos.length} photo${photos.length > 1 ? "s" : ""})` : "");
+      const inst = bootstrap.Modal.getInstance(m);
+      if (inst) inst.hide(); else m.remove();
+      nav("tasks");
+      return;
+    }
+    send.disabled = cancel.disabled = false;
+    send.textContent = "File it";
+    fail((r && r.error) || "the snag service did not say what went wrong");
+  };
+
+  document.body.append(m);
+  m.addEventListener("hidden.bs.modal", () => {
+    m.remove();
+    /* Closing the form leaves `#tasks/new` behind, and a reload would reopen it. */
+    if (state.view === "tasks" && state.sub === "new") nav("tasks");
+  });
+  m.addEventListener("shown.bs.modal", () => noteEl.focus());
+  new bootstrap.Modal(m).show();
 }
 
 function tasksAssignModal(s, snags) {
