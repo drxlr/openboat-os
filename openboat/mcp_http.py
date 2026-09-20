@@ -67,6 +67,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import knowledge, mcp
+from .profile import pinned
 
 PORT = 8748
 
@@ -100,37 +101,66 @@ CHATGPT_TOOLS = [
 ]
 
 
-def _passage_id(hit) -> str:
-    return f"{hit.doc.name}#{hit.line}"
+def _passage_id(key: str, hit) -> str:
+    """`boat:document#line` — the boat first, so `fetch` opens the right library."""
+    return f"{key}:{hit.doc.name}#{hit.line}"
 
 
-def tool_search(query, **_) -> str:
-    library = knowledge.load()
-    if not library.paths:
-        return json.dumps({"results": []})
-    results = [{"id": _passage_id(h), "title": f"{h.heading} ({h.where})",
-                "url": f"file://{h.doc}#L{h.line}",
-                "text": h.text[:400]}
-               for h in library.search(query, limit=8)]
+def _libraries(boat: str = "") -> list[tuple[dict, knowledge.Library]]:
+    """The boats to search: the one named, or every one when none is."""
+    boats = [b for b in mcp.fleet() if not boat or b["key"] == boat]
+    out = []
+    for entry in boats:
+        with pinned(entry["profile"]):
+            out.append((entry, knowledge.load()))
+    return out
+
+
+def tool_search(query, boat="", **_) -> str:
+    """Passages from the boat's papers — or from every boat's, when none is named.
+
+    The deep-research contract fixes this tool's shape, so unlike the rest it cannot
+    insist on a key. It answers by naming the boat in every title and id instead: a
+    passage from the other hull is labelled as one, and nothing in the result reads as if
+    it came from the boat the question was about.
+    """
+    several = len(mcp.fleet()) > 1
+    results = []
+    for entry, library in _libraries(boat):
+        if not library.paths:
+            continue
+        for h in library.search(query, limit=8):
+            title = f"{h.heading} ({h.where})"
+            if several:
+                title = f"{entry['name']}: {title}"
+            results.append({"id": _passage_id(entry["key"], h), "title": title,
+                            "url": f"file://{h.doc}#L{h.line}", "text": h.text[:400]})
     return json.dumps({"results": results}, ensure_ascii=False)
 
 
-def tool_fetch(id, **_) -> str:
-    """One passage in full. Matched on name#line so an id survives an edit elsewhere."""
-    name, _, line = str(id).partition("#")
-    for passage in knowledge.load().passages():
-        if passage.doc.name == name and str(passage.line) == line:
-            return json.dumps({"id": id, "title": passage.heading, "text": passage.text,
-                               "url": f"file://{passage.doc}#L{passage.line}",
-                               "metadata": {"document": name, "line": passage.line}},
-                              ensure_ascii=False)
+def tool_fetch(id, boat="", **_) -> str:
+    """One passage in full. Matched on boat:name#line so an id survives an edit elsewhere."""
+    key, _, rest = str(id).rpartition(":")
+    name, _, line = rest.partition("#")
+    for entry, library in _libraries(key or boat):
+        for passage in library.passages():
+            if passage.doc.name == name and str(passage.line) == line:
+                return json.dumps({"id": id, "title": f"{entry['name']}: {passage.heading}",
+                                   "text": passage.text,
+                                   "url": f"file://{passage.doc}#L{passage.line}",
+                                   "metadata": {"boat": entry["key"], "document": name,
+                                                "line": passage.line}},
+                                  ensure_ascii=False)
     return json.dumps({"id": id, "title": "not found", "text":
                        "No such passage. The documents may have been edited since the "
                        "search; run search again rather than guessing.", "url": ""})
 
 
 HANDLERS = {**mcp.HANDLERS, "search": tool_search, "fetch": tool_fetch}
-TOOLS = mcp.TOOLS + CHATGPT_TOOLS
+#: `search` and `fetch` cover every boat when none is named — the contract fixes their
+#: shape — so their `boat` is optional even where the other tools' is required.
+ANY_BOAT = frozenset({"search", "fetch"})
+TOOLS = mcp.TOOLS + mcp.widen(CHATGPT_TOOLS, required=False)
 
 
 def handle(request: dict) -> dict | None:
@@ -143,16 +173,11 @@ def handle(request: dict) -> dict | None:
 
     if method == "tools/call":
         params = request.get("params", {})
-        handler = HANDLERS.get(params.get("name"))
-        if handler is None:
+        result = mcp.dispatch(HANDLERS, params.get("name"), params.get("arguments"),
+                              any_boat=ANY_BOAT)
+        if result is None:
             return mcp.error(request_id, -32602, f"unknown tool {params.get('name')!r}")
-        try:
-            text = handler(**(params.get("arguments") or {}))
-        except Exception as exc:
-            return mcp.reply(request_id, {
-                "content": [{"type": "text", "text": f"{type(exc).__name__}: {exc}"}],
-                "isError": True})
-        return mcp.reply(request_id, mcp.as_result(text))
+        return mcp.reply(request_id, result)
 
     return mcp.handle(request)
 

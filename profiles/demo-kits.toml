@@ -1,0 +1,224 @@
+# Demonstration kits for the demo boat.
+#
+# A kit is the answer to "what has to be in the box before this job can start", and the
+# offers under each line are the answer to "who has it, at what delivered price, in how
+# many days". Together they are the half of maintenance a service interval does not cover
+# and that actually costs a season.
+#
+# ── EVERYTHING BELOW IS INVENTED ─────────────────────────────────────────────────────
+# The suppliers are fictional and the prices were typed to show the shape of the screen.
+# Nobody quoted them. `placeholder = true` is what makes every screen say so out loud, and
+# it must stay true in this file for as long as the numbers are made up. A placeholder
+# price that is not labelled is indistinguishable from a quote, which is the one failure
+# this project is not allowed to have.
+#
+# To make it yours:
+#
+#     cp profiles/demo-kits.toml kits.toml      # beside your boat.toml
+#     $EDITOR kits.toml                         # and delete the placeholder line
+#
+# `kits.toml` is gitignored along with `boat.toml`. Your suppliers, your trade prices and
+# what you actually paid are commercial facts about you; they belong in the same private
+# place as the rest of your boat.
+#
+# ── The fields ───────────────────────────────────────────────────────────────────────
+#   item      must match a key in [maintenance] in your boat.toml — that is the join
+#   line      one thing that has to be in the box. qty is how many of them
+#   why       the trap. This is the most valuable field in the file: it is where you
+#             write down what the catalogue does not say and what cost you a week
+#   optional  true for a line that is prudent rather than required. It is shown, and it
+#             never blocks the kit's total
+#   offer     one supplier, on the day somebody looked
+#   checked   the date somebody actually looked. An offer with no checked date, or one
+#             older than 60 days, is shown but never added into a total
+
+version = 1
+placeholder = true
+
+
+# ── The impeller ─────────────────────────────────────────────────────────────────────
+[[kit]]
+item = "impeller"
+title = "Raw-water pump impeller service"
+note = """
+The impeller is a consumable that fails without warning and takes the exhaust with it when \
+it does. Buy the second one at the same time: the freight costs more than the part, and an \
+impeller in a locker is the difference between an afternoon and a weekend."""
+
+[[kit.line]]
+part = "Impeller, raw-water pump"
+number = "DEMO-IMP-001"
+qty = 2
+why = "One to fit, one for the locker. Shipping a single impeller costs more than the impeller."
+
+[[kit.line.offer]]
+supplier = "Northline Chandlery"
+price_eur = 38.90
+lead_days = 3
+stock = "in stock"
+checked = "2026-09-05"
+ships_to = "EU"
+url = "https://example.invalid/impeller"
+
+[[kit.line.offer]]
+supplier = "Harbour Parts Co"
+price_eur = 31.50
+lead_days = 12
+stock = "on order"
+checked = "2026-09-06"
+ships_to = "EU"
+note = "Cheaper, but the lead time crosses the weekend you wanted the boat for."
+url = "https://example.invalid/impeller-alt"
+
+[[kit.line.offer]]
+supplier = "OEM dealer"
+price_eur = 64.00
+lead_days = 2
+stock = "in stock"
+checked = "2026-04-11"
+ships_to = "EU"
+note = "Checked in April — shown, but too old to add into a total."
+url = "https://example.invalid/impeller-oem"
+
+[[kit.line]]
+part = "Pump cover gasket"
+number = "DEMO-GSK-114"
+qty = 2
+why = "The cover will not reseal on the old paper gasket. This is the line that gets forgotten and strands the job with the pump already open."
+
+[[kit.line.offer]]
+supplier = "Northline Chandlery"
+price_eur = 4.20
+lead_days = 3
+stock = "in stock"
+checked = "2026-09-05"
+ships_to = "EU"
+url = "https://example.invalid/gasket"
+
+[[kit.line]]
+part = "Impeller puller"
+number = "DEMO-TOOL-07"
+qty = 1
+optional = true
+why = "Once. Levering a stuck impeller out with screwdrivers is how the housing gets scored."
+
+[[kit.line.offer]]
+supplier = "Delta Marine Supply"
+price_eur = 27.00
+lead_days = 5
+stock = "in stock"
+checked = "2026-09-04"
+ships_to = "EU"
+url = "https://example.invalid/puller"
+
+
+# ── Oil and filter ───────────────────────────────────────────────────────────────────
+[[kit]]
+item = "oil"
+title = "Engine oil and filter change"
+note = """
+Quantity is the thing to get right here, and it is not the sump capacity: it is the sump \
+plus what stays in the filter. Buy the round number above it, not below."""
+
+[[kit.line]]
+part = "Marine engine oil, 25W-40"
+number = "DEMO-OIL-25W40-5L"
+qty = 2
+why = "Two five-litre cans, not one. The stated sump capacity does not include the filter."
+
+[[kit.line.offer]]
+supplier = "Northline Chandlery"
+price_eur = 46.50
+lead_days = 3
+stock = "in stock"
+checked = "2026-09-05"
+ships_to = "EU"
+url = "https://example.invalid/oil"
+
+[[kit.line.offer]]
+supplier = "Delta Marine Supply"
+price_eur = 42.95
+lead_days = 6
+stock = "2 in stock"
+checked = "2026-09-02"
+ships_to = "EU"
+url = "https://example.invalid/oil-alt"
+
+[[kit.line]]
+part = "Oil filter"
+number = "DEMO-FLT-220"
+qty = 1
+why = "Cross-reference the number against the engine's serial, not against the model name — the filter changed mid-production on several engines of this family."
+
+[[kit.line.offer]]
+supplier = "Harbour Parts Co"
+price_eur = 14.80
+lead_days = 4
+stock = "in stock"
+checked = "2026-09-06"
+ships_to = "EU"
+url = "https://example.invalid/filter"
+
+[[kit.line]]
+part = "Sump extraction pump"
+number = "DEMO-TOOL-31"
+qty = 1
+optional = true
+why = "There is no drain plug you can reach with the engine in the boat."
+
+[[kit.line.offer]]
+supplier = "Delta Marine Supply"
+price_eur = 58.00
+lead_days = 5
+stock = "in stock"
+checked = "2026-09-04"
+ships_to = "EU"
+url = "https://example.invalid/extractor"
+
+
+# ── Anodes ───────────────────────────────────────────────────────────────────────────
+[[kit]]
+item = "anodes"
+title = "Sacrificial anodes"
+note = """
+The alloy is the decision, not the price: zinc in salt, aluminium in brackish, magnesium \
+only in fresh. The wrong alloy protects nothing and looks exactly like the right one."""
+
+[[kit.line]]
+part = "Anode set, drive"
+number = "DEMO-AN-SET"
+qty = 1
+why = "Salt water: zinc. An aluminium set fitted in salt will look untouched at lift-out and will have protected nothing."
+
+[[kit.line.offer]]
+supplier = "Northline Chandlery"
+price_eur = 74.00
+lead_days = 3
+stock = "in stock"
+checked = "2026-09-05"
+ships_to = "EU"
+url = "https://example.invalid/anodes"
+
+[[kit.line.offer]]
+supplier = "Harbour Parts Co"
+price_eur = 69.90
+lead_days = 9
+stock = "on order"
+checked = "2026-09-06"
+ships_to = "EU"
+url = "https://example.invalid/anodes-alt"
+
+[[kit.line]]
+part = "Stainless fixings for anode set"
+number = "DEMO-FIX-09"
+qty = 1
+why = "The old bolts come out chewed. They are not supplied with the anodes."
+
+[[kit.line.offer]]
+supplier = "Northline Chandlery"
+price_eur = 8.40
+lead_days = 3
+stock = "in stock"
+checked = "2026-09-05"
+ships_to = "EU"
+url = "https://example.invalid/fixings"

@@ -47,7 +47,7 @@ from . import boat, documents, intake, knowledge, ledger, logbook, notes, papers
 from . import engine_health, engine_hours, maintenance, snag
 from .engine import DEFAULT_DB, connect as connect_engine_data
 from .marine import forecast
-from .profile import load
+from .profile import load, pinned
 from .route import Waypoint, plan
 
 
@@ -110,7 +110,9 @@ ANNOTATIONS = {
     "add_note": APPEND_ONLY,
     "add_document": APPEND_ONLY,
     "boat_files": READ_ONLY,
-    "boat_tasks": READ_ONLY,
+    "boat_tasks": READ_ONLY, "boat_shopping": READ_ONLY,
+    "file_task": APPEND_ONLY,
+    "boat_parts": READ_ONLY,
     "engine_data": READ_ONLY,
     "snag_photo": READ_ONLY,
     "add_link": APPEND_ONLY,
@@ -159,13 +161,9 @@ TOOLS = [
                        "came from. A field that is absent is absent on purpose: nobody has "
                        "measured it, and this project would rather say so than guess. "
                        "Never fill such a gap from the make and model; say it is not "
-                       "recorded. Answers about the boat this companion is pinned to "
-                       "unless `boat` names another one on the same machine; the answer "
-                       "always says which boat it describes.",
+                       "recorded. The answer always says which boat it describes.",
         "inputSchema": {"type": "object", "properties": {
-            "boat": {"type": "string", "description":
-                     "Key of another boat on this machine, e.g. 'demo-boat'. Omit for the "
-                     "boat this companion is pinned to."},
+            "boat": {"type": "string"},
         }},
     },
     {
@@ -328,6 +326,83 @@ TOOLS = [
             },
             "required": ["waypoints"],
         },
+    },
+    {
+        "name": "file_task",
+        "description": "File a NEW fault or idea against the boat. It can only add: there "
+                       "is no way from here to close one, change its status, reassign it, "
+                       "rename it or edit a word anybody else wrote. Use it when the owner "
+                       "tells you something is wrong or something is wanted and asks for "
+                       "it to go on the list — never to record your own conclusion, and "
+                       "never for something you inferred rather than were told. Write what "
+                       "the owner said, not a tidied version of it, and put what is NOT "
+                       "known in the note rather than resolving it: 'which line, and "
+                       "whether it was cut or chafed, was not said' is a better entry than "
+                       "a guess. The entry is stamped with your name and marked unverified "
+                       "in the boat's file, because that is what it is.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "note": {"type": "string", "description":
+                         "What is wrong or what is wanted. The first line becomes the "
+                         "heading, so make it one plain sentence naming the thing."},
+                "where": {"type": "string", "description":
+                          "Where on the boat, as 'system — detail', e.g. "
+                          "'generator — fuel supply'. Say it if it is known."},
+                "kind": {"type": "string", "enum": ["fault", "idea"], "description":
+                         "'fault' is something wrong; 'idea' is something wanted and "
+                         "nothing broken. Ideas are counted separately and must not be "
+                         "filed as faults."},
+                "boat": {"type": "string"},
+            },
+            "required": ["note"],
+        },
+    },
+    {
+        "name": "boat_shopping",
+        "description": "What could be bought for this boat, for somebody standing in a "
+                       "chandlery or a hardware shop with a phone. Three sources: ideas "
+                       "filed against the boat (things wanted, not broken), the "
+                       "improvements file, and the parts file — which is where a broken "
+                       "part's measurements live. ALWAYS read out what is still unknown "
+                       "about an item before recommending it: this project records a "
+                       "missing measurement rather than guessing one, and the whole value "
+                       "of asking in the shop is being told 'not this one yet, nobody has "
+                       "measured the cutout' before money is spent. Never supply a "
+                       "dimension, a quantity or a part number that is not in the answer.",
+        "inputSchema": {"type": "object", "properties": {
+            "boat": {"type": "string"},
+        }},
+    },
+    {
+        "name": "boat_parts",
+        "description": "Search the parts catalogues indexed for this boat — the shops' own "
+                       "listings, with the manufacturer's part number, the price on the "
+                       "day it was indexed, the models the shop says it fits, and the "
+                       "specification text. Use it whenever somebody asks what a part is, "
+                       "what it costs, what number to order, or what a set contains. "
+                       "Give the part number and the shop every time: a name alone is not "
+                       "orderable. Two things must be read out rather than smoothed over: "
+                       "the date the shop was indexed, because a price nobody has checked "
+                       "since is not a quote, and the fitment list, because a part that "
+                       "fits thirty models is a commodity that can be bought anywhere "
+                       "while one that fits two is not. Never invent a dimension, a "
+                       "length or a part number that is not in the answer — call "
+                       "boat_parts again with `number` to read a part in full before "
+                       "recommending it. Read-only: it lists and links, it cannot order.",
+        "inputSchema": {"type": "object", "properties": {
+            "query": {"type": "string", "description":
+                      "Words that must all appear in the name, number, category or "
+                      "specification. Omit to browse."},
+            "number": {"type": "string", "description":
+                       "An exact part number. Returns that one part with its full "
+                       "specification and the shop's terms."},
+            "shop": {"type": "string", "description": "Restrict to one indexed shop."},
+            "category": {"type": "string", "description":
+                         "Restrict to a category path, e.g. 'Rig & Sails'."},
+            "limit": {"type": "integer", "description": "Default 20, maximum 100."},
+            "boat": {"type": "string"},
+        }},
     },
     {
         "name": "boat_tasks",
@@ -554,14 +629,11 @@ def tool_boat_docs(query, limit=5):
 
 
 def tool_boat_specs(boat=""):
-    """The pinned boat's measured facts, or another boat's when asked by key.
+    """One boat's measured facts, by key.
 
-    Reading a second boat's specifications is not the same permission as reading its
-    documents, its faults or its logbook, and this tool grants only the first: a profile
-    is a hull's dimensions, not anybody's business. What it must never do is answer about
-    one hull while sounding like it answered about another, so the name leads every reply
-    and an unknown key is refused with the list rather than quietly falling back to the
-    boat this companion happens to be pinned to.
+    What this must never do is answer about one hull while sounding like it answered about
+    another, so the name leads every reply and an unknown key is refused with the list
+    rather than quietly falling back to whichever boat the process was started with.
     """
     boat_profile = load()
     key = (boat or "").strip()
@@ -671,6 +743,108 @@ def tool_plan_route(waypoints, speed_kn=None, depart=None, litres_per_hour=None)
                      f"{leg.bearing_deg:.0f}° {leg.bearing_name}, "
                      f"{leg.depart:%d.%m %H:%M}–{leg.arrive:%H:%M} — {wx}")
     return "\n".join(lines)
+
+
+def tool_file_task(note, where="", kind="fault", boat=""):
+    """Append one new entry to a boat's snag list, and nothing else.
+
+    The narrowest write that answers the thing people actually ask for. A companion that
+    can only read is useless in the one moment it is most wanted — somebody standing in
+    front of a fault, describing it out loud — and a companion that can close faults and
+    edit notes is a model with write access to the corpus it later quotes back. Those are
+    not the same risk and they do not need the same answer: this creates, and it is the
+    only snag write here. Status, assignment, priority, renaming and closing stay where
+    they were, behind a person at a keyboard or the console's own login.
+
+    Attribution is not optional and is not the caller's to set. `by` is whoever the
+    connector says is calling, so an entry filed through a chat is readable as one for as
+    long as the file exists.
+    """
+    base, key, keys = _boat_dir(boat)
+    if base is None:
+        return f"No boat {key!r} here. Boats this machine knows: {', '.join(keys) or 'none'}."
+    sort = str(kind or "fault").strip().lower()
+    if sort not in ("fault", "idea"):
+        return "kind must be 'fault' or 'idea'."
+    if not str(note or "").strip():
+        return ("Nothing was filed: a task needs a note saying what is wrong or what is "
+                "wanted. Ask, rather than filing an entry that says nothing.")
+    try:
+        written = snag.record(key, str(note or ""), str(where or ""), [],
+                              by=caller(), kind=sort)
+    except ValueError as exc:
+        return f"Not filed: {exc}"
+    names = {b["key"]: b["name"] for b in snag.boats()}
+    return (f"Filed against {names.get(key, key)} as a{'n idea' if sort == 'idea' else ' fault'}: "
+            f"{written['title']}\n"
+            f"Written to {written['file']} with your name on it and marked unverified. "
+            f"Nothing here closed, changed or renamed anything.")
+
+
+def _boat_dir(boat=""):
+    """The directory holding one boat's files, and the name to call it by."""
+    profile = load()
+    known = snag.boats()
+    keys = [b["key"] for b in known]
+    here = profile.path.resolve() if profile.path else None
+    mine = next((b["key"] for b in known
+                 if here and Path(b["profile"]).resolve() == here), keys[0] if keys else "")
+    key = (boat or mine).strip()
+    if key not in keys:
+        return None, key, keys
+    entry = next(b for b in known if b["key"] == key)
+    return Path(entry["profile"]).parent, key, keys
+
+
+def tool_boat_shopping(boat=""):
+    """Everything this boat could be bought, and what is not known about each.
+
+    Deliberately assembled rather than summarised. The three files it reads are short and
+    they already say the careful things — that a socket's waterproof cap will not close
+    with an adapter in it, that ten broken catches cannot be ordered until somebody counts
+    how many are fitted. Summarising is exactly where those get lost, and they are the
+    reason to ask before buying rather than after.
+    """
+    base, key, keys = _boat_dir(boat)
+    if base is None:
+        return (f"No boat {key!r} here. Boats this machine knows: {', '.join(keys) or 'none'}.")
+
+    names = {b["key"]: b["name"] for b in snag.boats()}
+    out = [f"Shopping for {names.get(key, key)} ({key})", ""]
+
+    ideas = [e for e in snag.read_snags(key) if e.get("kind") == "idea"]
+    out.append(f"WANTED — {len(ideas)} idea(s) filed against the boat")
+    if not ideas:
+        out.append("  none")
+    for e in ideas:
+        out.append(f"  · {e['title']}" + (f"   [{e['where']}]" if e["where"] else ""))
+        for line in (e["body"] or "").splitlines():
+            if line.strip():
+                out.append(f"      {line.strip()}")
+        for u in e.get("updates", []):
+            for line in (u["body"] or "").splitlines():
+                if line.strip():
+                    out.append(f"      {line.strip()}")
+    out.append("")
+
+    # The two files, whole. They are a page each and every sentence in them is doing work.
+    for name, heading in (("IMPROVEMENTS.md", "IMPROVEMENTS — wanted, nothing broken"),
+                          ("PARTS.md", "PARTS — what broke, and what is known to order it")):
+        path = base / name
+        out.append(heading)
+        if not path.exists():
+            out.append(f"  no {name} for this boat")
+        else:
+            text = path.read_text(encoding="utf-8", errors="ignore").strip()
+            if len(text) > 12000:
+                text = text[:12000] + "\n… truncated; read the file itself for the rest."
+            out.extend("  " + line for line in text.splitlines())
+        out.append("")
+
+    out.append("Nothing here is a purchase decision. Where a measurement, a count or a part "
+               "number is absent it is absent because nobody has taken it — say so rather "
+               "than filling it in from the make and model.")
+    return "\n".join(out)
 
 
 def tool_boat_tasks(boat="", status="open", what=""):
@@ -953,6 +1127,85 @@ def tool_ais_targets(limit=20):
 
 TOOLS = annotate(TOOLS)
 
+def tool_boat_parts(query="", number="", shop="", category="", limit=20, boat=""):
+    """The indexed shop catalogues for one boat.
+
+    Assembled rather than summarised, for the same reason `boat_shopping` is: the careful
+    parts of a listing are the fitment list and the date it was read, and those are exactly
+    what a fluent paragraph drops. Every row here carries both.
+    """
+    base, key, keys = _boat_dir(boat)
+    if base is None:
+        return f"No boat {key!r} here. Boats this machine knows: {', '.join(keys) or 'none'}."
+
+    from . import catalogue as _cat
+    from .profile import load as _load_profile
+    index = _cat.load(_load_profile(base / "boat.toml"))
+    if not index.items:
+        return (f"No shop catalogue is indexed for {key}. One JSON file per shop goes in "
+                f"{base / 'catalogue'}/.")
+
+    shops = {s.id: s for s in index.shops}
+
+    def terms(item):
+        s = shops.get(item.shop)
+        if not s:
+            return item.shop
+        bits = [s.name or s.id]
+        bits.append({"incl": "inc VAT", "excl": "ex VAT"}.get(s.vat, "VAT basis unknown"))
+        if s.ships_from:
+            bits.append(f"ships from {s.ships_from}")
+        bits.append(f"indexed {s.checked or 'date unknown'}"
+                    + (" — STALE, not a current price" if s.stale else ""))
+        return " · ".join(bits)
+
+    def money(v):
+        return f"EUR {v:,.2f}".replace(",", " ") if v is not None else "price not listed"
+
+    if number:
+        item = index.by_number(number)
+        if not item:
+            return (f"No part numbered {number} in {key}'s index of "
+                    f"{len(index.items)} parts.")
+        out = [f"{item.number} — {item.name}",
+               f"Shop: {terms(item)}",
+               f"Price: {money(item.price_eur)}",
+               f"Category: {item.category or 'not stated'}",
+               f"Fits ({len(item.fits)}): {', '.join(item.fits) if item.fits else 'not stated'}",
+               f"Link: {item.url or 'none'}"]
+        if item.description:
+            out += ["", "Specification as the shop states it:", item.description]
+        else:
+            out += ["", "The shop gives no specification beyond the name. Anything more "
+                        "would be a guess, so nothing more is recorded."]
+        return "\n".join(out)
+
+    limit = max(1, min(int(limit or 20), 100))
+    hits = index.find(query, shop=shop, category=category, limit=limit)
+    if not hits:
+        return (f"Nothing in {key}'s index of {len(index.items)} parts matches that. "
+                f"Shops indexed: {', '.join(shops) or 'none'}.")
+
+    head = (f"{len(hits)} of {len(index.items)} parts indexed for {key}"
+            + (f", matching {query!r}" if query else "") + ".")
+    lines = [head, ""]
+    for item in hits:
+        lines.append(f"{item.number} — {item.name}")
+        lines.append(f"  {money(item.price_eur)} · {terms(item)}")
+        if item.category:
+            lines.append(f"  {item.category}")
+        if item.fits:
+            lines.append(f"  fits {len(item.fits)} models"
+                         + (f": {', '.join(item.fits)}" if len(item.fits) <= 6
+                            else f", including {', '.join(item.fits[:6])} …"))
+        if item.url:
+            lines.append(f"  {item.url}")
+        lines.append("")
+    lines.append("Call boat_parts with `number` for a part's full specification before "
+                 "recommending or ordering it.")
+    return "\n".join(lines)
+
+
 HANDLERS = {
     "boat_docs": lambda **kw: tool_boat_docs(**kw),
     "boat_specs": lambda **kw: tool_boat_specs(**kw),
@@ -964,6 +1217,9 @@ HANDLERS = {
     "add_document": lambda **kw: tool_add_document(**kw),
     "boat_files": lambda **kw: tool_boat_files(**kw),
     "boat_tasks": lambda **kw: tool_boat_tasks(**kw),
+    "boat_parts": lambda **kw: tool_boat_parts(**kw),
+    "file_task": lambda **kw: tool_file_task(**kw),
+    "boat_shopping": lambda **kw: tool_boat_shopping(**kw),
     "engine_data": lambda **kw: tool_engine_data(**kw),
     "snag_photo": lambda **kw: tool_snag_photo(**kw),
     "add_link": lambda **kw: tool_add_link(**kw),
@@ -975,6 +1231,135 @@ HANDLERS = {
     "boat_state": tool_boat_state,
     "ais_targets": tool_ais_targets,
 }
+
+
+# --- which boat ------------------------------------------------------------------------
+#
+# One server, every boat on the machine. Which hull a call is about is decided here, once,
+# and not tool by tool: every tool takes `boat`, the dispatcher pins that boat's profile
+# for the duration of the call (see `profile.pinned`), and each module below reaches its
+# boat through `profile.load()` as it always did. Before this, `boat_specs` and the snag
+# tools took a key while the papers, the logbook and the ledger answered for whichever boat
+# the process was started with — so a connector named after two boats searched one boat's
+# documents when asked about the other, and said so only if the reader noticed the name.
+#
+# On a machine with several boats `boat` is REQUIRED and the schema lists the keys. A
+# default would be a guess, and a guess here is an answer about the wrong boat that reads
+# exactly like a right one. On a machine with one boat it may be omitted.
+
+def fleet() -> list[dict]:
+    """Every boat this server can answer for: `{key, name, profile}` each."""
+    return snag.boats()
+
+
+def boat_property(required: bool | None = None) -> tuple[dict, bool]:
+    """The `boat` schema entry, and whether it is required, for the boats present."""
+    boats = fleet()
+    several = len(boats) > 1
+    if required is None:
+        required = several
+    keys = [b["key"] for b in boats]
+    listing = ", ".join(f"{b['key']} ({b['name']})" for b in boats) or "none"
+    if several:
+        text = (f"Which boat. This server holds {len(boats)}: {listing}. "
+                + ("Required — it will not guess." if required else
+                   "Omit to cover all of them."))
+    else:
+        text = f"The boat's key ({listing}). May be omitted: this server holds one boat."
+    prop = {"type": "string", "description": text}
+    if keys:
+        prop["enum"] = keys
+    return prop, required
+
+
+#: Tools whose own code takes `boat` (the snag family): they get the key passed through as
+#: well as pinned, so their replies can name the boat. Recorded before widening, from the
+#: schemas as written.
+TAKES_BOAT = frozenset(t["name"] for t in TOOLS
+                       if "boat" in t["inputSchema"].get("properties", {}))
+
+
+def widen(tools: list, required: bool | None = None) -> list:
+    """Give every tool the same `boat` parameter, required where there are several."""
+    prop, must = boat_property(required)
+    for tool in tools:
+        schema = tool["inputSchema"]
+        schema.setdefault("properties", {})["boat"] = dict(prop)
+        wanted = [r for r in schema.get("required", []) if r != "boat"]
+        if must:
+            wanted.append("boat")
+        if wanted:
+            schema["required"] = wanted
+        else:
+            schema.pop("required", None)
+    return tools
+
+
+def dispatch(handlers: dict, name: str, arguments: dict | None,
+             any_boat: frozenset = frozenset()) -> dict | None:
+    """Run one tool against the boat it names. `None` when there is no such tool.
+
+    `any_boat` names tools that handle a missing key themselves (the ChatGPT `search`
+    covers every boat when none is given); for all others, a missing key on a multi-boat
+    server is answered with the list, not with a boat.
+    """
+    handler = handlers.get(name)
+    if handler is None:
+        return None
+    args = dict(arguments or {})
+    key = str(args.pop("boat", "") or "").strip()
+    boats = fleet()
+    listing = ", ".join(f"{b['key']} ({b['name']})" for b in boats) or "none"
+    chosen = None
+    if key:
+        chosen = next((b for b in boats if b["key"] == key), None)
+        if chosen is None:
+            return {"content": [{"type": "text", "text":
+                    f"No boat {key!r} here. Boats this server knows: {listing}."}],
+                    "isError": True}
+    elif len(boats) > 1 and name not in any_boat:
+        return {"content": [{"type": "text", "text":
+                f"Which boat? This server holds {len(boats)}: {listing}. Call again with "
+                f"boat=<key>. It will not pick one for you: an answer about the wrong "
+                f"boat reads exactly like a right one."}],
+                "isError": True}
+    if name in TAKES_BOAT or name in any_boat:
+        args["boat"] = key
+    try:
+        with pinned(chosen["profile"] if chosen else None):
+            text = handler(**args)
+    except Exception as exc:  # surface the failure to the model, never to stdout
+        return {"content": [{"type": "text", "text": f"{type(exc).__name__}: {exc}"}],
+                "isError": True}
+    return as_result(text)
+
+
+widen(TOOLS)
+
+
+def _check_wiring() -> None:
+    """Refuse to start if a tool is advertised that nothing can answer.
+
+    `annotate()` already refuses a tool nobody has classified. This is the other half of
+    the same promise: `file_task` and `boat_shopping` were both listed in TOOLS, both
+    implemented, and neither reachable — a client saw them, called them, and got
+    "unknown tool" back. Advertising a capability that does not run is worse than not
+    having it, because the caller believes the boat refused rather than that the wiring
+    is missing.
+    """
+    advertised = {t["name"] for t in TOOLS}
+    unreachable = sorted(advertised - set(HANDLERS))
+    if unreachable:
+        raise RuntimeError(
+            f"tools advertised with no handler: {', '.join(unreachable)}. "
+            f"Add each to HANDLERS, or take it out of TOOLS.")
+    orphans = sorted(set(HANDLERS) - advertised)
+    if orphans:
+        raise RuntimeError(
+            f"handlers for tools nobody can see: {', '.join(orphans)}.")
+
+
+_check_wiring()
 
 
 # --- JSON-RPC plumbing ----------------------------------------------------------------
@@ -996,17 +1381,10 @@ def handle(request: dict) -> dict | None:
 
     if method == "tools/call":
         params = request.get("params", {})
-        handler = HANDLERS.get(params.get("name"))
-        if handler is None:
+        result = dispatch(HANDLERS, params.get("name"), params.get("arguments"))
+        if result is None:
             return error(request_id, -32602, f"unknown tool {params.get('name')!r}")
-        try:
-            text = handler(**(params.get("arguments") or {}))
-        except Exception as exc:  # surface the failure to Claude, never to stdout
-            return reply(request_id, {
-                "content": [{"type": "text", "text": f"{type(exc).__name__}: {exc}"}],
-                "isError": True,
-            })
-        return reply(request_id, as_result(text))
+        return reply(request_id, result)
 
     if request_id is None:
         return None  # a notification; nothing to answer

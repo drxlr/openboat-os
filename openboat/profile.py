@@ -27,6 +27,8 @@ under-reads the wind the boat will meet and over-reads its gusts. See `docs/FORE
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import os
 import tomllib
 from dataclasses import dataclass, field
@@ -108,6 +110,14 @@ class Limits:
     daylight_from_h: int = 7
     daylight_to_h: int = 19
 
+    #: Who set these and when — "the skipper, 2026-09-07" — or empty when nobody has.
+    #: Empty is the honest default and it is not cosmetic: these numbers have a value
+    #: whether or not anybody chose them, so a screen showing them must be able to say
+    #: which. A profile copied from another boat reads exactly like a considered one
+    #: until this field distinguishes them, and "can we go out on Saturday" is computed
+    #: off these.
+    source: str = ""
+
     @property
     def daylight(self) -> tuple[int, int]:
         return (self.daylight_from_h, self.daylight_to_h)
@@ -115,7 +125,8 @@ class Limits:
     def as_dict(self) -> dict:
         return {"max_wind_kn": self.max_wind_kn, "max_gust_kn": self.max_gust_kn,
                 "max_wave_m": self.max_wave_m, "max_rain_mm": self.max_rain_mm,
-                "daylight": self.daylight}
+                "daylight": self.daylight,
+                "source": self.source, "unverified": not self.source}
 
 
 @dataclass(frozen=True)
@@ -340,10 +351,32 @@ def require_point(boat, key: str = "forecast_point") -> tuple[float, float]:
     return point
 
 
+#: A profile pinned for the duration of one call, ahead of `$OPENBOAT_PROFILE`. This is how
+#: one process serves several boats: every module reaches its boat through `load()`, so a
+#: request that names a hull pins that hull's profile here and everything downstream — the
+#: papers, the logbook, the documents, the ledger — answers about that boat without any of
+#: it having been told. A ContextVar rather than a global because the HTTP server is
+#: threaded, and a pin that leaked from one request into the next would answer one owner's
+#: question with another owner's boat.
+PINNED: contextvars.ContextVar[str | None] = contextvars.ContextVar("openboat_profile",
+                                                                     default=None)
+
+
+@contextlib.contextmanager
+def pinned(path: str | os.PathLike | None):
+    """Serve `path` from every `load()` inside the block, then let go of it."""
+    token = PINNED.set(str(path) if path else None)
+    try:
+        yield
+    finally:
+        PINNED.reset(token)
+
+
 def load(path: str | os.PathLike | None = None) -> Profile:
     """Load a profile.
 
-    Order: the argument, then `$OPENBOAT_PROFILE`, then `./boat.toml`, then the demo boat
+    Order: the argument, a profile `pinned()` by the caller, then `$OPENBOAT_PROFILE`, then
+    `./boat.toml`, then the demo boat
     that ships with the project. The demo boat is a real, publicly known harbour and an
     invented vessel, so a fresh clone runs and shows something sensible before anyone has
     typed a word of configuration — and so that nothing in this repository describes a real
@@ -355,6 +388,7 @@ def load(path: str | os.PathLike | None = None) -> Profile:
     # fluently about a harbour in Plymouth. Nothing on the dashboard looks wrong. The
     # fallback chain exists for the person who has named nothing yet, and only for them.
     for named, what in ((path, "the profile passed to load()"),
+                        (PINNED.get(), "the profile pinned for this call"),
                         (os.environ.get("OPENBOAT_PROFILE"), "$OPENBOAT_PROFILE")):
         if named and not Path(named).is_file():
             raise ProfileError(
@@ -363,7 +397,8 @@ def load(path: str | os.PathLike | None = None) -> Profile:
                 f"boat you would get instead answers just as confidently about somewhere else."
             )
 
-    candidates = [path, os.environ.get("OPENBOAT_PROFILE"), Path("boat.toml"), DEMO_PROFILE]
+    candidates = [path, PINNED.get(), os.environ.get("OPENBOAT_PROFILE"), Path("boat.toml"),
+                  DEMO_PROFILE]
     chosen = next((Path(c) for c in candidates if c and Path(c).is_file()), None)
     if chosen is None:
         raise ProfileError(
