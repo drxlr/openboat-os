@@ -45,9 +45,58 @@ window.addEventListener("hashchange", () => { tasksHops++; });
 /* ── the router for this view ─────────────────────────────────────────────────────── */
 async function viewTasks() {
   const sub = state.sub || "";
-  if (sub.startsWith("snag:"))    return tasksDetail("snag", sub.slice(5));
-  if (sub.startsWith("service:")) return tasksDetail("service", sub.slice(8));
+  const want = tasksFromAddress(sub);
+  if (want) return tasksDetail(want.kind, want.id, want);
   return tasksList();
+}
+
+/* ── the address of one item ───────────────────────────────────────────────────────
+   A fault is identified by the second it was filed, which is right — it is the key in the
+   file and it never moves. Spelling it into a URL as `snag:2026-09-06 14:07:56` was not:
+   a colon and a space both percent-escape, so the bar showed
+   `snag%3A2026-09-06%2014%3A07%3A56` — unreadable, unpasteable into a message without
+   mangling, and it made every link look machine-generated.
+
+   Same identity, written for a URL: `snag-20260906-140756`, plus a slug of the title that
+   is decoration only. The slug is never read back, so renaming a fault does not break a
+   link somebody already sent, and an old link with a stale slug still opens the right
+   entry. The pre-slug form is still understood, because links were sent today. */
+function tasksSlug(text) {
+  return String(text || "").toLowerCase()
+    .replace(/[\u2018\u2019\u201c\u201d]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .split("-").slice(0, 6).join("-");
+}
+
+function tasksAddress(kind, id, title, code) {
+  if (kind === "service") return String(id);
+  const slug = tasksSlug(title);
+  /* The handle, then the name for whoever reads the link. Only the handle is read back,
+     so a renamed fault keeps every link ever sent for it. */
+  if (code) return String(code) + (slug ? "-" + slug : "");
+  const stamp = String(id || "").replace(/[^0-9]/g, "");
+  if (stamp.length < 14) return "snag-" + encodeURIComponent(id);
+  return "snag-" + stamp.slice(0, 8) + "-" + stamp.slice(8, 14) + (slug ? "-" + slug : "");
+}
+
+function tasksFromAddress(sub) {
+  const raw = decodeURIComponent(String(sub || ""));
+  if (!raw) return null;
+  /* Six of the handle alphabet is a fault; a bare number is one from the hour this was
+     briefly a counter. Everything else is a service item, named by its own key. */
+  const hand = raw.match(/^([0-9a-hjkmnp-tv-z]{6})(?:-.*)?$/);
+  if (hand) return { kind: "snag", code: hand[1] };
+  const num = raw.match(/^(\d+)(?:-.*)?$/);
+  if (num) return { kind: "snag", n: Number(num[1]) };
+  /* Every shape this console has ever put in a link, because they have been sent. */
+  if (raw.startsWith("snag:"))    return { kind: "snag", id: raw.slice(5) };
+  if (raw.startsWith("service:")) return { kind: "service", id: raw.slice(8) };
+  const m = raw.match(/^snag-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(?:-.*)?$/);
+  if (m) return { kind: "snag",
+                  id: `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]}` };
+  if (raw.startsWith("service-")) return { kind: "service", id: raw.slice(8) };
+  return { kind: "service", id: raw };
 }
 
 /* ── small helpers ────────────────────────────────────────────────────────────────── */
@@ -73,6 +122,9 @@ function tasksFirst(text, max) {
    longer one is the honest one to show. This is not a guess: it is the same characters,
    un-cut. */
 function tasksTitle(s) {
+  /* A title set on purpose is the title. The reconstruction below is a repair for headings
+     the recorder cut mid-word, and repairing a name somebody chose would undo it. */
+  if (s && s.renamed) return String(s.title || "").trim() || "—";
   const stored = String((s && s.title) || "").trim();
   const first = String((s && s.body) || "").replace(/\r\n?/g, "\n")
                   .split("\n").map(l => l.trim()).find(Boolean) || "";
@@ -85,6 +137,18 @@ function tasksTitle(s) {
    rather than squeezed into a badge. */
 function tasksWord(status) {
   return String(status || "").trim().toLowerCase().split(/[^a-z]+/).filter(Boolean)[0] || "";
+}
+
+/* A headline is the first sentence, wherever a fault is named.
+   
+   `tasksTitle` returns the note's first *line*, which is a repair for headings the recorder
+   cut mid-word — but a note typed in one go has no line break until the paragraph ends, so
+   the "title" of a carefully written fault is three sentences of diagnosis. That is right
+   for the note and wrong for a heading, and it was wrong in both places a fault is named:
+   the row, and the h1 of its own page. The rest is never lost — it is the note, directly
+   below, whole. */
+function tasksHeadline(t) {
+  return tasksFirst(t, 120).replace(/\s*[.;,]+$/, "");
 }
 
 const TASKS_CLOSED = ["fixed", "done", "closed"];
@@ -118,9 +182,16 @@ function tasksBadge(r) {
 const tasksDim = t => el("span", "text-body-secondary", t);
 const tasksNum = t => el("span", "num", t);
 
+/* The crumb is the way back, not a second heading. It used to end with the fault's own
+   name, which put the same sentence twice in the top two lines of every page — and on a
+   short fault a third time, because the note underneath is that sentence. `here` is kept
+   in the signature and used as the page's accessible label, so the trail still says where
+   you are to a screen reader without printing it above the h1 that already does. */
 function tasksPage(here) {
   const v = el("div", "t-page");
-  v.append(crumbs([{ label: "Tasks", href: href("tasks") }, { label: here }]));
+  const trail = crumbs([{ label: "Tasks", href: href("tasks") }]);
+  if (here) trail.setAttribute("aria-label", "Breadcrumb — " + here);
+  v.append(trail);
   return v;
 }
 
@@ -148,7 +219,7 @@ function tasksMiss(crumb, line) {
    the escaped text, because a note quoting a fitting's part number is a note and not an
    instruction. */
 const TASKS_MENTION =
-  /(https?:\/\/[^\s<>"'&]+)|((?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:pdf|md))/g;
+  /(https?:\/\/[^\s<>"'&]+)|(@part:[A-Za-z0-9._-]+)|((?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.(?:pdf|md))/g;
 
 /* `docs` is the /api/docs answer. A mention of `manuals/pump-7j.pdf` in a note becomes a
    link to that document on the shelf when the boat actually has it, and stays plain text
@@ -173,11 +244,23 @@ function tasksProse(text, index) {
   }
   body.split(/\n{2,}/).forEach(chunk => {
     const p = el("p");
-    p.innerHTML = esc(chunk).replace(TASKS_MENTION, (m, url, file) => {
+    p.innerHTML = esc(chunk).replace(TASKS_MENTION, (m, url, part, file) => {
       if (url) return `<a href="${url}" target="_blank" rel="noopener">${url}</a>`;
+      /* `@part:FVSGEL250LE5A00` in a note becomes a way into the drawer, where that part
+         and its sellers are. Rendered as a button rather than a link because it goes
+         nowhere — it opens a panel over the page you are already reading, and a href that
+         does not navigate is a lie the browser tells the status bar. */
+      if (part) {
+        const num = part.slice("@part:".length);
+        return `<button type="button" class="t-part" data-part="${esc(num)}">` +
+               `<i class="bi bi-basket2"></i>${esc(num)}</button>`;
+      }
       const known = index.get(file.toLowerCase()) ||
                     index.get(file.split("/").pop().toLowerCase());
       return known ? `<a href="${esc(href("docs", known))}">${file}</a>` : file;
+    });
+    p.querySelectorAll("button.t-part").forEach(b => {
+      b.onclick = () => cartOpenAt(b.dataset.part);
     });
     wrap.append(p);
   });
@@ -420,18 +503,30 @@ async function tasksPapers(holder, title, where, docs, skip) {
 
 /* ── the list ─────────────────────────────────────────────────────────────────────── */
 
-const TASKS_CHIPS = [["all", "All"], ["open", "Open"], ["snags", "Snags"],
+/* `Done` is not a tidy-up filter, it is the point of keeping the file: a boat's value
+   to whoever works on it next is the record of what has already been wrong with it.
+   Without a way to ask for the closed ones, that history is written and never read. */
+const TASKS_CHIPS = [["all", "All"], ["open", "Open"], ["done", "Done"],
+                     ["ideas", "Ideas"], ["snags", "Snags"], ["routines", "Routines"],
                      ["service", "Service"]];
 
 function tasksRows(snags, maint) {
   const out = [];
   ((snags && snags.snags) || []).forEach(s => out.push({
-    kind: "snag", id: "snag:" + s.when, title: tasksTitle(s), where: s.where, when: s.when,
-    open: s.open, status: s.status, by: s.by, assigned: s.assigned || "", raw: s,
+    kind: "snag", id: tasksAddress("snag", s.when, tasksTitle(s), s.code), code: s.code,
+    title: tasksTitle(s), where: s.where, when: s.when,
+    open: s.open, status: s.status, by: s.by, assigned: s.assigned || "",
+    priority: s.priority || "", tags: s.tags || [], sort: s.kind || "fault", raw: s,
   }));
+  /* A service item counts as open when the boat is actually owed it — `due` or `soon`.
+     An item nobody has ever recorded is `unknown`, and unknown is not a debt: folding ten
+     "we have no idea when the impeller was last changed" into the same number as a horn
+     that does not work is how a count stops being read. They are all still here, under
+     Service and under All, with their cycle on the row. */
   ((maint && maint.items) || []).forEach(m => out.push({
-    kind: "service", id: "service:" + m.item, title: m.description || m.item,
-    where: m.item, when: m.last, open: m.verdict !== "ok", verdict: m.verdict,
+    kind: "service", id: tasksAddress("service", m.item), title: m.description || m.item,
+    where: m.item, when: m.last, sort: m.routine ? "routine" : "service",
+    open: m.verdict === "due" || m.verdict === "soon", verdict: m.verdict,
     why: m.why, raw: m,
   }));
 
@@ -446,16 +541,24 @@ function tasksRows(snags, maint) {
 }
 
 function tasksCounts(all) {
+  /* `open` counts faults and service, never ideas — the whole reason the kind exists.
+     A wish nobody has bought is not a thing wrong with the boat. */
   return { all: all.length,
-           open: all.filter(r => r.open).length,
-           snags: all.filter(r => r.kind === "snag").length,
-           service: all.filter(r => r.kind === "service").length };
+           open: all.filter(r => r.open && r.sort !== "idea").length,
+           done: all.filter(r => r.open === false).length,
+           ideas: all.filter(r => r.sort === "idea").length,
+           routines: all.filter(r => r.sort === "routine").length,
+           snags: all.filter(r => r.kind === "snag" && r.sort !== "idea").length,
+           service: all.filter(r => r.kind === "service" && r.sort !== "routine").length };
 }
 
 function tasksKeep(r, f) {
-  if (f === "open")    return r.open;
-  if (f === "snags")   return r.kind === "snag";
-  if (f === "service") return r.kind === "service";
+  if (f === "open")    return r.open && r.sort !== "idea";
+  if (f === "done")    return r.open === false;
+  if (f === "ideas")   return r.sort === "idea";
+  if (f === "routines") return r.sort === "routine";
+  if (f === "snags")   return r.kind === "snag" && r.sort !== "idea";
+  if (f === "service") return r.kind === "service" && r.sort !== "routine";
   return true;
 }
 
@@ -537,6 +640,7 @@ async function tasksList() {
      key names too, so "body", "photos" and "true" each matched every row on the page. */
   all.forEach(r => {
     r.hay = [r.title, r.where, r.by, r.assigned, r.status, r.why, r.verdict, r.kind,
+             ...(r.tags || []), r.priority && ("p" + r.priority),
              r.raw && r.raw.body, r.raw && r.raw.description, r.raw && r.raw.item,
              ...(((r.raw && r.raw.updates) || []).map(u => u && u.body))]
             .filter(Boolean).join(" \n ").toLowerCase();
@@ -549,47 +653,161 @@ async function tasksList() {
     return all.filter(r => tasksKeep(r, filter) && (!q || r.hay.includes(q)));
   }
 
-  /* What it is, who has it, where it stands. The first column is never the one that hides
-     on a phone: the leading bar the shell paints on a selected row lives on the first cell,
-     and a first column narrow enough to disappear would take the bar with it. The source is
-     a word in front of the title rather than a column of its own.
+  /* One fault, one row, and nothing repeated 27 times.
 
-     The title is an anchor inside a row that is also clickable: the whole row opens the
-     entry, and the anchor is what makes the address copyable and the middle button work. */
-  const TASKS_COLS = [
-    { label: "What", get: (r, i) => {
-        const c = el("div");
-        const line = el("div");
-        line.append(el("span", "small text-body-secondary text-uppercase me-2", r.kind));
-        const a = el("a", "fw-medium text-break link-body-emphasis text-decoration-none",
-                     tasksFirst(r.title, 110));
-        a.href = href("tasks", r.id);
-        a.onclick = ev => { ev.stopPropagation(); state.sel = i; };
-        line.append(a);
-        c.append(line);
-        const sub = r.kind === "snag"
-          ? [r.where, r.by, ago(r.when)].filter(Boolean).join("  ·  ")
-          : (r.why || "");
-        if (sub) c.append(el("div", "small text-body-secondary mt-1", sub));
-        return c;
-      } },
-    /* Who it is on. Low priority, so it is the first thing to go on a phone — on a
-       four-inch screen what the fault is and whether it is open are the two columns worth
-       the width, and the name is on the entry's own page anyway. */
-    { label: "Assigned", w: "9rem", prio: "low", get: r => {
-        if (r.kind !== "snag") return "";
-        return r.assigned
-          ? el("span", "text-break", r.assigned)
-          : el("span", "text-body-secondary", "—");
-      } },
-    { label: "Status", w: "6.5rem", cls: "text-end", get: r => {
-        const c = el("div");
-        c.append(tasksBadge(r));
-        c.append(el("div", "small text-body-secondary mt-1",
-          r.kind === "service" && !r.when ? "never recorded" : ago(r.when)));
-        return c;
-      } },
-  ];
+     The old row printed the word SNAG, the word `open`, and the age twice on every line —
+     four pieces of identical furniture per fault, on a list where every fault is a snag and
+     every snag is open. What that costs is the headline: by the time the eye reaches the
+     sentence it has already read three things that said nothing. So the kind is an icon,
+     the default status is drawn by the icon's colour rather than a badge, the age is
+     printed once, and what is left at the front of the row is the fault itself.
+
+     Everything on the right is present only when it exists. An unassigned fault shows no
+     initial rather than an em dash, an unranked one shows no rank, and a fault nobody has
+     tagged shows no tags — a column of placeholders is a column of noise. */
+
+  /* Three things live in this list and they are not the same kind of thing. A fault is
+     something wrong, a service item is something due, and an idea is something wanted —
+     and the last of those must not look like the first. A shopping link drawn with the
+     same tool icon as a flooding seacock is how "28 open" stops being a number anybody
+     trusts. Different icon, different colour, counted separately. */
+  const TASKS_KIND = { snag:    { icon: "bi-tools",          label: "Fault" },
+                       idea:    { icon: "bi-bag",            label: "Idea — wanted, not broken" },
+                       routine: { icon: "bi-arrow-repeat",   label: "Routine — it comes round again" },
+                       service: { icon: "bi-calendar-check", label: "Service" } };
+
+  /* A headline, not a sentence. The stored line is prose somebody typed on a phone — it
+     ends in a full stop and it often runs on into the diagnosis — "…needs checking again.
+     It ran until it was out of fuel, so there is air in the system: it turns over and…" —
+     which is the whole note, not a headline. So the row takes the first sentence and stops
+     there; the rest of what somebody wrote is on the fault's own page, whole. Trailing
+     punctuation goes, and CSS makes the final cut at the real width. */
+  const tasksHead = tasksHeadline;
+
+  /* `where` is written as "generator — fuel supply and bleeding": a system and a detail.
+     The system is the thing worth grouping by eye, so it is set as a chip and the detail
+     stays as text beside it. A `where` with no dash is all system and no detail. */
+  /* How often, out of the profile. This is the part that makes a service list a plan
+     rather than a verdict: "every 200 h / 12 months" is true whether or not anybody has
+     ever written down that it was done, and it is what somebody is looking for when they
+     ask what the boat needs this winter. */
+  function tasksCycle(m) {
+    if (!m) return "";
+    const bits = [];
+    if (m.interval_hours)  bits.push(m.interval_hours + " h");
+    if (m.interval_months) bits.push(m.interval_months + " mo");
+    if (m.interval_days)   bits.push(m.interval_days + " d");
+    if (m.per_outing)      return "every outing";
+    return bits.length ? "every " + bits.join(" / ") : "";
+  }
+
+  function tasksWhere(where) {
+    const raw = String(where || "").trim();
+    if (!raw) return ["", ""];
+    const cut = raw.split(/\s+[—–-]\s+/);
+    return [cut[0].trim(), cut.slice(1).join(" — ").trim()];
+  }
+
+  /* A circle and an initial. The name is the title attribute rather than the label because
+     the row has one job — showing whether this is on somebody — and four letters of a name
+     do that no better than one while costing the headline the width. */
+  /* Assigning from the list, not only from the fault's own page. A snag list is read
+     down in one pass — "that one's Batuhan's, that one's mine" — and making each of those
+     a page load is how a list ends up with 26 faults on nobody. So the circle is the
+     control: it opens the same modal the detail page uses and writes the same follow-up.
+     Unassigned shows a dashed outline rather than nothing, because an invisible control
+     is not one. */
+  function tasksFace(name, r, snags) {
+    const who = String(name || "").trim();
+    if (!r || r.kind !== "snag" || !snags || snags.error)
+      return who ? el("span", "t-face", (who[0] || "?").toUpperCase()) : null;
+    const f = el("button", "t-face" + (who ? "" : " t-face-none"),
+                 who ? (who[0] || "?").toUpperCase() : "+");
+    f.type = "button";
+    f.title = who ? "Assigned to " + who + " — click to reassign" : "Assign this to somebody";
+    f.setAttribute("aria-label", f.title);
+    f.onclick = ev => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      tasksAssignModal(r.raw, snags, () => viewTasks());
+    };
+    return f;
+  }
+
+  /* Three ranks, and nothing for the unranked — which is most of them. A rank shown as
+     "3" on every unranked fault would be a claim nobody made. */
+  function tasksPriority(value) {
+    const v = String(value || "").trim();
+    if (!v) return null;
+    const n = (v.match(/[123]/) || [])[0];
+    const p = el("span", "t-pri t-pri-" + (n || "x"), n || v);
+    p.title = { 1: "Priority 1 — stops the boat being used, or is unsafe",
+                2: "Priority 2 — before the next trip",
+                3: "Priority 3 — when somebody is aboard anyway" }[n] || ("Priority " + v);
+    return p;
+  }
+
+  function tasksRow(r, i, snags) {
+    const kind = TASKS_KIND[r.sort] || TASKS_KIND[r.kind] || TASKS_KIND.snag;
+    const idea = r.sort === "idea";
+    const closed = r.open === false;
+    const word = tasksWord(r.status);
+
+    const row = el("div", "t-row" + (closed ? " t-done" : "") +
+                          (state.sel === i ? " t-sel" : ""));
+    /* The row opens the entry, but a button cannot live inside an anchor — so the anchor
+       covers the mark and the words, and the controls sit beside it. */
+    const open_ = el("a", "t-open");
+    open_.href = href("tasks", r.id);
+    open_.onclick = () => { state.sel = i; };
+
+    const mark = el("span", "t-kind" + (closed ? " t-kind-done"
+                                      : idea ? " t-kind-idea"
+                                      : r.sort === "routine" ? " t-kind-routine" : ""));
+    mark.title = closed ? kind.label + " — closed" : kind.label;
+    mark.append(el("i", "bi " + (closed ? "bi-check2" : kind.icon)));
+    open_.append(mark);
+
+    const main = el("span", "t-main");
+    const head = el("span", "t-head");
+    if (r.code) head.append(el("span", "t-n", r.code + " "));
+    head.append(document.createTextNode(tasksHead(r.title)));
+    main.append(head);
+
+    const meta = el("span", "t-meta");
+    const [system, detail] = tasksWhere(r.where);
+    if (system) meta.append(el("span", "t-chip", system));
+    const cycle = r.kind === "service" ? tasksCycle(r.raw) : "";
+    if (cycle) meta.append(el("span", "t-chip t-chip-cycle", cycle));
+    const steps = r.kind === "service" ? ((r.raw && r.raw.steps) || []).length : 0;
+    if (steps) meta.append(el("span", "t-chip t-chip-cycle", steps + " steps"));
+    for (const t of (r.tags || [])) meta.append(el("span", "t-chip t-chip-tag", t));
+    const words = [detail, r.kind === "snag" ? r.by : r.why].filter(Boolean).join("  ·  ");
+    if (words) meta.append(el("span", "t-words", words));
+    main.append(meta);
+    open_.append(main);
+    row.append(open_);
+
+    const side = el("span", "t-side");
+    const pri = tasksPriority(r.priority);
+    if (pri) side.append(pri);
+    /* A badge only when the status is not the one every row shares. `open` is drawn by the
+       icon; `review`, `fixed` and anything somebody invented are worth the ink. */
+    if (r.kind === "service" || (word && word !== "open" && !idea) || closed)
+      side.append(tasksBadge(r));
+    const face = tasksFace(r.kind === "snag" ? r.assigned : "", r, snags);
+    if (face) side.append(face);
+    side.append(el("span", "t-when",
+                   r.kind === "service" && !r.when ? "never recorded" : ago(r.when)));
+    row.append(side);
+    return row;
+  }
+
+  function tasksList(rows) {
+    const list = el("div", "t-list");
+    rows.forEach((r, i) => list.append(tasksRow(r, i, snags)));
+    return list;
+  }
 
   function draw() {
     shown = visible();
@@ -602,8 +820,7 @@ async function tasksList() {
         `${broken[0].error}. This list is short by an unknown number of items.`));
 
     if (shown.length) {
-      wrap.append(table(TASKS_COLS, shown,
-                        (r, i) => { state.sel = i; nav("tasks", r.id); }, state.sel));
+      wrap.append(tasksList(shown));
     } else if (!broken.length) {
       const e = el("div", "p-3 text-body-secondary");
       if (state.q.trim()) {
@@ -635,7 +852,7 @@ async function tasksList() {
     state.sel = state.sel === null ? 0
               : Math.max(0, Math.min(shown.length - 1, state.sel + d));
     draw();
-    const row = wrap.querySelectorAll("tbody tr")[state.sel];
+    const row = wrap.querySelectorAll(".t-row")[state.sel];
     if (row) row.scrollIntoView({ block: "nearest" });
   };
   tasksKeys.open = () => {
@@ -646,12 +863,12 @@ async function tasksList() {
 }
 
 /* ── a detail page ────────────────────────────────────────────────────────────────── */
-async function tasksDetail(kind, id) {
+async function tasksDetail(kind, id, want) {
   const run = ++tasksRun;
   tasksLoading(kind === "snag" ? "one fault" : "one service item");
 
-  const [maint, snags, docs] = await Promise.all(
-    [api("/api/maintenance"), api("/api/snags"), api("/api/docs")]);
+  const [maint, snags, docs, kits] = await Promise.all(
+    [api("/api/maintenance"), api("/api/snags"), api("/api/docs"), api("/api/kits")]);
   if (run !== tasksRun) return;
 
   /* "No snag is filed at that stamp" is a claim about this boat's SNAGS.md. A request
@@ -662,11 +879,18 @@ async function tasksDetail(kind, id) {
       return tasksMiss("not answered",
         `The snag list could not be read: ${snags.error}. This entry may well be filed; ` +
         `nobody could ask.`);
-    const s = ((snags && snags.snags) || []).find(x => x.when === id);
+    const list = (snags && snags.snags) || [];
+    const w = want || {};
+    const s = w.code ? list.find(x => x.code === w.code)
+            : w.n   ? list.find(x => x.n === w.n)
+            :         list.find(x => x.when === id);
     if (!s) return tasksMiss("no such entry",
-      `No snag is filed at ${id}. It may have been renamed, or this link may be older ` +
-      `than the file.`);
-    return tasksSnagPage(s, snags, docs);
+      w.code ? `Nothing on this boat has the handle ${w.code}. It may belong to another ` +
+               `boat — a handle is unique, but the link says which boat to look in.`
+      : w.n  ? `This boat has no task ${w.n}.`
+      :        `No snag is filed at ${id}. It may have been renamed, or this link may be ` +
+               `older than the file.`);
+    return tasksSnagPage(s, snags, docs, kits);
   }
 
   if (maint && maint.error)
@@ -677,7 +901,60 @@ async function tasksDetail(kind, id) {
   if (!m) return tasksMiss("no such item",
     `The profile names no maintenance item called ${id}. Items come from the ` +
     `[maintenance] table in this boat's profile.`);
-  return tasksServicePage(m, maint, docs);
+  return tasksServicePage(m, maint, docs, kits);
+}
+
+/* ── the parts a job needs ────────────────────────────────────────────────────────── */
+
+/* The page does not become a shop. A task page is the boat's record — what is wrong, what
+   was written, what was photographed — and burying that under a price list would be
+   trading the thing that is worth keeping for the thing that is easy to monetise.
+ *
+ * So the parts live in the drawer on the right, and all this leaves on the page is one
+ * line saying they exist. Opening it is a deliberate act, and everything commercial —
+ * sellers, prices, the basket — stays behind it. `cart.js` owns that drawer. */
+function tasksKitCue(kit, cat) {
+  cartSuggest(kit, cat);
+
+  const n = kit.lines.filter(l => !l.optional).length;
+  const p = pane("What it needs", `${n} PART${n === 1 ? "" : "S"}`, kit.title || "");
+  const body = cardBody();
+
+  const line = el("p", "mb-3 text-break");
+  line.textContent = kit.note
+    ? tasksFirst(kit.note.replace(/\s+/g, " "), 220)
+    : `${n} part${n === 1 ? "" : "s"} written down for this job.`;
+  body.append(line);
+
+  const bar = el("div", "d-flex flex-wrap gap-3 align-items-center");
+  const open = el("button", "btn btn-primary");
+  open.type = "button";
+  open.setAttribute("data-bs-toggle", "offcanvas");
+  open.setAttribute("data-bs-target", "#cartpanel");
+  open.innerHTML = `<i class="bi bi-basket2 me-2"></i>Parts and sellers`;
+  bar.append(open);
+
+  /* The figure, if there is an honest one, so the button is worth pressing. The rules for
+     what counts are `cart.js`'s and are applied there — this only reads the answer, and
+     re-reads it whenever a seller is chosen in the drawer, so the two can never disagree. */
+  const summary = el("span", "text-body-secondary");
+  const paint = () => {
+    const priced = cartKitTotal(kit);
+    summary.textContent = priced.total !== null
+      ? `about ${cartMoney(priced.total)}${priced.basis} from ` +
+        `${priced.sellers} seller${priced.sellers === 1 ? "" : "s"}`
+      : priced.why;
+  };
+  paint();
+  cartCueRefresh = paint;
+  bar.append(summary);
+
+  if (cat.placeholder)
+    bar.append(el("span", "badge rounded-pill text-bg-warning", "placeholder prices"));
+
+  body.append(bar);
+  p.append(body);
+  return p;
 }
 
 /* ── changing a fault's status ────────────────────────────────────────────────────── */
@@ -876,6 +1153,212 @@ function tasksRememberAssignee(name) {
   } catch (e) { /* private window */ }
 }
 
+const TASKS_TAG_KEY = "openboat.console.tags";
+
+function tasksKnownTags() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TASKS_TAG_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter(x => typeof x === "string").slice(0, 24) : [];
+  } catch (e) { return []; }
+}
+function tasksRememberTags(list) {
+  try {
+    const kept = list.concat(tasksKnownTags().filter(x => !list.includes(x))).slice(0, 24);
+    localStorage.setItem(TASKS_TAG_KEY, JSON.stringify(kept));
+  } catch (e) { /* private window */ }
+}
+
+/* Ranking a fault and labelling it are the same kind of act — somebody deciding something
+   about a fault rather than reporting one — so they share one control and one follow-up.
+   Like every other write on this page it appends; the newest rank anybody wrote is the
+   rank, and the file keeps who changed it and when. */
+function tasksRankModal(s, snags) {
+  const m = el("div", "modal fade");
+  m.tabIndex = -1;
+  const dlg = el("div", "modal-dialog modal-dialog-centered modal-fullscreen-sm-down");
+  const box = el("div", "modal-content");
+
+  const head = el("div", "modal-header");
+  head.append(el("h2", "modal-title h5 mb-0", "Title, priority and tags"));
+  const x = el("button", "btn-close");
+  x.type = "button";
+  x.setAttribute("data-bs-dismiss", "modal");
+  x.setAttribute("aria-label", "Close");
+  head.append(x);
+
+  const body = el("div", "modal-body");
+  body.append(el("p", "small text-body-secondary",
+    "Appended to the boat's file as a follow-up with your name on it. Nothing already " +
+    "written is changed."));
+  const errBox = el("div", "alert alert-danger d-none");
+  errBox.setAttribute("role", "alert");
+  body.append(errBox);
+
+  const uid = "t-rank-" + Date.now();
+
+  const nameWrap = el("div", "mb-3");
+  const nameLabel = el("label", "form-label", "Title");
+  const name_ = el("input", "form-control");
+  name_.type = "text";
+  name_.id = uid + "-n";
+  name_.maxLength = 70;
+  name_.value = s.renamed ? String(s.title || "") : "";
+  name_.placeholder = tasksFirst(s.filed_title || s.title || "", 70);
+  nameLabel.htmlFor = name_.id;
+  nameWrap.append(nameLabel, name_,
+    el("div", "form-text",
+       "What the list calls it. Leave it empty to keep the line it was filed under — that " +
+       "heading never changes either way, this is only the name shown."));
+  body.append(nameWrap);
+
+  const priWrap = el("div", "mb-3");
+  const priLabel = el("label", "form-label", "Priority");
+  const pri = el("select", "form-select");
+  pri.id = uid + "-p";
+  priLabel.htmlFor = pri.id;
+  [["", "Not ranked"],
+   ["1", "1 — stops the boat being used, or is unsafe"],
+   ["2", "2 — before the next trip"],
+   ["3", "3 — when somebody is aboard anyway"]].forEach(([v, t]) => {
+    const o = el("option", "", t);
+    o.value = v;
+    pri.append(o);
+  });
+  pri.value = String(s.priority || "").trim();
+  priWrap.append(priLabel, pri);
+  body.append(priWrap);
+
+  const tagWrap = el("div", "mb-3");
+  const tagLabel = el("label", "form-label", "Tags");
+  const tag = el("input", "form-control");
+  tag.type = "text";
+  tag.id = uid + "-t";
+  tag.value = (s.tags || []).join(", ");
+  tag.placeholder = "electrical, before-passage";
+  tag.setAttribute("list", uid + "-tl");
+  tagLabel.htmlFor = tag.id;
+  const datalist = el("datalist");
+  datalist.id = uid + "-tl";
+  tasksKnownTags().forEach(t => { const o = el("option"); o.value = t; datalist.append(o); });
+  tagWrap.append(tagLabel, tag, datalist,
+                 el("div", "form-text", "Comma-separated. Empty clears them."));
+  body.append(tagWrap);
+
+  const whoWrap = el("div");
+  const whoLabel = el("label", "form-label", "Your name");
+  const who = el("input", "form-control");
+  who.type = "text";
+  who.id = uid + "-b";
+  who.value = tasksWho();
+  who.autocomplete = "name";
+  whoLabel.htmlFor = who.id;
+  whoWrap.append(whoLabel, who);
+  body.append(whoWrap);
+
+  const foot = el("div", "modal-footer");
+  const cancel = el("button", "btn btn-outline-secondary", "Cancel");
+  cancel.type = "button";
+  cancel.setAttribute("data-bs-dismiss", "modal");
+  const send = el("button", "btn btn-primary", "Save");
+  send.type = "button";
+  foot.append(cancel, send);
+
+  box.append(head, body, foot);
+  dlg.append(box);
+  m.append(dlg);
+
+  send.onclick = async () => {
+    const want = pri.value.trim();
+    const list = tag.value.split(",").map(t => t.trim()).filter(Boolean);
+    const had = (s.tags || []).join(", ");
+    const callIt = name_.value.trim();
+    const wasCalled = s.renamed ? String(s.title || "").trim() : "";
+    if (want === String(s.priority || "").trim() && list.join(", ") === had &&
+        callIt === wasCalled) {
+      const inst = bootstrap.Modal.getInstance(m);
+      if (inst) inst.hide(); else m.remove();
+      return;
+    }
+    errBox.classList.add("d-none");
+    send.disabled = cancel.disabled = true;
+    const spin = el("span", "spinner-border spinner-border-sm me-2");
+    spin.setAttribute("aria-hidden", "true");
+    send.textContent = "";
+    send.append(spin, document.createTextNode("Filing…"));
+
+    const by = who.value.trim();
+    /* "-" is how each field says *cleared*, out loud, rather than by being absent — the
+       same convention `assigned` uses, and the reason a follow-up that says nothing about
+       a rank leaves it alone. */
+    const r = await snagPost(snags, {
+      follow_up_to: s.when, by,
+      priority: want || (String(s.priority || "").trim() ? "-" : ""),
+      tags: list.length ? list.join(", ") : (had ? "-" : ""),
+      title: callIt !== wasCalled ? callIt : "",
+    });
+
+    if (r && r.ok) {
+      tasksRemember(by);
+      tasksRememberTags(list);
+      state.index = null;
+      tasksFlash = "Saved as a follow-up in the boat's file.";
+      const inst = bootstrap.Modal.getInstance(m);
+      if (inst) inst.hide(); else m.remove();
+      tasksDetail("snag", s.when);
+      return;
+    }
+
+    send.disabled = cancel.disabled = false;
+    send.textContent = "Save";
+    errBox.textContent = (r && r.error) || "the snag service did not say what went wrong";
+    errBox.classList.remove("d-none");
+  };
+
+  document.body.append(m);
+  m.addEventListener("hidden.bs.modal", () => m.remove());
+  new bootstrap.Modal(m).show();
+}
+
+function tasksRankControl(s, snags) {
+  const b = el("button", "btn btn-outline-secondary btn-sm", "Rename, rank, tag");
+  b.type = "button";
+  b.onclick = () => tasksRankModal(s, snags);
+  return b;
+}
+
+/* Who works on this boat, derived rather than maintained.
+   
+   A contact list somebody has to keep up to date is a contact list that is wrong by the
+   second season. Every name that matters is already written in `SNAGS.md` — whoever filed
+   a fault and whoever it was handed to — so the list is read out of the work itself, and
+   the only names in it are names that have actually done something on this boat.
+
+   Ordered by how recently each was used, so the three people currently around the boat sit
+   at the top rather than somebody who painted the bilge in 2019. Names typed in this
+   browser and the person signed in are folded in too: the first is how a new name survives
+   until it reaches the file, the second is so handing yourself a job needs no typing. */
+function tasksPeople(snags) {
+  const seen = new Map();                      // lower-cased name → { name, when }
+  const meet = (raw, when) => {
+    const name = String(raw || "").trim();
+    if (!name || name === "-") return;
+    const key = name.toLowerCase();
+    const had = seen.get(key);
+    if (!had || String(when || "") > had.when) seen.set(key, { name, when: String(when || "") });
+  };
+  ((snags && snags.snags) || []).forEach(e => {
+    meet(e.assigned, e.when);
+    meet(e.by, e.when);
+    (e.updates || []).forEach(u => { meet(u.assigned, u.when); meet(u.by, u.when); });
+  });
+  tasksAssignees().forEach(n => meet(n, ""));
+  const me = (window.OB_USER || {}).name || "";
+  if (me) meet(me, "");
+  return [...seen.values()].sort((a, b) => (b.when || "").localeCompare(a.when || "") ||
+                                           a.name.localeCompare(b.name))
+                           .map(x => x.name);
+}
+
 function tasksAssignControl(s, snags) {
   const b = el("button", "btn btn-outline-secondary btn-sm",
                s.assigned ? "Reassign" : "Assign");
@@ -1053,7 +1536,7 @@ function tasksNewSnagModal(snags) {
   new bootstrap.Modal(m).show();
 }
 
-function tasksAssignModal(s, snags) {
+function tasksAssignModal(s, snags, after) {
   const held = s.assigned || "";
 
   const m = el("div", "modal fade");
@@ -1078,21 +1561,48 @@ function tasksAssignModal(s, snags) {
   errBox.setAttribute("role", "alert");
   body.append(errBox);
 
+  const uid = "t-assign-" + (s.when || "x").replace(/\W+/g, "");
+  const people = tasksPeople(snags);
+
+  /* Pick a person, or say it is somebody new. A free-text box on its own was quietly
+     lossy: "Batuhan", "batuhan" and "Batuhan " are three people to a list that groups by
+     name, and nobody notices until the count of who owes what is wrong. */
   const whoWrap = el("div", "mb-3");
   const whoLabel = el("label", "form-label", "Doing it");
-  const who = el("input", "form-control");
-  who.type = "text";
-  who.id = "t-assign-" + (s.when || "x").replace(/\W+/g, "");
-  who.value = held;
-  who.autocomplete = "off";
-  /* The names already used on this boat, offered rather than imposed: a datalist suggests
-     and still lets somebody type a name nobody has used before. */
-  const list = el("datalist");
-  list.id = who.id + "-names";
-  tasksAssignees().forEach(n => { const o = el("option"); o.value = n; list.append(o); });
-  who.setAttribute("list", list.id);
-  whoLabel.htmlFor = who.id;
-  whoWrap.append(whoLabel, who, list);
+  const pick = el("select", "form-select");
+  pick.id = uid;
+  whoLabel.htmlFor = pick.id;
+  const NEW = "\u0000new";
+  [["", "Nobody — leave it unassigned"]].concat(people.map(n => [n, n]))
+    .concat([[NEW, "Somebody else…"]])
+    .forEach(([v, t]) => { const o = el("option", "", t); o.value = v; pick.append(o); });
+  pick.value = people.includes(held) ? held : (held ? NEW : "");
+
+  /* Only in the way when it is needed. */
+  const fresh = el("input", "form-control mt-2");
+  fresh.type = "text";
+  fresh.placeholder = "their name";
+  fresh.autocomplete = "off";
+  fresh.value = people.includes(held) ? "" : held;
+  fresh.hidden = pick.value !== NEW;
+  fresh.setAttribute("aria-label", "Name of somebody not on the list");
+  pick.onchange = () => {
+    fresh.hidden = pick.value !== NEW;
+    if (!fresh.hidden) fresh.focus();
+  };
+  const chosen = () => (pick.value === NEW ? fresh.value : pick.value).trim();
+
+  whoWrap.append(whoLabel, pick, fresh);
+  /* The list is who has worked on this boat, which is not the same as who can log in to
+     read it. Say where the second one is done rather than implying this does it. */
+  const hint = el("div", "form-text");
+  hint.append(document.createTextNode("Everybody who has filed or been handed a fault on " +
+                                      "this boat. A name here is not a login — give " +
+                                      "somebody an account on the "));
+  const acct = el("a", "", "Account page");
+  acct.href = "#account";
+  hint.append(acct, document.createTextNode("."));
+  whoWrap.append(hint);
   body.append(whoWrap);
 
   const noteWrap = el("div", "mb-3");
@@ -1100,7 +1610,7 @@ function tasksAssignModal(s, snags) {
   const note_ = el("textarea", "form-control");
   note_.rows = 3;
   note_.placeholder = "what they are meant to do — optional";
-  note_.id = who.id + "-note";
+  note_.id = uid + "-note";
   noteLabel.htmlFor = note_.id;
   noteWrap.append(noteLabel, note_,
     el("div", "form-text", "Optional. The name on its own is a whole entry."));
@@ -1110,7 +1620,7 @@ function tasksAssignModal(s, snags) {
   const byLabel = el("label", "form-label", "Your name");
   const by = el("input", "form-control");
   by.type = "text";
-  by.id = who.id + "-by";
+  by.id = uid + "-by";
   by.value = tasksWho();
   by.autocomplete = "name";
   byLabel.htmlFor = by.id;
@@ -1139,8 +1649,10 @@ function tasksAssignModal(s, snags) {
      field somebody could send by accident; the dash is a thing you have to mean. */
   const file = async (to, label) => {
     const name = to === "-" ? "" : String(to || "").trim();
-    if (to !== "-" && !name) { who.classList.add("is-invalid"); who.focus(); return; }
-    who.classList.remove("is-invalid");
+    const box_ = pick.value === NEW ? fresh : pick;
+    if (to !== "-" && !name) { box_.classList.add("is-invalid"); box_.focus(); return; }
+    pick.classList.remove("is-invalid");
+    fresh.classList.remove("is-invalid");
     errBox.classList.add("d-none");
     send.disabled = back.disabled = cancel.disabled = true;
     const mine = by.value.trim();
@@ -1153,19 +1665,21 @@ function tasksAssignModal(s, snags) {
       tasksFlash = label;
       const inst = bootstrap.Modal.getInstance(m);
       if (inst) inst.hide(); else m.remove();
-      tasksDetail("snag", s.when);
+      /* Back where it was opened from. Assigning from the list and being thrown onto the
+         fault's page loses the reader's place in a list they were halfway down. */
+      if (after) after(); else tasksDetail("snag", s.when);
       return;
     }
     send.disabled = back.disabled = cancel.disabled = false;
     fail((r && r.error) || "the snag service did not say what went wrong");
   };
 
-  send.onclick = () => file(who.value, `Assigned to ${who.value.trim()}.`);
+  send.onclick = () => file(chosen(), `Assigned to ${chosen()}.`);
   back.onclick = () => file("-", "Handed back — this fault is on nobody.");
 
   document.body.append(m);
   m.addEventListener("hidden.bs.modal", () => m.remove());
-  m.addEventListener("shown.bs.modal", () => who.focus());
+  m.addEventListener("shown.bs.modal", () => (fresh.hidden ? pick : fresh).focus());
   new bootstrap.Modal(m).show();
 }
 
@@ -1399,19 +1913,21 @@ function tasksEvents(u) {
   return out;
 }
 
-function tasksSnagPage(s, snags, docs) {
+function tasksSnagPage(s, snags, docs, kits) {
   const index = tasksLinkIndex(docs);
   const title = tasksTitle(s);
-  const v = tasksPage(tasksFirst(title, 90));
+  const v = tasksPage(tasksHeadline(title));
 
   if (tasksFlash) { v.append(note("ok", tasksFlash)); tasksFlash = null; }
 
   /* The whole status line, not just the word the badge carries: somebody wrote "fixed —
      replaced the striker plate" and the half after the dash is the part worth reading. */
   const full = String(s.status || "").trim();
-  const h1 = el("span", "text-break", title);
+  const h1 = el("span", "text-break");
+  if (s.code) h1.append(el("span", "t-n", s.code + " "));
+  h1.append(document.createTextNode(tasksHeadline(title)));
   const actions = [tasksSnagBadge(s.status, s.open), tasksStatusControl(s, snags)];
-  if (s.open) actions.push(tasksAssignControl(s, snags));
+  if (s.open) actions.push(tasksAssignControl(s, snags), tasksRankControl(s, snags));
   if (s.open && tasksMayShare()) actions.push(tasksShareButton(s, snags));
   v.append(pageHead(h1, [
     s.when ? `filed ${s.when}` : null,
@@ -1425,6 +1941,13 @@ function tasksSnagPage(s, snags, docs) {
   const written = pane("What was written", "NOTE");
   written.append(cardBody(tasksProse(s.body, index)));
   v.append(written);
+
+  /* What it will take to put right, when somebody has worked that out. A fault and the
+     parts that answer it are the same thought, and separating them is how a boat ends up
+     with a list of things that are wrong and a separate list of things to buy that nobody
+     can join back together. */
+  const kit = ((kits && kits.kits) || []).find(k => k.snag && k.snag === s.when);
+  if (kit) v.append(tasksKitCue(kit, kits)); else cartSuggest(null, null);
 
   const photos = s.photos || [];
   const shots = pane("Photographs", photos.length ? `${photos.length} FILED` : "NONE");
@@ -1506,12 +2029,12 @@ function tasksSnagPage(s, snags, docs) {
   tasksPapers(holder, title, s.where, docs, s.when);
 }
 
-function tasksServicePage(m, maint, docs) {
+function tasksServicePage(m, maint, docs, kits) {
   const index = tasksLinkIndex(docs);
-  const v = tasksPage(tasksFirst(m.description || m.item, 90));
+  const v = tasksPage(tasksHeadline(m.description || m.item));
   const r = { kind: "service", verdict: m.verdict };
 
-  v.append(pageHead(el("span", "text-break", m.description || m.item), [
+  v.append(pageHead(el("span", "text-break", tasksHeadline(m.description || m.item)), [
     m.item,
     m.last ? `last done ${m.last}` : "never recorded",
     m.last ? ago(m.last) : null,
@@ -1521,6 +2044,31 @@ function tasksServicePage(m, maint, docs) {
   const why = pane("Why it is owed", "REASON");
   why.append(cardBody(tasksProse(m.why, index)));
   v.append(why);
+
+  /* What the service consists of. An annual engine service is a dozen jobs, and the person
+     with the spanner needs them as a list they can work down — not as a sentence with
+     semicolons in it. Ticks are for reading, not for saving: this page writes nothing, and
+     a service is recorded at a keyboard by somebody who knows the work happened. */
+  const steps = (m.steps || []).filter(Boolean);
+  if (steps.length) {
+    const p = pane("What it consists of", `${steps.length} STEPS`);
+    const list = el("ul", "list-group list-group-flush");
+    steps.forEach(t => {
+      const li = el("li", "list-group-item d-flex gap-2 align-items-baseline");
+      li.append(el("i", "bi bi-square text-body-secondary"));
+      li.append(el("span", "text-break", t));
+      list.append(li);
+    });
+    p.append(list);
+    v.append(p);
+  }
+
+  /* The parts, between what the job consists of and the counters behind it — which is the
+     order the question actually gets asked in: what is it, what does it involve, what do I
+     need to have in the box. A boat with no kits file simply has no pane here, which is the
+     normal state on day one and not worth a message. */
+  const kit = ((kits && kits.kits) || []).find(k => k.item === m.item);
+  if (kit) v.append(tasksKitCue(kit, kits)); else cartSuggest(null, null);
 
   /* Sourced or absent: a counter the API did not give shows as the sentence that says so,
      never as a zero. */

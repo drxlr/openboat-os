@@ -182,10 +182,27 @@ def test_every_tool_is_annotated() -> None:
     check(all(not t["annotations"].get("destructiveHint") for t in mcp_http.TOOLS),
           "no tool in the set is destructive")
 
-    OWN_FILES = ("logbook", "notes", "documents", "ledger", "intake")
+    OWN_FILES = ("logbook", "notes", "documents", "ledger", "intake", "snag")
     for name in writers:
         module = {"log_check": "logbook", "add_note": "notes",
                   "add_document": "documents",
+                  # The one writer that touches a file the boat owns rather than one of
+                  # the companion's, decided deliberately on 2026-09-07 and recorded here
+                  # rather than waived silently.
+                  #
+                  # The reason the rest of this rule exists is prompt injection: a model
+                  # that writes into the corpus it later quotes can feed itself. `snag`
+                  # is the one boat file where that loop is already broken by the file's
+                  # own design — every entry is append-only, carries the name of whoever
+                  # filed it, and is stamped "not verified by anybody since" until a
+                  # person says otherwise. A model's entry is therefore indistinguishable
+                  # in standing from a stranger's, which is the property that matters.
+                  #
+                  # What it may do is *create*. Closing, renaming, re-assigning and
+                  # editing stay behind a person, which is where the rest of the risk was.
+                  # If `file_task` ever grows a second verb, this exception stops being
+                  # justified and this line should go back to failing.
+                  "file_task": "snag",
                   # The inbox is the companion's own folder too, and the reason it is safe
                   # is the same: it is not the library. `openboat/intake.py` puts things in
                   # `intake/`, which nothing searches or quotes, and only a named person

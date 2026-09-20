@@ -435,7 +435,13 @@ function docsBuild(root, name, meta, lines, line) {
   /* the paper itself, beside its reading */
   let frame = null, applyPdf = null, here = pages.length ? pages[0].n : 1;
   const wide = () => window.matchMedia("(min-width:1280px)").matches;
-  const paperUrl = pn => `/paper?name=${encodeURIComponent(name)}` + (pn ? `#page=${pn}` : "");
+  /* Through ROOT, like every other address this page builds. Written as a site-absolute
+     `/paper` it asked the *gate* for a route only a boat server has: served plainly that
+     happened to work, and behind the login it returned the console's own shell into the
+     iframe — a panel reading "there is nothing here" over a PDF that was on disk all
+     along. */
+  const paperUrl = pn => `${ROOT}/paper?name=${encodeURIComponent(name)}`
+                         + (pn ? `#page=${pn}` : "");
   const acts = [];
   if (meta.original) {
     const open = el("a", "btn btn-outline-primary btn-sm", "Original PDF");
@@ -936,7 +942,7 @@ function docsPageShell(p, name, meta, count) {
   if (p.gap) h.append(statusCell("warn", "no text layer"));
   if (meta.original) {
     const a = el("a", "small ms-auto text-nowrap", "Open in the PDF");
-    a.href = `/paper?name=${encodeURIComponent(name)}#page=${p.n}`;
+    a.href = `${ROOT}/paper?name=${encodeURIComponent(name)}#page=${p.n}`;
     a.target = "_blank"; a.rel = "noopener";
     h.append(a);
   }

@@ -196,12 +196,39 @@
               id="findbtn" type="button">
         <i class="bi bi-search me-2"></i>Search <kbd class="ms-2">⌘K</kbd>
       </button>
+      <!-- The parts list. Hidden entirely until something is on it: a cart icon showing a
+           zero is an advert for a shop, and this is a boat's record, not a shop. It holds
+           nothing but what this browser put in it and it buys nothing — see cart.js. -->
+      <button class="btn btn-light border btn-sm d-none align-items-center position-relative"
+              id="cartbtn" type="button"
+              data-bs-toggle="offcanvas" data-bs-target="#cartpanel"
+              aria-label="Parts list">
+        <i class="bi bi-basket2"></i>
+        <span id="cartcount"
+              class="badge rounded-pill bg-secondary ms-2 num">0</span>
+      </button>
       <!-- Filled in only when this console is behind the gate, from its /me route. Served
            plainly by the dashboard there is no account, no switcher and nothing here. -->
       <div id="gate" class="d-none align-items-center"></div>
     </div>
   </div>
 </nav>
+
+<!-- Unfolds from the right, over whatever page you were reading, because deciding what to
+     buy happens while you are reading the job — not on a separate screen you have to go
+     to and come back from. -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="cartpanel"
+     aria-labelledby="cartpaneltitle" style="width:min(30rem,100vw)">
+  <div class="offcanvas-header border-bottom">
+    <div>
+      <h2 class="offcanvas-title h6 mb-0" id="cartpaneltitle">Parts list</h2>
+      <div class="small text-body-secondary">Kept in this browser. Nothing is ordered here.</div>
+    </div>
+    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+  </div>
+  <div class="offcanvas-body" id="cartbody"></div>
+  <div class="border-top p-3" id="cartfoot"></div>
+</div>
 
 <div class="container-fluid px-0">
   <div class="d-flex">
@@ -310,8 +337,14 @@ const svg = d => `<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
 
 const VIEWS = [
   { id: "overview",  label: "Overview",   title: "Overview" },
-  { id: "docs",      label: "Documents",  title: "Documents" },
+  /* Tasks above Documents: what the boat owes is why somebody opens this, and the papers
+     are what they reach for once they know which job they are on. */
   { id: "tasks",     label: "Tasks",      title: "Tasks" },
+  /* Parts under Tasks: a job is what sends somebody looking for a part, and the two are
+     read in that order. It is its own page rather than a panel because it is a catalogue
+     of thousands and the only useful thing to do with it is search. */
+  { id: "parts",     label: "Parts",      title: "Parts" },
+  { id: "docs",      label: "Documents",  title: "Documents" },
   { id: "inbox",     label: "Inbox",      title: "Inbox" },
   { id: "boards",    label: "Dashboards", title: "Dashboards" },
   { id: "boat",      label: "Boat",       title: "The boat" },
@@ -327,7 +360,8 @@ const state = { view: "overview", sub: null, params: {}, q: "", docs: null, hits
 
 /* ── chrome ──────────────────────────────────────────────────────────────────────── */
 const BI = { overview: "bi-speedometer2", docs: "bi-journal-text", tasks: "bi-check2-square",
-             inbox: "bi-inbox", boards: "bi-grid-1x2", boat: "bi-life-preserver",
+             parts: "bi-nut", inbox: "bi-inbox", boards: "bi-grid-1x2",
+             boat: "bi-life-preserver",
              connect: "bi-plug", account: "bi-person-gear" };
 
 function drawNav() {
@@ -773,7 +807,7 @@ async function taskIndex() {
    The sheets are Bootstrap modals, built once and thrown away on close.            */
 
 const CHORD = { o: "overview", d: "docs", t: "tasks", i: "inbox", s: "boards",
-                b: "boat" };
+                b: "boat", p: "parts" };
 let chordAt = 0;
 
 const typingIn = t => !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA"
@@ -923,14 +957,14 @@ function openFind() {
         group: "Tasks",
         title: s.title || "an untitled snag",
         line: `${s.open ? "open" : "closed"} · ${s.where || "snag"} · ${ago(s.when)}`,
-        view: "tasks", addr: "snag:" + s.when,
+        view: "tasks", addr: tasksAddress("snag", s.when, s.title, s.code),
       }));
     const svc = (idx.service || []).filter(m => has(m.item, m.description, m.why))
       .slice(0, 4).map(m => ({
         group: "Tasks",
         title: m.description || m.item || "a service item",
         line: `${m.verdict || "service"} · ${sentence(m.why, 80)}`,
-        view: "tasks", addr: "service:" + m.item,
+        view: "tasks", addr: tasksAddress("service", m.item),
       }));
     rows = papers.concat(snags, svc).slice(0, 8);
     sel = 0;
@@ -976,6 +1010,8 @@ document.addEventListener("keydown", e => {
 });
 
 </script>
+<script src="console/cart.js"></script>
+<script src="console/parts.js"></script>
 <script src="console/docs.js"></script>
 <script src="console/tasks.js"></script>
 <script src="console/inbox.js"></script>
@@ -992,6 +1028,7 @@ document.addEventListener("keydown", e => {
    blank, which is the difference between a missing page and a broken console.        */
 function render() {
   const views = { overview: viewOverview, docs: viewDocs, tasks: viewTasks,
+                  parts: typeof partsView === "function" ? partsView : undefined,
                   boards: viewBoards, boat: viewBoat, connect: viewConnect,
                   inbox: typeof viewInbox === "function" ? viewInbox : undefined,
                   account: typeof viewAccount === "function" ? viewAccount : undefined };

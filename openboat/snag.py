@@ -101,7 +101,8 @@ STATUSES = ("open", "review", "fixed")
 #: browser it was never meant to be reachable by, or unreachable by the console that needs
 #: it. `/api/snag` files a fault; the two under `/api/intake` are a person deciding on
 #: something an assistant put in the inbox. See `openboat/intake.py`.
-POST_ROUTES = ("/api/snag", "/api/intake/accept", "/api/intake/reject")
+POST_ROUTES = ("/api/snag", "/api/intake/accept", "/api/intake/reject",
+               "/api/limits")
 
 
 def people() -> dict[str, str]:
@@ -164,7 +165,9 @@ def _slug(text: str, limit: int = 40) -> str:
 
 def record(boat_key: str, note: str, where: str, images: list[bytes],
            by: str = "", follow_up_to: str = "", status: str = "",
-           assigned: str | None = None, share: str = "", unshare: str = "") -> dict:
+           assigned: str | None = None, share: str = "", unshare: str = "",
+           priority: str = "", tags: str = "", kind: str = "",
+           title: str = "") -> dict:
     """Append one snag, with its photographs, to the boat's list. Returns what was written.
 
     `by` is who noticed it. On a boat shared between two people that is not bookkeeping: six
@@ -195,6 +198,15 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
     held = None if assigned is None else " ".join(str(assigned).split())[:60]
     share = " ".join(str(share).split())[:200]
     unshare = " ".join(str(unshare).split())[:32]
+    kind = " ".join(str(kind).split()).lower()[:16]
+    # A better name for a fault, set later. The heading stays exactly as it was written —
+    # that is what append-only means, and what somebody reported six weeks ago is evidence
+    # rather than a draft. This is the name the *list* shows, and like status, assignment,
+    # priority and kind it is the newest one anybody wrote. It exists because a fault filed
+    # from a phone can be headed with a pasted URL, and a list of those is unreadable.
+    renamed = " ".join(str(title).split())[:70]
+    if kind and kind not in KINDS:
+        raise ValueError("kind must be one of " + ", ".join(KINDS))
     if status and status not in STATUSES:
         raise ValueError(f"status must be one of {', '.join(STATUSES)}")
     if status and not parent:
@@ -210,7 +222,12 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
     # An entry that changes a field is worth writing with nothing said about it — handing a
     # fault to somebody, or revoking a link, is the whole content of the line. An entry that
     # changes nothing and says nothing is not an entry.
-    if not note and not images and not (status or held is not None or share or unshare):
+    if not note and not images and not (status or held is not None or share or unshare
+                                        or str(priority).strip() or str(tags).strip()
+                                        # `fault` is the default, not something somebody
+                                        # said — an entry whose whole content is "this is
+                                        # a fault" is not an entry.
+                                        or (kind and kind != "fault") or renamed):
         raise ValueError("a snag needs a note or a photograph")
 
     base = known[boat_key]["profile"].parent
@@ -237,6 +254,23 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
         fallback = "Assignment cleared."
     elif unshare:
         fallback = f"Link {unshare} taken back."
+    elif renamed:
+        fallback = f"Renamed to \u201c{renamed}\u201d."
+    elif kind and kind != "fault":
+        fallback = f"Recorded as {kind}, not a fault."
+    elif str(priority).strip() or str(tags).strip():
+        # A rank or a label, set on its own, is also a thing somebody did rather than a
+        # thing somebody saw — and it needs a heading that says so.
+        rank, labels = str(priority).strip(), str(tags).strip()
+        parts = []
+        if rank:
+            parts.append("priority cleared" if rank == "-" else
+                         f"priority set to {rank}")
+        if labels:
+            parts.append("tags cleared" if labels == "-" else
+                         "tagged " + ", ".join(t.strip() for t in labels.split(",")
+                                               if t.strip()))
+        fallback = " and ".join(parts).capitalize() + "."
     elif shots:
         fallback = "_No note — see the photograph._"
     else:
@@ -257,6 +291,15 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
         lines.append("**Status:** open")
     elif status:
         lines.append(f"**Status:** {status}")
+    # What this entry *is*, and the reason the field exists at all: a wish filed from a
+    # phone used to arrive as a fault, and "28 open" then counted two shopping links
+    # among the things actually wrong with the boat. IMPROVEMENTS.md says it plainly —
+    # a list is only read while its number means something. Absent is `fault`, so every
+    # entry ever written stays what it was.
+    if kind and kind != "fault":
+        lines.append(f"**Kind:** {kind}")
+    if renamed:
+        lines.append(f"**Title:** {renamed}")
     if parent:
         # Appending, never rewriting, stays the rule — the fault's history is the sequence
         # of things people wrote about it, in the order they learned them, and rewriting the
@@ -264,6 +307,13 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
         # What was missing was only a way to say *these are the same fault*, so that one
         # fault reads as one item and the open count means what it says.
         lines.append(f"**Follow-up to:** {parent}")
+    # Three levels and no more. A scale with five is a scale nobody agrees on, and a
+    # boat list where everything is a 3 sorts by nothing. 1 is "this stops the boat being
+    # used or is unsafe", 2 is "before the next trip", 3 is "when somebody is there anyway".
+    # Absent is the normal state: most faults are not ranked, and an unranked fault must not
+    # be shown as low.
+    if str(priority).strip():
+        lines.append(f"**Priority:** {str(priority).strip()}")
     if held is not None:
         # "-" is how a line says nobody, out loud. A blank line would be a line somebody
         # could also have written by accident, and this is a field the console clears.
@@ -276,6 +326,13 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
         lines.append(f"**By:** {who}")
     if where.strip():
         lines.append(f"**Where:** {where.strip()}")
+    # Free-form and comma-separated, because the vocabulary of a boat is not knowable in
+    # advance: `electrical`, `winter`, `warranty`, `girne` are all things somebody will
+    # want to pull together, and none of them is a field.
+    if str(tags).strip():
+        clean = [t.strip() for t in str(tags).split(",") if t.strip()]
+        if clean:
+            lines.append("**Tags:** " + ", ".join(clean))
     if shots:
         lines.append("**Photos:** " + ", ".join(f"`{s}`" for s in shots))
     # The note goes in as a blockquote, and that is a correctness measure rather than a
@@ -317,7 +374,41 @@ def record(boat_key: str, note: str, where: str, images: list[bytes],
 #: A heading line in a snag file: "## 2026-09-05 15:12 — the locker will not shut".
 HEADING = re.compile(r"^##\s+(?P<when>\d{4}-\d{2}-\d{2}[^—]*)—\s*(?P<title>.+?)\s*$")
 FIELD = re.compile(r"^\*\*(?P<key>Status|Where|Photos|By|Follow-up to|Assigned|Share|"
-                   r"Unshare):\*\*\s*(?P<value>.*)$")
+                   r"Unshare|Priority|Tags|Kind|Title):\*\*\s*(?P<value>.*)$")
+
+
+#: What an entry is. A fault is something wrong; an idea is something wanted, and the
+#: two must not share a count. Anything else somebody invents is refused rather than
+#: quietly filed as a third thing nothing knows how to show.
+KINDS = ("fault", "idea")
+
+
+#: A short handle for one entry, computed from the second it was filed and from nothing
+#: else. Deliberately not a counter: a counter has to be stored, it is only unique inside
+#: one boat, and "task 14" means two different faults on a machine with two hulls on it.
+#: This is derived, so anything holding the timestamp can work it out — the server, the
+#: console, a companion — with no registry to keep in step and nothing to renumber.
+#:
+#: Crockford's alphabet without i, l, o and u: no digit-letter confusion when somebody
+#: reads one aloud on a bad connection, and no accidental words.
+_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
+_EPOCH = datetime(2020, 1, 1)
+
+
+def code_for(when: str) -> str:
+    """The handle for an entry filed at `when`. Six characters, stable forever."""
+    try:
+        moment = datetime.strptime(str(when).strip()[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ""
+    ticks = int((moment - _EPOCH).total_seconds())
+    if ticks < 0:
+        return ""
+    out = ""
+    while ticks:
+        ticks, remainder = divmod(ticks, 32)
+        out = _ALPHABET[remainder] + out
+    return out.rjust(6, "0")
 
 
 def read_snags(boat_key: str) -> list[dict]:
@@ -359,6 +450,9 @@ def read_snags(boat_key: str) -> list[dict]:
                        # None, not "": an entry that says nothing about who is doing this
                        # is not an entry that says nobody is.
                        "assigned": None, "share": [], "unshare": [],
+                       # Same rule as `assigned`: None is "says nothing", which is what
+                       # lets a follow-up leave a rank alone instead of clearing it.
+                       "priority": None, "tags": None, "kind": None, "title_set": None,
                        "photos": [], "body": [], "updates": []}
             in_header = True
             continue
@@ -371,6 +465,10 @@ def read_snags(boat_key: str) -> list[dict]:
             key, value = field["key"].lower(), field["value"].strip()
             if key == "photos":
                 current["photos"] = [s.strip().strip("`") for s in value.split(",") if s.strip()]
+            elif key == "title":
+                current["title_set"] = value
+            elif key == "tags":
+                current["tags"] = [t.strip() for t in value.split(",") if t.strip()]
             elif key in ("share", "unshare"):
                 # More than one is possible on one entry, and the second must not replace
                 # the first: these are events, not the current value of anything.
@@ -442,6 +540,21 @@ def read_snags(boat_key: str) -> list[dict]:
                 said = step["assigned"].strip()
                 held = "" if said in ("", "-") else said
 
+        # Rank and tags follow the same rule as everything else here: the newest thing
+        # anybody wrote about the fault wins, silence changes nothing, and "-" clears.
+        rank, labels, sort = "", [], "fault"
+        shown = ""
+        for step in chain:
+            if step["priority"] is not None:
+                said = step["priority"].strip()
+                rank = "" if said in ("", "-") else said
+            if step["tags"] is not None:
+                labels = [] if step["tags"] in ([], ["-"]) else list(step["tags"])
+            if step["kind"] is not None and step["kind"].strip():
+                sort = step["kind"].strip().lower()
+            if step["title_set"] is not None and step["title_set"].strip():
+                shown = step["title_set"].strip()
+
         # Every link ever minted against this fault, and whether it still opens. Minted
         # first and revoked afterwards in a second pass, so the order the two lines happen
         # to sit in the file cannot leave a revoked link looking live.
@@ -466,8 +579,29 @@ def read_snags(boat_key: str) -> list[dict]:
             # On a follow-up the field is the event it recorded, and "-" stays "-" so the
             # page can say "handed back" rather than showing an empty line.
             update["assigned"] = "" if update["assigned"] is None else update["assigned"].strip()
+            update["priority"] = "" if update["priority"] is None else update["priority"].strip()
+            update["tags"] = update["tags"] or []
+            update["kind"] = (update["kind"] or "").strip()
+            update["title_set"] = (update["title_set"] or "").strip()
         entry["assigned"] = held
+        entry["priority"] = rank
+        entry["tags"] = labels
+        entry["kind"] = sort
+        # What it was filed as stays readable; what the list shows is the newest name.
+        entry["filed_title"] = entry["title"]
+        entry["renamed"] = bool(shown)
+        if shown:
+            entry["title"] = shown
         entry["shares"] = [minted[ident] for ident in order]
+    # A number a person can say out loud. The timestamp is the key and stays the key —
+    # it is what a follow-up names and what the file is ordered by — but nobody reads
+    # "2026-09-06 14:07:56" to somebody over a marina wifi call, and it does not survive a
+    # paste into a message intact. So each fault also gets its position in filing order,
+    # counted from the oldest, which is stable for the same reason the file is: entries are
+    # only ever appended, so a new one takes the next number and no existing number moves.
+    for position, entry in enumerate(top, start=1):
+        entry["n"] = position
+        entry["code"] = code_for(entry["when"])
     top.reverse()
     return top
 
@@ -722,6 +856,46 @@ class Snag(SimpleHTTPRequestHandler):
             return self._json({"error": f"{type(exc).__name__}: {exc}"}, status=500)
         return self._json({"ok": True, **written})
 
+    def _limits(self, who: str):
+        """`POST /api/limits` — the skipper's weather limits.
+
+        The one part of a profile that is a preference rather than a measurement, so the
+        one part edited from the app. It lives here rather than on the boat's own server
+        because that server matches exactly one POST route on purpose, and adding a second
+        would spend an invariant that is worth more than the convenience.
+
+        Everything else in `boat.toml` stays untouchable from a browser. A limit is where
+        this skipper turns back; a draught is a fact about the hull, and the difference is
+        the whole reason only one of them has a form.
+        """
+        from . import limits as limits_mod
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_BODY:
+                return self._json({"error": "too much data"}, status=413)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except (ValueError, json.JSONDecodeError) as exc:
+            return self._json({"error": str(exc)}, status=400)
+
+        key = str(body.get("boat", "")).strip()
+        known = {b["key"]: b for b in boats()}
+        if key not in known:
+            return self._json({"error": f"no boat {key!r} here"}, status=404)
+
+        wanted = {k: body[k] for k in limits_mod.BOUNDS if k in body}
+        try:
+            now = limits_mod.write(
+                wanted,
+                by=who or str(body.get("by", "")),
+                profile_path=known[key]["profile"])
+        except limits_mod.LimitsError as exc:
+            # The caller got it wrong, and the message says which field and why. A 400 with
+            # a sentence is the whole contract here — the form shows it verbatim.
+            return self._json({"error": str(exc)}, status=400)
+        except OSError as exc:
+            return self._json({"error": f"could not write the profile: {exc}"}, status=500)
+        return self._json({"ok": True, "limits": now})
+
     def do_POST(self):
         """The writes. Matched exactly, capped, and everything else is a 404."""
         route, _, query = self.path.partition("?")
@@ -731,6 +905,8 @@ class Snag(SimpleHTTPRequestHandler):
             return self._json({"error": "not found"}, status=404)
         if route in ("/api/intake/accept", "/api/intake/reject"):
             return self._decide(route.rsplit("/", 1)[1], who, params)
+        if route == "/api/limits":
+            return self._limits(who)
         try:
             length = int(self.headers.get("Content-Length", 0))
             if length > MAX_BODY:
@@ -752,7 +928,11 @@ class Snag(SimpleHTTPRequestHandler):
                              follow_up_to=str(body.get("follow_up_to", "")),
                              status=str(body.get("status", "")),
                              assigned=None if handed is None else str(handed),
-                             unshare=str(body.get("unshare", "")))
+                             unshare=str(body.get("unshare", "")),
+                             priority=str(body.get("priority", "")),
+                             tags=str(body.get("tags", "")),
+                             kind=str(body.get("kind", "")),
+                             title=str(body.get("title", "")))
         except ValueError as exc:
             return self._json({"error": str(exc)}, status=400)
         except Exception as exc:                              # noqa: BLE001

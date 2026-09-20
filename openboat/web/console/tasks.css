@@ -17,3 +17,119 @@
 
 /* The lightbox picture: as big as the modal allows, never cropped. */
 .t-lb-img { max-height: 72vh; object-fit: contain; }
+
+/* ── the list of what the boat owes ──────────────────────────────────────────────────
+   A table was the wrong instrument. Three columns meant three headings, and two of them
+   were headings over a column of em dashes; the row's own furniture — the word SNAG, the
+   word `open`, the age printed twice — outweighed the sentence it was supposed to carry.
+   This is a list of rows, each one a link, and each piece of it appears only when it has
+   something to say. Colour comes from the shell's variables, never from here. */
+
+.t-list { display: flex; flex-direction: column; }
+.t-row { display: flex; align-items: flex-start; gap: .75rem;
+         padding: .7rem .9rem;
+         border-bottom: 1px solid var(--bs-border-color-translucent); }
+/* The part of the row that opens the entry. The controls sit outside it — a button inside
+   an anchor is invalid, and worse, unpredictable about which one a click reaches. */
+.t-open { display: flex; align-items: flex-start; gap: .75rem; flex: 1 1 auto;
+          min-width: 0; text-decoration: none; color: inherit; }
+.t-open:focus-visible { outline: 2px solid var(--ob-sea); outline-offset: -2px; }
+.t-row:last-child { border-bottom: 0; }
+.t-row:hover  { background: rgba(var(--bs-link-color-rgb), .07); }
+.t-row.t-sel  { background: rgba(var(--bs-link-color-rgb), .13);
+                box-shadow: inset 4px 0 var(--ob-sea); }
+.t-row:focus-visible { outline: 2px solid var(--ob-sea); outline-offset: -2px; }
+
+/* The kind, and the default status, in one mark. An open fault is the warning colour, a
+   closed one is a tick in the muted one — which is what the `open` badge on all 27 rows
+   was spending a whole column to say. */
+.t-kind { flex: 0 0 auto; width: 1.7rem; height: 1.7rem; border-radius: .5rem;
+          display: inline-flex; align-items: center; justify-content: center;
+          margin-top: .1rem; font-size: .95rem;
+          color: var(--bs-warning-text-emphasis); background: var(--bs-warning-bg-subtle); }
+.t-kind-done { color: var(--bs-success-text-emphasis); background: var(--bs-success-bg-subtle); }
+
+.t-main { flex: 1 1 auto; min-width: 0; }
+/* One line. Cut by the browser at the real width rather than at a guessed character
+   count — a two-line row is what made this list hard to read down. */
+.t-head { display: block; font-weight: 600; line-height: 1.35;
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-row.t-done .t-head { color: var(--bs-secondary-color); text-decoration: line-through;
+                        text-decoration-color: var(--bs-border-color); }
+.t-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem;
+          margin-top: .2rem; font-size: .8rem; color: var(--bs-secondary-color); }
+.t-words { overflow-wrap: anywhere; }
+
+/* The system a fault is on, and any label somebody put on it. Quiet: they are for finding
+   things by, not for reading first. */
+.t-chip { border: 1px solid var(--bs-border-color); border-radius: .3rem;
+          padding: 0 .35rem; font-size: .72rem; line-height: 1.5;
+          color: var(--bs-body-color); background: var(--bs-tertiary-bg);
+          white-space: nowrap; }
+.t-chip-tag { border-style: dashed; color: var(--bs-secondary-color); }
+
+.t-side { flex: 0 0 auto; display: flex; align-items: center; gap: .5rem;
+          margin-top: .1rem; font-size: .8rem; color: var(--bs-secondary-color); }
+.t-when { white-space: nowrap; }
+
+/* Three ranks and three colours. Absent is absent — most faults are not ranked and this
+   list must not imply that they are all a 3. */
+.t-pri { width: 1.35rem; height: 1.35rem; border-radius: .35rem; font-size: .72rem;
+         font-weight: 700; display: inline-flex; align-items: center;
+         justify-content: center; }
+.t-pri-1 { color: var(--bs-danger-text-emphasis);  background: var(--bs-danger-bg-subtle); }
+.t-pri-2 { color: var(--bs-warning-text-emphasis); background: var(--bs-warning-bg-subtle); }
+.t-pri-3 { color: var(--bs-secondary-color);       background: var(--bs-tertiary-bg); }
+.t-pri-x { color: var(--bs-secondary-color);       background: var(--bs-tertiary-bg);
+           width: auto; padding: 0 .35rem; }
+
+/* Who it is on: a circle and an initial, with the name in the tooltip. An unassigned
+   fault gets nothing at all rather than an em dash. */
+.t-face { width: 1.55rem; height: 1.55rem; border-radius: 50%; background: var(--ob-sea);
+          color: #fff; font-size: .7rem; font-weight: 600; line-height: 1;
+          display: inline-flex; align-items: center; justify-content: center; }
+[data-bs-theme="dark"] .t-face { color: var(--ob-on-sea); }
+button.t-face { border: 0; padding: 0; cursor: pointer; }
+button.t-face:hover { filter: brightness(1.12); }
+button.t-face:focus-visible { outline: 2px solid var(--ob-sea); outline-offset: 2px; }
+/* Nobody has it yet. Visible enough to be clicked, quiet enough not to read as a person. */
+.t-face-none { background: transparent; color: var(--bs-secondary-color);
+               border: 1px dashed var(--bs-border-color) !important; font-weight: 400; }
+.t-face-none:hover { border-color: var(--ob-sea) !important; color: var(--ob-sea); }
+
+/* Phone: the right-hand furniture goes under the headline rather than squeezing it. */
+@media (max-width: 575.98px) {
+  .t-row { flex-wrap: wrap; }
+  .t-side { width: 100%; margin-left: 2.45rem; }
+}
+
+/* An idea is wanted, not broken. The sea-blue the whole console uses for "this is a link
+   to somewhere" rather than the warning colour a fault carries — the point of the mark is
+   that a shopping list and a flooding seacock never look alike at a glance. */
+.t-kind-idea { color: var(--ob-sea); background: rgba(var(--bs-link-color-rgb), .12); }
+
+/* How often, not what happened. Read as a property of the item rather than as a finding
+   about the boat, so it is quieter than the system chip beside it. */
+.t-chip-cycle { border-style: dotted; color: var(--bs-secondary-color);
+                font-variant-numeric: tabular-nums; }
+
+/* A `@part:` mention in a note. Sized and coloured like the document links beside it —
+   it is a reference inside a sentence, not a call to action, and a button that shouted
+   would turn every fault report into an advert. */
+.t-prose .t-part {
+  background: none; border: 0; padding: 0;
+  color: var(--bs-link-color); font: inherit; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.t-prose .t-part:hover { color: var(--bs-link-hover-color); }
+.t-prose .t-part .bi { margin-right: .25rem; font-size: .85em; opacity: .75; }
+
+/* A routine comes round again whatever the engine did. Green rather than the service
+   amber: it is housekeeping, not a schedule somebody is behind on. */
+.t-kind-routine { color: var(--bs-success-text-emphasis);
+                  background: var(--bs-success-bg-subtle); }
+
+/* The number a person says out loud — "have a look at 14". Quiet, because it is a handle
+   rather than a heading, and tabular so a column of them lines up. */
+.t-n { color: var(--bs-secondary-color); font-variant-numeric: tabular-nums;
+       font-weight: 600; }

@@ -10,10 +10,13 @@ async function viewBoat() {
   mount(page);
   page.append(note("loading", "Reading the profile and the live paths…"));
 
-  const [p, papers, paths] = await Promise.all([
+  const [p, papers, paths, snags] = await Promise.all([
     state.profile && !state.profile.error ? Promise.resolve(state.profile)
                                           : api("/api/profile"),
     api("/api/papers"), api("/api/paths"),
+    // Only for its origin: the limits form writes through the snag service, which is the
+    // machine's write surface. The boat's own server matches exactly one POST on purpose.
+    api("/api/snags"),
   ]);
   if (!p.error) state.profile = p;
   page.textContent = "";
@@ -76,16 +79,7 @@ async function viewBoat() {
   else gaps.append(list);
 
   /* ── limits ───────────────────────────────────────────────────────────────────── */
-  const lim = el("div", "card h-100");
-  lim.append(cardHead("Limits this boat will go out in", "Weather"));
-  const L = p.limits || {};
-  lim.append(obKvBody([
-    ["Wind", L.max_wind_kn ? L.max_wind_kn + " kn" : ""],
-    ["Gust", L.max_gust_kn ? L.max_gust_kn + " kn" : ""],
-    ["Wave", L.max_wave_m ? L.max_wave_m + " m" : ""],
-    ["Rain", L.max_rain_mm ? L.max_rain_mm + " mm/h" : ""],
-    ["Daylight only", L.daylight === undefined ? "" : (L.daylight ? "yes" : "no")],
-  ]));
+  const lim = boatLimits(p, snags);
 
   const cols = el("div", "row g-3");
   const half = node => { const c = el("div", "col-12 col-lg-6"); c.append(node); cols.append(c); };
@@ -240,5 +234,166 @@ function boatPapers(papers) {
         return s;
       } },
   ], list, null, null));
+  return card;
+}
+
+/* ── the skipper's limits, and the one form on this page ──────────────────────────────
+ *
+ * Everything else about a boat is a measurement somebody sourced, and none of it is
+ * editable here: a draught is a fact about the hull and a browser is the wrong place to
+ * change one. The limits are different in kind. They are a *preference* — where this
+ * skipper turns back — and they legitimately change with the crew, the sea area, or a
+ * guest who is not enjoying it. So they are the one thing with a form.
+ *
+ * The card leads with whether anybody actually set them. `passage_window` and the whole
+ * "can we go out on Saturday" answer are computed off these five numbers, and a profile
+ * carrying another boat's figures reads exactly like a considered one until something on
+ * the screen says otherwise. That sentence is the point of this card; the numbers are
+ * secondary.
+ */
+function boatLimits(p, snags) {
+  const card = el("div", "card h-100");
+  const L = p.limits || {};
+  const body = el("div");
+
+  const head = cardHead("Limits this boat will go out in", "Weather");
+  card.append(head, body);
+
+  const dl = Array.isArray(L.daylight) ? L.daylight : null;
+  const show = () => {
+    body.textContent = "";
+
+    if (L.unverified) {
+      /* Not a styling choice. A number nobody chose, presented as this boat's limit, is
+         the silent wrong answer this project is not allowed to give — and it is worse
+         here than anywhere because it is the input to a go/no-go. */
+      body.append(cardBody(el("div", "alert alert-warning mb-0",
+        "Nobody has set these. They are the package defaults, and they may have been " +
+        "carried over from another boat — a 15 kn limit ends an afternoon on an 8 m " +
+        "sports cruiser and is a pleasant day on a 17 m yacht. Every passage window and " +
+        "every “can we go out” answer is computed from them, so set them before " +
+        "reading one.")));
+    }
+
+    body.append(obKvBody([
+      ["Wind", L.max_wind_kn ? L.max_wind_kn + " kn" : ""],
+      ["Gust", L.max_gust_kn ? L.max_gust_kn + " kn" : ""],
+      ["Wave", L.max_wave_m ? L.max_wave_m + " m" : ""],
+      ["Rain", L.max_rain_mm ? L.max_rain_mm + " mm/h" : ""],
+      /* Was rendered as yes/no off a two-element array, so it read "yes" whatever the
+         hours were. It is a window, and the window is the useful thing. */
+      ["Daylight", dl ? `${String(dl[0]).padStart(2, "0")}:00–` +
+                        `${String(dl[1]).padStart(2, "0")}:00` : ""],
+    ]));
+
+    const foot = el("div", "card-body pt-0 d-flex flex-wrap gap-3 align-items-center");
+    const edit = el("button", "btn btn-sm " + (L.unverified ? "btn-primary" : "btn-outline-secondary"));
+    edit.type = "button";
+    edit.textContent = L.unverified ? "Set them" : "Edit";
+    edit.onclick = () => form();
+    foot.append(edit);
+    foot.append(el("span", "small text-body-secondary",
+                   L.source ? "Set by " + L.source : "Never set"));
+    body.append(foot);
+  };
+
+  const FIELDS = [
+    ["max_wind_kn", "Wind", "kn", 0.5],
+    ["max_gust_kn", "Gust", "kn", 0.5],
+    ["max_wave_m", "Wave", "m", 0.1],
+    ["max_rain_mm", "Rain", "mm/h", 0.1],
+  ];
+
+  const form = () => {
+    body.textContent = "";
+    const wrap = el("div", "card-body");
+    wrap.append(el("p", "small text-body-secondary",
+      "Where you turn back, not what the boat can survive. The cost of a missed nice day " +
+      "is nothing; the cost of a frightened guest is the rest of the season."));
+
+    const inputs = {};
+    FIELDS.forEach(([key, label, unit, step]) => {
+      const row = el("div", "mb-2");
+      const lab = el("label", "form-label small mb-1", `${label} (${unit})`);
+      lab.htmlFor = "lim-" + key;
+      const inp = el("input", "form-control");
+      inp.id = "lim-" + key;
+      inp.type = "number"; inp.step = String(step); inp.min = "0";
+      inp.value = L[key] === undefined || L[key] === null ? "" : L[key];
+      inputs[key] = inp;
+      row.append(lab, inp);
+      wrap.append(row);
+    });
+
+    const hours = el("div", "row g-2 mb-2");
+    [["daylight_from_h", "Daylight from"], ["daylight_to_h", "to"]].forEach(([key, label], i) => {
+      const col = el("div", "col-6");
+      const lab = el("label", "form-label small mb-1", label);
+      lab.htmlFor = "lim-" + key;
+      const inp = el("input", "form-control");
+      inp.id = "lim-" + key;
+      inp.type = "number"; inp.min = "0"; inp.max = "23"; inp.step = "1";
+      inp.value = dl ? dl[i] : "";
+      inputs[key] = inp;
+      col.append(lab, inp);
+      hours.append(col);
+    });
+    wrap.append(hours);
+
+    const msg = el("div", "small mb-2");
+    msg.hidden = true;
+    wrap.append(msg);
+
+    const bar = el("div", "d-flex gap-2");
+    const save = el("button", "btn btn-primary");
+    save.type = "button"; save.textContent = "Save";
+    const cancel = el("button", "btn btn-outline-secondary");
+    cancel.type = "button"; cancel.textContent = "Cancel";
+    cancel.onclick = () => show();
+    bar.append(save, cancel);
+    wrap.append(bar);
+    body.append(wrap);
+
+    save.onclick = async () => {
+      save.disabled = true; save.textContent = "Saving…";
+      msg.hidden = true;
+      const payload = {};
+      Object.entries(inputs).forEach(([k, inp]) => {
+        /* `valueAsNumber`, not `Number(value)`. On a German-locale browser a number input
+           renders 0.8 as "0,8", and parsing that string gives NaN — which would arrive at
+           the server as a missing field and silently leave the old limit in place. The
+           property is locale-independent by specification. */
+        if (String(inp.value).trim() === "") return;
+        const n = inp.valueAsNumber;
+        if (Number.isFinite(n)) payload[k] = n;
+      });
+      if (!Object.keys(payload).length) {
+        msg.className = "small mb-2 text-danger-emphasis";
+        msg.textContent = "Nothing to save — every field was left empty.";
+        msg.hidden = false;
+        save.disabled = false; save.textContent = "Save";
+        return;
+      }
+      const by = (window.OB_USER && (window.OB_USER.name || window.OB_USER.email)) || "";
+      const r = await snagPost(snags, { ...payload, by }, "/api/limits");
+      save.disabled = false; save.textContent = "Save";
+      if (!r || r.error) {
+        /* The server's sentence, verbatim. It names the field and says why — "the gust
+           limit is below the wind limit, which would make the wind limit meaningless" is
+           worth more than "invalid input", and rewording it here would lose that. */
+        msg.className = "small mb-2 text-danger-emphasis";
+        msg.textContent = (r && r.error) || "The limits were not saved.";
+        msg.hidden = false;
+        return;
+      }
+      Object.assign(L, r.limits || {});
+      /* The cached profile drives other views; leaving it stale would have the helm
+         answering off the old numbers until a reload. */
+      if (state.profile && state.profile.limits) state.profile.limits = { ...L };
+      show();
+    };
+  };
+
+  show();
   return card;
 }

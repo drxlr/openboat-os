@@ -123,13 +123,13 @@ async function viewOverview() {
         t: head,
         s: `${s.where || "snag"} · ${ago(s.when)}`
            + (body && body !== head && !same ? ` — ${body}` : ""),
-        to: href("tasks", "snag:" + s.when),
+        to: href("tasks", tasksAddress("snag", s.when, head, s.code)),
       };
     }),
     ...items.filter(m => m.verdict === "due" || m.verdict === "soon").map(m => ({
       t: m.item,
       s: sentence(m.why, 130) || m.verdict,
-      to: href("tasks", "service:" + m.item),
+      to: href("tasks", tasksAddress("service", m.item)),
     })),
   ];
   if (snags.error || maint.error) {

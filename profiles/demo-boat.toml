@@ -138,20 +138,24 @@ daylight_to_h = 19
 [maintenance.flush]
 description = "Fresh-water flush of the raw-water circuit"
 
-# Examples, with invented intervals. Replace them from your own manual or delete them.
-# [maintenance.impeller]
-# description = "Raw-water pump impeller"
-# hours = 100
-# months = 12
-#
-# [maintenance.oil]
-# description = "Engine oil and filter"
-# hours = 100
-# months = 12
-#
-# [maintenance.anodes]
-# description = "Sacrificial anodes, checked and replaced"
-# months = 6
+# Examples, with invented intervals — this is a fictional boat, so they are invented on
+# purpose. Replace them from your own manual, or delete them. The three below are enabled
+# so that a fresh clone has something to look at, and so that `profiles/demo-kits.toml`
+# has service items to attach its (equally invented) parts kits to.
+[maintenance.impeller]
+description = "Raw-water pump impeller"
+hours = 100
+months = 12
+
+[maintenance.oil]
+description = "Engine oil and filter"
+hours = 100
+months = 12
+
+[maintenance.anodes]
+description = "Sacrificial anodes, checked and replaced"
+months = 6
+
 #
 # Routines that are calendar rather than engine take `days` (or `weeks`):
 # [maintenance.wash]

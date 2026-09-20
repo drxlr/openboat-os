@@ -93,6 +93,17 @@ class Due:
     #: fortnightly wash-down, a weekly bilge look. Last, and defaulted, so that the older
     #: positional constructions above it stay valid.
     interval_days: int | None = None
+    #: What the service actually consists of. An annual engine service is not one act, it
+    #: is a dozen — filters, oil, anodes, belts — and the person doing it needs the list,
+    #: not a sentence about it. Optional: an item with no `steps` is one thing to do.
+    steps: tuple[str, ...] = ()
+    #: A routine rather than a service. Both recur and both are assessed the same way; the
+    #: difference is who owes them and how it feels to read a list of them. Washing the
+    #: deck every fortnight and changing the timing belt every 1400 hours do not belong in
+    #: one column — one is housekeeping anybody aboard can do, the other is a yard job off
+    #: a manufacturer's schedule. Said in the profile, never inferred from the absence of
+    #: an hours interval: antifouling is annual and is not housekeeping.
+    routine: bool = False
 
     @property
     def symbol(self) -> str:
@@ -122,6 +133,8 @@ class Due:
             "verdict": self.verdict,
             "why": self.why,
             "symbol": self.symbol,
+            "steps": list(self.steps),
+            "routine": self.routine,
         }
 
 
@@ -245,8 +258,23 @@ def _assess_flush(db: sqlite3.Connection, cfg: dict) -> Due:
                interval_months=None, per_outing=True, verdict=verdict, why=why)
 
 
+def _steps(cfg: dict) -> tuple[str, ...]:
+    """The sub-jobs of one service, as the profile lists them.
+
+    A list in the profile, never split out of the description: a description is prose and
+    somebody's commas are not a data structure. An item with no `steps` has none, and the
+    page then shows the description whole rather than inventing bullets.
+    """
+    raw = cfg.get("steps")
+    if isinstance(raw, str):
+        raw = [raw]
+    return tuple(str(x).strip() for x in (raw or []) if str(x).strip())
+
+
 def _assess_interval(db: sqlite3.Connection, item: str, cfg: dict) -> Due:
     description = str(cfg.get("description") or item.replace("_", " ").capitalize())
+    steps = _steps(cfg)
+    routine = bool(cfg.get("routine"))
     interval_h = cfg.get("hours")
     interval_m = cfg.get("months")
     interval_h = float(interval_h) if interval_h else None
@@ -265,13 +293,13 @@ def _assess_interval(db: sqlite3.Connection, item: str, cfg: dict) -> Due:
         return Due(item, description, None, hours_since, None, None, interval_h, interval_m,
                    False, "unknown",
                    "never recorded — the total above is the whole log, not an interval",
-                   interval_days=interval_d)
+                   interval_days=interval_d, steps=steps, routine=routine)
 
     if interval_h is None and interval_m is None and interval_d is None:
         return Due(item, description, last_when, hours_since, days, None, None, None, False,
                    "unknown",
                    "no interval set in the profile, so no verdict — the counters are yours "
-                   "to read")
+                   "to read", steps=steps, routine=routine)
 
     reasons, worst = [], "ok"
     if interval_h is not None:
@@ -293,7 +321,8 @@ def _assess_interval(db: sqlite3.Connection, item: str, cfg: dict) -> Due:
             worst = "soon"
 
     return Due(item, description, last_when, hours_since, days, None, interval_h, interval_m,
-               False, worst, " and ".join(reasons), interval_days=interval_d)
+               False, worst, " and ".join(reasons), interval_days=interval_d,
+               steps=steps, routine=routine)
 
 
 def suggest_unrecorded_flushes(db: sqlite3.Connection, limit: int = 5) -> list[datetime]:

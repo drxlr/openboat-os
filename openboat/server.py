@@ -20,6 +20,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import sqlite3
 import sys
 import urllib.parse
 from datetime import datetime
@@ -29,8 +30,10 @@ from pathlib import Path
 from time import time
 
 from . import __version__
-from . import boat, engine_hours, knowledge, ledger, logbook, maintenance, papers, windows
+from . import boat, catalogue, engine_hours, knowledge, ledger, logbook, maintenance
+from . import papers, parts, windows
 from .engine import DEFAULT_DB
+from .engine import SCHEMA as ENGINE_SCHEMA
 from .engine import connect as connect_engine_log
 from .marine import ForecastUnavailable, forecast
 from .profile import ProfileError, load, require_point
@@ -287,10 +290,30 @@ class OpenBoat(SimpleHTTPRequestHandler):
             # fresh clone has no log, and the honest answer is that nothing has been counted
             # — not an empty file and a confident zero.
             if not DEFAULT_DB.exists():
-                return {"items": [], "running_hours": None,
+                # No log is not the same as no schedule. What the boat owes, and how often,
+                # lives in `[maintenance]` in the profile — eleven items on a boat whose
+                # engine has never been logged is still eleven items, each one never
+                # recorded. Returning nothing hid the whole service plan behind a database
+                # that mostly does not exist yet, which is the opposite of what this page
+                # is for: a fortnightly wash-down needs no engine hours at all.
+                #
+                # Assessed against an empty in-memory log, so this GET still creates no
+                # file — the promise the comment above makes — and every item comes back
+                # with its interval and a verdict of "never recorded".
+                scratch = sqlite3.connect(":memory:")
+                # The engine's schema as well as the maintenance one: `due()` asks how many
+                # hours and outings there have been since each item, and an empty table is
+                # the honest answer to that. A missing one is a 500.
+                scratch.executescript(ENGINE_SCHEMA)
+                try:
+                    items = [d.as_dict() for d in maintenance.due(scratch, boat_profile)]
+                finally:
+                    scratch.close()
+                return {"items": items, "running_hours": None,
                         "engine_hours_source":
-                            f"no engine log at {DEFAULT_DB} — nothing has been counted. "
-                            f"Start one with python3 -m openboat.engine"}
+                            f"no engine log at {DEFAULT_DB}, so nothing has been counted: "
+                            f"these are the intervals set in the profile, not a verdict "
+                            f"about this engine. Start one with python3 -m openboat.engine"}
             db = connect_engine_log(DEFAULT_DB)
             try:
                 items = [d.as_dict() for d in maintenance.due(db, boat_profile)]
@@ -321,6 +344,39 @@ class OpenBoat(SimpleHTTPRequestHandler):
                 source = "SYNTHETIC DATA — no engine ran. " + source
             return {"items": items, "running_hours": running,
                     "engine_hours_source": source}
+
+        if route == "/api/kits":
+            # What each service item consumes, and who had it on the day somebody looked.
+            # Read-only like everything else here, and pointedly *not* an ordering route:
+            # it returns supplier links and nothing that could place an order. A basket is
+            # carried in the reader's own browser and spent on the supplier's own site,
+            # under the supplier's own terms, by a person who read them.
+            #
+            # `placeholder` and each offer's `stale` flag ride along on every answer rather
+            # than being resolved here, because the screen is where a price is either
+            # quoted or visibly not quoted — and a renderer that had to remember the rule
+            # would eventually forget it.
+            return parts.load(boat_profile).as_dict()
+
+        if route == "/api/catalogue":
+            # Every part anybody has indexed for this boat, across every shop. The list
+            # view searches and filters in the browser — a thousand rows is nothing for a
+            # phone and everything for a round trip per keystroke — so this hands over the
+            # whole index at once, with descriptions trimmed unless `full=1` asks for them.
+            #
+            # `number=` returns one part with its full specification, which is the half a
+            # listing page never carries and the only half worth reading before ordering.
+            index = catalogue.load(boat_profile)
+            wanted = params.get("number", "").strip()
+            if wanted:
+                item = index.by_number(wanted)
+                if not item:
+                    return {"error": f"no part numbered {wanted} in the index"}
+                shop = next((s for s in index.shops if s.id == item.shop), None)
+                return {"item": item.as_dict(full=True),
+                        "shop": shop.as_dict() if shop else None,
+                        "stale_days": catalogue.STALE_DAYS}
+            return index.as_dict(full=params.get("full") in ("1", "true", "yes"))
 
         if route == "/api/snags":
             # `openboat.snag` is the *write* surface — its own service, on its own port,
