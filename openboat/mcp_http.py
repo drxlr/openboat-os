@@ -215,7 +215,15 @@ class Door(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
-        sys.stderr.write(f"{self.address_string()} {fmt % args}\n")
+        # On the URL-auth route the path IS the credential, and the base class logs the
+        # request line verbatim — so the token of every caller ended up in a log file
+        # anyone with read access to the logs could paste into a connector. Mask any
+        # segment that matches a token this door accepts before the line is written.
+        line = fmt % args
+        for _, token in self._known():
+            if token:
+                line = line.replace(token, "<token>")
+        sys.stderr.write(f"{self.address_string()} {line}\n")
 
     def _known(self) -> list[tuple[str, str]]:
         """Every (name, token) pair this door accepts, the legacy single token included."""

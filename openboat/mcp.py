@@ -1379,6 +1379,11 @@ def handle(request: dict) -> dict | None:
     if method == "tools/list":
         return reply(request_id, {"tools": TOOLS})
 
+    # The protocol's liveness check: an empty result, not "unknown method". A client that
+    # pings on connect and gets an error back concludes the server is broken.
+    if method == "ping":
+        return reply(request_id, {})
+
     if method == "tools/call":
         params = request.get("params", {})
         result = dispatch(HANDLERS, params.get("name"), params.get("arguments"))
